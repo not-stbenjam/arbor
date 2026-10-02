@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go (${{ matrix.os }}, ${{ matrix.go }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: ['1.24.x', '1.26.x']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - run: make check
+      - name: Build and smoke-test CLI
+        run: |
+          make build
+          ./bin/arbor version
+          ./bin/arbor list --path "$PWD" --json
+
+  cli:
+    name: Portable CLI packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - run: make package VERSION=dev
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arbor-cli
+          path: dist/arbor_*
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop:
+    name: Desktop (${{ matrix.platform }}, ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: amd64
+          - os: ubuntu-22.04
+            platform: linux
+            arch: amd64
+          - os: ubuntu-22.04-arm
+            platform: linux
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:desktop
+      - name: Build desktop distribution
+        run: npm run desktop:package
+      - name: Install virtual display
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Smoke-test desktop
+        if: runner.os == 'Linux'
+        env:
+          ARBOR_SMOKE_TEST: '1'
+        run: |
+          export ARBOR_SMOKE_ROOT="$(mktemp -d "$RUNNER_TEMP/arbor-smoke.XXXXXX")"
+          xvfb-run -a timeout 30s "dist/linux${{ matrix.arch == 'arm64' && '-arm64' || '' }}-unpacked/arbor-desktop" --no-sandbox
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arbor-desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/arbor_*.app.zip
+            dist/arbor_*.AppImage
+            dist/arbor_*.desktop.tar.gz
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,334 @@
+package worktree
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Each integration test uses repositories entirely inside t.TempDir. No test
+// contacts a remote service or relies on the developer's Git identity.
+func testGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-C", dir}, args...)...)
+	cmd.Env = append(commandEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func testWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testRepo(t *testing.T, dir string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, dir, "init", "--initial-branch=main")
+	testGit(t, dir, "config", "user.name", "Arbor Test")
+	testGit(t, dir, "config", "user.email", "arbor@example.invalid")
+	testWrite(t, filepath.Join(dir, "tracked.txt"), "initial\n")
+	testWrite(t, filepath.Join(dir, ".gitignore"), "ignored/\n")
+	testGit(t, dir, "add", ".")
+	testGit(t, dir, "commit", "-m", "Initial tree")
+	return dir
+}
+
+func testLinked(t *testing.T, repo, path, branch string) string {
+	t.Helper()
+	testGit(t, repo, "worktree", "add", "-b", branch, path)
+	return path
+}
+
+func testScan(t *testing.T, root string) Report {
+	t.Helper()
+	report, err := Scan(context.Background(), Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Warnings) != 0 {
+		t.Fatalf("scan warnings: %v", report.Warnings)
+	}
+	return report
+}
+
+func testTree(t *testing.T, report Report, path string) Worktree {
+	t.Helper()
+	canonical, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		path = canonical
+	}
+	for _, w := range report.Worktrees {
+		if w.Path == path {
+			return w
+		}
+	}
+	t.Fatalf("worktree %q missing from %+v", path, report.Worktrees)
+	return Worktree{}
+}
+
+func assertProtected(t *testing.T, w Worktree, reason string) {
+	t.Helper()
+	if w.CanRemove || w.Recommended {
+		t.Fatalf("protected tree offered for removal: %+v", w)
+	}
+	if !strings.Contains(strings.Join(w.Blockers, " "), reason) {
+		t.Fatalf("missing blocker %q: %v", reason, w.Blockers)
+	}
+}
+
+func TestParseListPreservesUnusualPaths(t *testing.T) {
+	raw := "worktree /a/repo with spaces\x00HEAD abc\x00branch refs/heads/main\x00\x00" +
+		"worktree /a/line\nbreak\tand \\\"quotes\" \x00HEAD def\x00branch refs/heads/feature/topic\x00locked reason with spaces\x00\x00" +
+		"worktree /a/bare.git\x00bare\x00\x00worktree /a/gone\x00HEAD fed\x00detached\x00prunable gitdir file points to non-existent location\x00\x00"
+	got := parseList(raw)
+	if len(got) != 4 {
+		t.Fatalf("got %d trees: %+v", len(got), got)
+	}
+	if got[0].Path != "/a/repo with spaces" || got[0].Branch != "main" {
+		t.Fatalf("first tree: %+v", got[0])
+	}
+	if got[1].Path != "/a/line\nbreak\tand \\\"quotes\" " || got[1].Branch != "feature/topic" || !got[1].Locked || got[1].LockReason != "reason with spaces" {
+		t.Fatalf("path or metadata changed: %+v", got[1])
+	}
+	if !got[2].Bare || !got[3].Detached || !got[3].Missing {
+		t.Fatalf("flags lost: %+v", got)
+	}
+}
+
+func TestFailedFetchIsNotReportedAsFresh(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repository"))
+	testGit(t, repo, "remote", "add", "origin", filepath.Join(root, "nonexistent-remote.git"))
+	report, err := Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Fetched {
+		t.Fatal("failed fetch must not be presented as current remote evidence")
+	}
+	if len(report.Warnings) == 0 {
+		t.Fatal("failed fetch must be visible to the user")
+	}
+}
+
+func TestScanDiscoversLinkedNestedAndOutsideTrees(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repository"))
+	linked := testLinked(t, repo, filepath.Join(root, "a linked tree"), "topic")
+	outside := testLinked(t, repo, filepath.Join(t.TempDir(), "outside"), "outside")
+	nested := testRepo(t, filepath.Join(repo, "nested"))
+	report := testScan(t, root)
+	if len(report.Worktrees) != 4 {
+		t.Fatalf("want exactly four deduplicated worktrees; got %d", len(report.Worktrees))
+	}
+	main := testTree(t, report, repo)
+	assertProtected(t, main, "Primary")
+	assertProtected(t, main, "nested")
+	w := testTree(t, report, linked)
+	if w.Main || w.OutsideRoot || !w.Merged || !w.Recommended || !w.CanRemove {
+		t.Fatalf("clean merged linked tree: %+v", w)
+	}
+	if w.Repo != "repository" || w.Branch != "topic" || len(w.Head) != 40 || w.Author != "Arbor Test" || w.Subject != "Initial tree" || w.CommitAt.IsZero() || w.ActivityAt.Before(w.CommitAt) || w.SizeBytes == 0 {
+		t.Fatalf("missing metadata: %+v", w)
+	}
+	if w.ID == "" || w.ID == main.ID || w.CommonDir != main.CommonDir {
+		t.Fatalf("incorrect identity: %+v", w)
+	}
+	assertProtected(t, testTree(t, report, outside), "Outside")
+	assertProtected(t, testTree(t, report, nested), "Primary")
+	// A linked checkout's .git file must independently lead back to the repo.
+	narrow := testScan(t, linked)
+	if len(narrow.Worktrees) != 3 {
+		t.Fatalf("linked-root discovery: %+v", narrow.Worktrees)
+	}
+	assertProtected(t, testTree(t, narrow, repo), "Outside")
+	if testTree(t, narrow, linked).ID != w.ID {
+		t.Fatal("worktree ID changed with scan root")
+	}
+}
+
+func TestScanBareRepositoryWithLinkedTree(t *testing.T) {
+	root := t.TempDir()
+	source := testRepo(t, filepath.Join(t.TempDir(), "source"))
+	bare := filepath.Join(root, "storage.git")
+	testGit(t, root, "clone", "--bare", source, bare)
+	linked := testLinked(t, bare, filepath.Join(root, "checkout"), "topic")
+	report := testScan(t, root)
+	if len(report.Worktrees) != 2 {
+		t.Fatalf("bare discovery: %+v", report.Worktrees)
+	}
+	b := testTree(t, report, bare)
+	if !b.Bare || !b.Main || b.Repo != "storage" {
+		t.Fatalf("bare metadata: %+v", b)
+	}
+	assertProtected(t, b, "Bare")
+	w := testTree(t, report, linked)
+	if w.Main || w.Bare || w.Repo != "storage" || !w.Recommended {
+		t.Fatalf("bare linked metadata: %+v", w)
+	}
+}
+
+func TestScanDeletionBlockers(t *testing.T) {
+	cases := []struct {
+		name, reason string
+		change       func(*testing.T, string, string)
+	}{
+		{"tracked edits", "Uncommitted", func(t *testing.T, repo, wt string) { testWrite(t, filepath.Join(wt, "tracked.txt"), "changed\n") }},
+		{"untracked file", "Uncommitted", func(t *testing.T, repo, wt string) {
+			testWrite(t, filepath.Join(wt, "local secret"), "do not delete\n")
+		}},
+		{"ignored file", "Ignored", func(t *testing.T, repo, wt string) {
+			if err := os.Mkdir(filepath.Join(wt, "ignored"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			testWrite(t, filepath.Join(wt, "ignored", "local.env"), "valuable\n")
+		}},
+		{"locked", "Locked", func(t *testing.T, repo, wt string) { testGit(t, repo, "worktree", "lock", "--reason", "keep this", wt) }},
+		{"detached", "Detached", func(t *testing.T, repo, wt string) { testGit(t, wt, "checkout", "--detach") }},
+		{"assume unchanged", "assume-unchanged", func(t *testing.T, repo, wt string) {
+			testGit(t, wt, "update-index", "--assume-unchanged", "tracked.txt")
+			testWrite(t, filepath.Join(wt, "tracked.txt"), "hidden modification\n")
+		}},
+		{"skip worktree", "Sparse", func(t *testing.T, repo, wt string) { testGit(t, wt, "update-index", "--skip-worktree", "tracked.txt") }},
+		{"nested repository", "nested", func(t *testing.T, repo, wt string) { testRepo(t, filepath.Join(wt, "nested")) }},
+		{"merge in progress", "operation in progress", func(t *testing.T, repo, wt string) {
+			p := testGit(t, wt, "rev-parse", "--path-format=absolute", "--git-path", "MERGE_HEAD")
+			testWrite(t, p, testGit(t, wt, "rev-parse", "HEAD")+"\n")
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			repo := testRepo(t, filepath.Join(root, "repo"))
+			wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+			tc.change(t, repo, wt)
+			w := testTree(t, testScan(t, root), wt)
+			assertProtected(t, w, tc.reason)
+		})
+	}
+}
+
+func TestScanMergedVersusUnmerged(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	merged := testLinked(t, repo, filepath.Join(root, "merged"), "merged-topic")
+	unmerged := testLinked(t, repo, filepath.Join(root, "unmerged"), "active-topic")
+	testWrite(t, filepath.Join(unmerged, "tracked.txt"), "new work\n")
+	testGit(t, unmerged, "commit", "-am", "Active work")
+	report := testScan(t, root)
+	if !testTree(t, report, merged).Recommended {
+		t.Fatal("merged clean tree was not recommended")
+	}
+	w := testTree(t, report, unmerged)
+	if w.Merged || w.Recommended || !w.CanRemove || w.Published {
+		t.Fatalf("unmerged tree classification: %+v", w)
+	}
+	testGit(t, repo, "merge", "--ff-only", "active-topic")
+	if !testTree(t, testScan(t, root), unmerged).Recommended {
+		t.Fatal("newly merged tree was not recommended")
+	}
+}
+
+func TestScanPublishedUsesRemoteAncestry(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	initial := testGit(t, wt, "rev-parse", "HEAD")
+	testWrite(t, filepath.Join(repo, "tracked.txt"), "remote advanced\n")
+	testGit(t, repo, "commit", "-am", "Later remote commit")
+	// Synthetic cached refs exercise ancestry without a network connection.
+	testGit(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	w := testTree(t, testScan(t, root), wt)
+	if w.Head != initial || !w.Published || !w.Merged || !w.Recommended || len(w.PublishedRefs) != 1 || w.PublishedRefs[0] != "origin/main" {
+		t.Fatalf("ancestor publication: %+v", w)
+	}
+	testWrite(t, filepath.Join(wt, "topic.txt"), "unpushed\n")
+	testGit(t, wt, "add", "topic.txt")
+	testGit(t, wt, "commit", "-m", "Unpushed commit")
+	w = testTree(t, testScan(t, root), wt)
+	if w.Published || w.Merged || w.Recommended {
+		t.Fatalf("new local commit must not count as published: %+v", w)
+	}
+}
+
+func TestScanProtectsNonstandardDefaultBranch(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "trunk")
+	testGit(t, repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+	testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+	w := testTree(t, testScan(t, root), wt)
+	assertProtected(t, w, "Default branch")
+	if w.DefaultRef != "refs/remotes/origin/trunk" {
+		t.Fatalf("wrong default ref: %s", w.DefaultRef)
+	}
+}
+
+func TestScanUpstreamDivergence(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "local.txt"), "local change\n")
+	testGit(t, wt, "add", "local.txt")
+	testGit(t, wt, "commit", "-m", "Local work")
+	testWrite(t, filepath.Join(repo, "remote.txt"), "remote change\n")
+	testGit(t, repo, "add", "remote.txt")
+	testGit(t, repo, "commit", "-m", "Remote work")
+	testGit(t, repo, "remote", "add", "origin", "https://example.invalid/project.git")
+	testGit(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	testGit(t, wt, "branch", "--set-upstream-to=origin/main")
+	w := testTree(t, testScan(t, root), wt)
+	if w.Upstream != "origin/main" || w.Ahead != 1 || w.Behind != 1 || w.Merged || w.Published || w.Recommended {
+		t.Fatalf("incorrect divergence metadata: %+v", w)
+	}
+}
+
+func TestScanCancellationAndInvalidRoot(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := Scan(ctx, Options{Root: t.TempDir()}); err == nil {
+		t.Fatal("canceled scan succeeded")
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	testWrite(t, file, "not a directory")
+	if _, err := Scan(context.Background(), Options{Root: file}); err == nil {
+		t.Fatal("file accepted as scan directory")
+	}
+	if _, err := Scan(context.Background(), Options{Root: filepath.Join(t.TempDir(), "missing")}); err == nil {
+		t.Fatal("missing directory accepted")
+	}
+}
+
+func TestScanResolvesSymlinkRoot(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	alias := filepath.Join(t.TempDir(), "workspace-alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	report := testScan(t, alias)
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Root != canonical {
+		t.Fatalf("root is not canonical: %q; want %q", report.Root, canonical)
+	}
+	w := testTree(t, report, wt)
+	if w.OutsideRoot || !w.Recommended {
+		t.Fatalf("symlink root incorrectly protects in-scope tree: %+v", w)
+	}
+}

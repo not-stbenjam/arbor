@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    />
+    <title>Arbor</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="titlebar">
+      <div class="window-brand">
+        <span data-icon="branch"></span><span>Arbor</span>
+      </div>
+      <span id="window-context">Worktrees</span>
+      <div class="titlebar-right">
+        <button
+          id="theme-button"
+          class="icon-button"
+          title="Appearance"
+          aria-label="Change appearance"
+        >
+          <span data-icon="sun"></span>
+        </button>
+      </div>
+    </header>
+    <div class="workspace">
+      <aside class="sidebar" aria-label="Workspace navigation">
+        <div class="machine-area">
+          <button id="machine-button" class="machine-button">
+            <span data-icon="monitor"></span
+            ><span id="machine-label">This computer</span
+            ><span data-icon="chevrons"></span>
+          </button>
+        </div>
+        <nav class="views" aria-label="Worktree views">
+          <button data-view="all" class="nav-item active">
+            <span data-icon="trees"></span><span>All worktrees</span
+            ><span id="all-count" class="count">0</span></button
+          ><button data-view="recommended" class="nav-item">
+            <span data-icon="check-circle"></span><span>Recommended</span
+            ><span id="recommended-count" class="count">0</span></button
+          ><button data-view="protected" class="nav-item">
+            <span data-icon="shield"></span><span>Protected</span
+            ><span id="protected-count" class="count">0</span>
+          </button>
+        </nav>
+        <div class="sidebar-section-title">
+          <span>Repositories</span><span id="repo-count">0</span>
+        </div>
+        <div id="repo-list" class="repo-list"></div>
+        <div class="sidebar-bottom">
+          <button class="nav-item" id="add-host">
+            <span data-icon="plus"></span><span>Add SSH host</span></button
+          ><button class="nav-item" id="settings-button">
+            <span data-icon="settings"></span><span>Settings</span
+            ><span class="shortcut" id="settings-shortcut">⌘,</span>
+          </button>
+          <div class="sidebar-version">
+            <span id="connection-label">Local workspace</span
+            ><span id="version"></span>
+          </div>
+        </div>
+      </aside>
+      <main>
+        <header class="toolbar">
+          <div class="view-title">
+            <h1 id="view-title">All worktrees</h1>
+            <span id="visible-count" class="count">0</span>
+          </div>
+          <div class="toolbar-actions">
+            <label class="search-field"
+              ><span data-icon="search"></span
+              ><input
+                type="search"
+                id="search"
+                aria-label="Search worktrees"
+                placeholder="Filter worktrees…"
+              /><kbd id="search-shortcut">⌘F</kbd></label
+            ><button id="refresh-button" class="button">
+              <span data-icon="refresh"></span><span>Refresh</span></button
+            ><button id="cleanup-button" class="button button-accent" disabled>
+              <span data-icon="cleanup"></span><span>Clean up</span></button
+            ><button
+              id="inspector-button"
+              class="icon-button"
+              title="Toggle details"
+              aria-label="Toggle details"
+              aria-pressed="false"
+            >
+              <span data-icon="panel"></span>
+            </button>
+          </div>
+        </header>
+        <div class="pathbar">
+          <div class="path-location">
+            <span data-icon="folder"></span
+            ><button id="path-button" title="Change scan folder">
+              <span id="root-label">Home folder</span
+              ><span data-icon="chevron-down"></span>
+            </button>
+          </div>
+          <div class="path-actions">
+            <span id="verification-label">Local Git metadata</span
+            ><button
+              id="scan-options-button"
+              class="icon-button"
+              title="Scan options"
+              aria-label="Scan options"
+            >
+              <span data-icon="sliders"></span>
+            </button>
+          </div>
+        </div>
+        <div class="banner" id="error-banner" role="alert" hidden>
+          <span data-icon="warning"></span><span id="error-message"></span
+          ><button
+            id="dismiss-error"
+            class="icon-button"
+            aria-label="Dismiss error"
+          >
+            <span data-icon="close"></span>
+          </button>
+        </div>
+        <div id="recommendation-note" class="recommendation-note" hidden>
+          <span data-icon="check-circle"></span
+          ><span
+            >Clean worktrees with commits already merged. Cleanup keeps their
+            branches.</span
+          >
+        </div>
+        <div class="content-panes">
+          <section class="table-pane" aria-label="Git worktrees">
+            <div class="table-scroll" id="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="branch-column">
+                      <button data-sort="branch">
+                        Branch <span data-icon="sort"></span>
+                      </button>
+                    </th>
+                    <th class="repo-column">
+                      <button data-sort="repo">
+                        Repository <span data-icon="sort"></span>
+                      </button>
+                    </th>
+                    <th class="status-column">Status</th>
+                    <th class="activity-column">
+                      <button data-sort="activity">
+                        Last active <span data-icon="sort"></span>
+                      </button>
+                    </th>
+                    <th class="size-column">
+                      <button data-sort="size">
+                        Size <span data-icon="sort"></span>
+                      </button>
+                    </th>
+                    <th class="action-column">
+                      <span class="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody
+                  id="worktree-list"
+                  tabindex="0"
+                  aria-label="Worktrees. Use arrow keys to select and Enter for details."
+                ></tbody>
+              </table>
+              <div id="empty-state" class="empty-state" hidden></div>
+            </div>
+            <div class="selection-bar" id="selection-bar" hidden>
+              <span id="selection-label"></span
+              ><button class="button" id="remove-selected">
+                <span data-icon="trash"></span>Remove selected
+              </button>
+            </div>
+          </section>
+          <aside
+            id="inspector"
+            class="inspector"
+            aria-label="Worktree details"
+            hidden
+          >
+            <div id="inspector-content"></div>
+          </aside>
+        </div>
+        <footer class="statusbar">
+          <span id="status-message">Connecting to Arbor…</span
+          ><button id="warning-button" hidden></button
+          ><span class="statusbar-spacer"></span><span id="space-label"></span
+          ><span id="scan-time"></span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="settings-dialog">
+      <form id="settings-form">
+        <div class="dialog-header">
+          <h2>Workspace settings</h2>
+          <button
+            type="button"
+            class="icon-button"
+            data-close="settings-dialog"
+            aria-label="Close settings"
+          >
+            <span data-icon="close"></span>
+          </button>
+        </div>
+        <div class="dialog-body">
+          <label class="field-label" for="scan-root">Scan folder</label>
+          <div class="input-group">
+            <input id="scan-root" class="text-input" required /><button
+              type="button"
+              id="choose-folder"
+              class="button"
+            >
+              Choose…
+            </button>
+          </div>
+          <p class="field-hint" id="root-help">
+            Discover Git repositories and registered worktrees in this folder.
+          </p>
+          <div class="setting-row">
+            <label for="scan-github"
+              ><strong>Verify pull requests with GitHub</strong
+              ><span
+                >Use the GitHub CLI signed in on the selected machine.</span
+              ></label
+            ><input type="checkbox" id="scan-github" />
+          </div>
+          <div class="setting-row">
+            <label for="scan-fetch"
+              ><strong>Fetch remote branches</strong
+              ><span
+                >Refresh remote references before checking push and merge
+                status.</span
+              ></label
+            ><input type="checkbox" id="scan-fetch" />
+          </div>
+          <div class="setting-row">
+            <label for="theme-select"
+              ><strong>Appearance</strong
+              ><span>Follow your system, or choose a theme.</span></label
+            ><select id="theme-select">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" class="button" data-close="settings-dialog">
+            Cancel</button
+          ><button
+            type="submit"
+            id="settings-save"
+            class="button button-accent"
+          >
+            Save & scan
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="machine-dialog">
+      <div class="dialog-header">
+        <h2>Machines</h2>
+        <button
+          class="icon-button"
+          data-close="machine-dialog"
+          aria-label="Close machines"
+        >
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <div id="machine-list" class="machine-list"></div>
+        <form id="host-form">
+          <label class="field-label" for="host-input">Connect over SSH</label>
+          <div class="input-group">
+            <input
+              id="host-input"
+              class="text-input"
+              placeholder="user@hostname or SSH alias"
+              required
+            /><button class="button button-accent" type="submit">
+              Connect
+            </button>
+          </div>
+          <p class="field-hint">
+            Uses your SSH config and keys. Arbor automatically installs its
+            matching CLI on the host.
+          </p>
+        </form>
+      </div>
+    </dialog>
+    <dialog id="notes-dialog">
+      <div class="dialog-header">
+        <h2>Scan notes</h2>
+        <button
+          class="icon-button"
+          data-close="notes-dialog"
+          aria-label="Close scan notes"
+        >
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <div class="dialog-body" id="notes-content"></div>
+    </dialog>
+    <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  </body>
+</html>

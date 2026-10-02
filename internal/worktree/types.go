@@ -1,0 +1,76 @@
+package worktree
+
+import "time"
+
+type Options struct {
+	Root   string `json:"root"`
+	GitHub bool   `json:"github"`
+	Fetch  bool   `json:"fetch"`
+}
+
+type Report struct {
+	Root       string     `json:"root"`
+	ScannedAt  time.Time  `json:"scannedAt"`
+	DurationMS int64      `json:"durationMs"`
+	Worktrees  []Worktree `json:"worktrees"`
+	Warnings   []string   `json:"warnings"`
+	GitHub     bool       `json:"github"`
+	Fetched    bool       `json:"fetched"`
+}
+
+type Worktree struct {
+	ID            string       `json:"id"`
+	Path          string       `json:"path"`
+	Repo          string       `json:"repo"`
+	CommonDir     string       `json:"commonDir"`
+	Branch        string       `json:"branch"`
+	Head          string       `json:"head"`
+	Subject       string       `json:"subject"`
+	Author        string       `json:"author"`
+	CommitAt      time.Time    `json:"commitAt"`
+	ActivityAt    time.Time    `json:"activityAt"`
+	SizeBytes     int64        `json:"sizeBytes"`
+	Main          bool         `json:"main"`
+	Bare          bool         `json:"bare"`
+	Detached      bool         `json:"detached"`
+	Locked        bool         `json:"locked"`
+	LockReason    string       `json:"lockReason"`
+	Missing       bool         `json:"missing"`
+	OutsideRoot   bool         `json:"outsideRoot"`
+	Dirty         bool         `json:"dirty"`
+	ChangedFiles  int          `json:"changedFiles"`
+	Ignored       bool         `json:"ignored"`
+	Upstream      string       `json:"upstream"`
+	Ahead         int          `json:"ahead"`
+	Behind        int          `json:"behind"`
+	Published     bool         `json:"published"`
+	PublishedRefs []string     `json:"publishedRefs"`
+	DefaultRef    string       `json:"defaultRef"`
+	Merged        bool         `json:"merged"`
+	MergeReason   string       `json:"mergeReason"`
+	GitHubState   string       `json:"githubState"`
+	PR            *PullRequest `json:"pr,omitempty"`
+	Recommended   bool         `json:"recommended"`
+	CanRemove     bool         `json:"canRemove"`
+	Blockers      []string     `json:"blockers"`
+	Problems      []string     `json:"problems"`
+}
+
+type PullRequest struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+	Merged bool   `json:"merged"`
+}
+
+type Removal struct {
+	ID   string `json:"id"`
+	Head string `json:"head"`
+}
+
+type RemovalResult struct {
+	Path    string `json:"path"`
+	Removed bool   `json:"removed"`
+	Error   string `json:"error,omitempty"`
+}
