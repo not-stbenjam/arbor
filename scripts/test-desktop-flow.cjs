@@ -216,12 +216,11 @@ app.once("browser-window-created", (_event, win) => {
             ),
           "stop scan control",
         );
-        await js("document.querySelector('#settings-button').click()");
         assert.equal(
-          await js("document.querySelector('#settings-stop-scan').hidden"),
-          false,
+          await js("document.querySelector('#settings-stop-scan')"),
+          null,
         );
-        await js("document.querySelector('#settings-stop-scan').click()");
+        await js("document.querySelector('#stop-scan').click()");
         await until(
           () => js("window.arbor.getState().then(s=>!s.busy && s.cancelled)"),
           "scan cancellation",
@@ -234,7 +233,6 @@ app.once("browser-window-created", (_event, win) => {
           () => js("!document.querySelector('#settings-save').disabled"),
           "settings enabled after cancellation",
         );
-        await js("document.querySelector('#settings-dialog').close()");
         await until(
           () =>
             js(

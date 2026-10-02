@@ -656,17 +656,15 @@
         ? `${completed} of ${p.total} ${p.stage === "fetch" ? "repositories fetched" : "worktrees inspected"}`
         : stage,
     );
-    for (const selector of ["#stop-scan", "#settings-stop-scan"]) {
-      $(selector).hidden =
-        !state.busy || (!state.canCancelScan && !state.cancelRequested);
-      $(selector).disabled = !!state.cancelRequested;
-      $(selector).textContent = state.cancelRequested
-        ? "Stopping…"
-        : "Stop scan";
-    }
+    $("#stop-scan").hidden =
+      !state.busy || (!state.canCancelScan && !state.cancelRequested);
+    $("#stop-scan").disabled = !!state.cancelRequested;
+    $("#stop-scan").textContent = state.cancelRequested
+      ? "Stopping…"
+      : "Stop scan";
     $("#settings-progress").hidden = !state.busy;
     $("#settings-progress").textContent = state.busy
-      ? `${stage}${countText ? ` ${countText}.` : ""} You can edit these settings now; wait for the current operation to finish or stop the scan before starting another.`
+      ? `${stage}${countText ? ` ${countText}.` : ""} You can edit these settings now. To start another scan, wait for this one to finish or close Settings and use Stop scan in the main window.`
       : "";
   }
   const readExcludes = (selector) =>
@@ -1164,7 +1162,6 @@
       renderProgress();
     }
   };
-  $("#settings-stop-scan").onclick = $("#stop-scan").onclick;
   $("#setup-dialog").addEventListener("cancel", (event) =>
     event.preventDefault(),
   );
