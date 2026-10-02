@@ -14,6 +14,9 @@ func DefaultExcludes() []string {
 
 // compileExcludes matches directories only, never files inside an inspected
 // worktree. Exclusions affect discovery, not removal safety checks.
+// Root and candidate paths use the canonical form produced by ResolveRoot,
+// WalkDir, and Git. Rules may use symlink aliases; they are resolved once here,
+// rather than adding filesystem lookups to every directory match.
 func compileExcludes(root string, rules []string) (func(string) bool, error) {
 	if rules == nil {
 		rules = DefaultExcludes()

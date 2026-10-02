@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+// Direct matcher tests follow Scan's canonical-path contract. On macOS,
+// t.TempDir commonly returns /var/... while ResolveRoot yields /private/var/...
+// Canonicalize the existing parent before appending synthetic test paths.
+func exclusionTempRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func TestExcludesDefaultsAndExplicitOverride(t *testing.T) {
 	root := t.TempDir()
 	testRepo(t, filepath.Join(root, "repo"))
@@ -83,7 +95,7 @@ func TestExcludedDirectoriesStillBlockUnsafeRemoval(t *testing.T) {
 }
 
 func TestExcludeValidationAndHomePaths(t *testing.T) {
-	root := t.TempDir()
+	root := exclusionTempRoot(t)
 	t.Setenv("HOME", root)
 	excluded, err := compileExcludes(root, nil)
 	if err != nil || !excluded(filepath.Join(root, "Library", "Caches", "repo")) || excluded(filepath.Join(root, "Library", "Projects")) {
@@ -157,7 +169,7 @@ func TestGlobCodexScratchExcludesDiscoveryAndRegisteredWorktrees(t *testing.T) {
 }
 
 func TestGlobExclusionComponentsAndAnchoring(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "scan")
+	root := filepath.Join(exclusionTempRoot(t), "scan")
 	for _, tc := range []struct {
 		rule string
 		path string
@@ -200,7 +212,7 @@ func TestGlobExclusionComponentsAndAnchoring(t *testing.T) {
 }
 
 func TestGlobExclusionsKeepRootAndHomeMetacharactersLiteral(t *testing.T) {
-	parent := t.TempDir()
+	parent := exclusionTempRoot(t)
 	root := filepath.Join(parent, "home[ab]*?")
 	t.Setenv("HOME", root)
 	for _, rule := range []string{"~/.codex*/.tmp", ".codex*/.tmp"} {
@@ -276,7 +288,7 @@ func TestGlobStarKeepsExplicitRootRepository(t *testing.T) {
 }
 
 func TestGlobExclusionsRejectMalformedPatterns(t *testing.T) {
-	root := t.TempDir()
+	root := exclusionTempRoot(t)
 	for _, rule := range []string{"cache[", "cache[]", "cache[abc", "cache\\", "~/.codex[/.tmp", "**/bad[", "bad\\/child"} {
 		if _, err := compileExcludes(root, []string{rule}); err == nil {
 			t.Errorf("malformed pattern %q accepted", rule)
@@ -285,11 +297,36 @@ func TestGlobExclusionsRejectMalformedPatterns(t *testing.T) {
 }
 
 func TestRecursiveGlobMatcherHasBoundedWork(t *testing.T) {
-	root := t.TempDir()
+	root := exclusionTempRoot(t)
 	rule := strings.Repeat("**/", 150) + "absent"
 	path := filepath.Join(root, strings.Repeat("deep/", 150), "repo")
 	excluded, err := compileExcludes(root, []string{rule})
 	if err != nil || excluded(path) {
 		t.Fatalf("recursive glob mismatch: %v", err)
 	}
+}
+
+func TestScanExclusionsWithSymlinkRootAndHome(t *testing.T) {
+	parent := exclusionTempRoot(t)
+	root, alias := filepath.Join(parent, "real"), filepath.Join(parent, "alias")
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", alias)
+	visible := testLinked(t, repo, filepath.Join(root, ".codex-alt", "worktrees", "feature"), "feature")
+	homeExcluded := testLinked(t, repo, filepath.Join(root, ".codex-alt", ".tmp", "scratch"), "scratch")
+	relativeExcluded := testLinked(t, repo, filepath.Join(root, "workspace-one", "cache1", "linked"), "cached")
+	absoluteExcluded := testRepo(t, filepath.Join(root, "absolute-cache", "repo"))
+	rules := []string{"~/.codex*/.tmp", "workspace*/cache?", filepath.Join(alias, "absolute-*")}
+	report, err := Scan(context.Background(), Options{Root: alias, Excludes: rules, Progress: func(event Progress) {
+		if event.Worktree != nil && (event.Worktree.Path == homeExcluded || event.Worktree.Path == relativeExcluded || event.Worktree.Path == absoluteExcluded) {
+			t.Errorf("excluded aliased worktree leaked into progress: %s", event.Worktree.Path)
+		}
+	}})
+	if err != nil || report.Root != root || len(report.Worktrees) != 2 {
+		t.Fatalf("scan with root/home aliases: %+v, %v", report, err)
+	}
+	testTree(t, report, visible)
+	testTree(t, report, repo)
 }
