@@ -19,6 +19,7 @@ const {
   Backend,
   execute,
   validatePreferences,
+  loadPreferences,
   childEnvironment,
   scanOptions,
 } = require("./backend.cjs");
@@ -520,7 +521,7 @@ app
   .whenReady()
   .then(async () => {
     try {
-      preferences = validatePreferences(
+      preferences = loadPreferences(
         JSON.parse(
           await fsp.readFile(
             path.join(app.getPath("userData"), "preferences.json"),

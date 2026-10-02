@@ -19,6 +19,7 @@ const DEFAULT_EXCLUDES = [
   "~/Library/Caches",
   "~/Library/Logs",
   "~/.local/share/Trash",
+  "~/.codex/.tmp",
 ];
 
 function partialWorktree(value, pending) {
@@ -644,8 +645,28 @@ function validatePreferences(value) {
     hosts,
     roots: roots.map((root) => text(root, "recent folder")),
     setupCompleted: value.setupCompleted === true,
+    exclusionDefaultsVersion: 1,
     scan: scanOptions(value.scan || { root: roots[0] || "" }),
   };
+}
+
+function loadPreferences(value) {
+  const preferences = validatePreferences(value);
+  // Upgrade untouched v0.1.2/v0.1.3 defaults, not custom exclusions or an
+  // explicitly empty list. The marker lets users remove the new rule later.
+  const previousDefaults = DEFAULT_EXCLUDES.filter(
+    (rule) => rule !== "~/.codex/.tmp",
+  );
+  const saved = preferences.scan.excludes;
+  if (
+    !value.exclusionDefaultsVersion &&
+    saved.length === previousDefaults.length &&
+    new Set(saved).size === previousDefaults.length &&
+    previousDefaults.every((rule) => saved.includes(rule))
+  ) {
+    preferences.scan.excludes = [...DEFAULT_EXCLUDES];
+  }
+  return preferences;
 }
 
 module.exports = {
@@ -654,5 +675,6 @@ module.exports = {
   parseReport,
   scanOptions,
   validatePreferences,
+  loadPreferences,
   childEnvironment,
 };

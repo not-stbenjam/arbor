@@ -9,7 +9,7 @@ import (
 
 // DefaultExcludes returns a fresh list so callers can edit their preferences.
 func DefaultExcludes() []string {
-	return []string{".cache", ".Trash", "node_modules", "tmp", "temp", "~/Library/Caches", "~/Library/Logs", "~/.local/share/Trash"}
+	return []string{".cache", ".Trash", "node_modules", "tmp", "temp", "~/Library/Caches", "~/Library/Logs", "~/.local/share/Trash", "~/.codex/.tmp"}
 }
 
 // compileExcludes matches directories only, never files inside an inspected

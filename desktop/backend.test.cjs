@@ -8,6 +8,7 @@ const {
   parseReport,
   scanOptions,
   validatePreferences,
+  loadPreferences,
   childEnvironment,
 } = require("./backend.cjs");
 
@@ -254,6 +255,7 @@ test("input validation and preference schema are bounded and match renderer cont
       hosts: [{ name: "Build VPS", host: "build", root: "~/src" }],
       roots: ["/work"],
       setupCompleted: false,
+      exclusionDefaultsVersion: 1,
       scan: {
         root: "/work",
         host: "",
@@ -405,6 +407,7 @@ test("preferences migrate to setup and preserve saved scan choices", () => {
 
 test("scan exclusions use defaults only when omitted and preserve an explicit empty list", async () => {
   assert.ok(scanOptions().excludes.includes("node_modules"));
+  assert.ok(scanOptions().excludes.includes("~/.codex/.tmp"));
   assert.deepEqual(scanOptions({ excludes: [] }).excludes, []);
   for (const excludes of [[""], ["\0"], "tmp", Array(101).fill("tmp")])
     assert.throws(() => scanOptions({ excludes }));
@@ -428,6 +431,40 @@ test("scan exclusions use defaults only when omitted and preserve an explicit em
   await backend.pending;
   assert.equal(calls[1].at(-1), "--no-default-excludes");
   assert.equal(calls[1].includes("--exclude"), false);
+});
+
+test("saved default exclusions upgrade without overriding custom or explicitly removed rules", () => {
+  const current = scanOptions().excludes;
+  const previous = current.filter((rule) => rule !== "~/.codex/.tmp");
+  const original = {
+    setupCompleted: true,
+    scan: { root: "/projects", excludes: previous },
+  };
+  const migrated = loadPreferences(original);
+  assert.deepEqual(migrated.scan.excludes, current);
+  assert.equal(migrated.scan.root, "/projects");
+  assert.equal(migrated.setupCompleted, true);
+  assert.deepEqual(original.scan.excludes, previous);
+  assert.deepEqual(
+    loadPreferences({ scan: { excludes: [...previous].reverse() } }).scan
+      .excludes,
+    current,
+  );
+  for (const excludes of [
+    [],
+    ["custom-cache"],
+    [...previous, "custom-cache"],
+  ]) {
+    assert.deepEqual(
+      loadPreferences({ scan: { excludes } }).scan.excludes,
+      excludes,
+    );
+  }
+  const optedOut = validatePreferences({
+    ...migrated,
+    scan: { ...migrated.scan, excludes: previous },
+  });
+  assert.deepEqual(loadPreferences(optedOut).scan.excludes, previous);
 });
 
 test("live worktrees upsert by path, remain non-removable, and are cleared after failure", async () => {

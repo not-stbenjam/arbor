@@ -96,6 +96,7 @@
     "~/Library/Caches",
     "~/Library/Logs",
     "~/.local/share/Trash",
+    "~/.codex/.tmp",
   ];
   let prefs = {
       hosts: [],

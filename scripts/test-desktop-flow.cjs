@@ -182,6 +182,7 @@ app.once("browser-window-created", (_event, win) => {
       assert.equal(saved.scan.fetch, false);
       assert.ok(saved.scan.excludes.includes(".cache"));
       assert.ok(saved.scan.excludes.includes("node_modules"));
+      assert.ok(saved.scan.excludes.includes("~/.codex/.tmp"));
       const invocations = fs
         .readFileSync(calls, "utf8")
         .trim()

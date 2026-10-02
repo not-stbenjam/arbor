@@ -90,3 +90,38 @@ func TestExcludeValidationAndHomePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultExcludesCodexScratchButKeepsManagedWorktrees(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", root)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	managed := testLinked(t, repo, filepath.Join(root, ".codex", "worktrees", "feature"), "feature")
+	scratchRoot := filepath.Join(root, ".codex", ".tmp")
+	testLinked(t, repo, filepath.Join(scratchRoot, "linked"), "scratch")
+	bare := filepath.Join(scratchRoot, "git-example")
+	for _, name := range []string{"objects", "refs"} {
+		if err := os.MkdirAll(filepath.Join(bare, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testWrite(t, filepath.Join(bare, "HEAD"), "ref: refs/heads/main\n")
+	report, err := Scan(context.Background(), Options{Root: root, Progress: func(event Progress) {
+		if event.Worktree != nil && within(scratchRoot, event.Worktree.Path) {
+			t.Errorf("Codex scratch repository leaked into progress: %s", event.Worktree.Path)
+		}
+	}})
+	if err != nil || len(report.Worktrees) != 2 {
+		t.Fatalf("default scan: %+v, %v", report, err)
+	}
+	testTree(t, report, managed)
+	all, err := Scan(context.Background(), Options{Root: root, Excludes: []string{}})
+	if err != nil || len(all.Worktrees) != 4 {
+		t.Fatalf("explicit scan-all: %+v, %v", all, err)
+	}
+	if !testTree(t, all, bare).Bare {
+		t.Fatal("fixture did not reproduce an empty bare Codex repository")
+	}
+}
