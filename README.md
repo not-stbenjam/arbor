@@ -69,9 +69,13 @@ Arbor discovers Git repositories beneath your chosen folder, lists their registe
 
 The desktop shows worktrees as they are found, with pending checks, the current scan stage and path, elapsed time, and completed counts. Cleanup stays disabled until the complete scan has passed its checks. **Stop scan** cancels the current scan and leaves incomplete results visible; scan again before removing anything.
 
-Setup and **Workspace settings** include editable exclusions. Defaults skip directories named `.cache`, `.Trash`, `node_modules`, `tmp`, and `temp`, plus `~/Library/Caches`, `~/Library/Logs`, `~/.local/share/Trash`, and `~/.codex/.tmp`. Real Codex-managed worktrees in `~/.codex/worktrees` are still included. Existing unmodified default lists gain the Codex temporary-directory exclusion on upgrade; custom lists remain unchanged. Enter one directory name or path per line. A name matches directories anywhere below the selected root; a relative path is anchored to that root, and an absolute or `~/` path identifies a specific subtree. These are paths, not glob expressions. The explicitly selected root itself is always scanned. Clear the list to disable exclusions.
+Setup and **Workspace settings** include editable exclusions. Defaults skip directories named `.cache`, `.Trash`, `node_modules`, `tmp`, and `temp`, plus `~/Library/Caches`, `~/Library/Logs`, `~/.local/share/Trash`, and `~/.codex/.tmp`. Real Codex-managed worktrees in `~/.codex/worktrees` are still included. Existing unmodified default lists gain the Codex temporary-directory exclusion on upgrade; custom lists remain unchanged.
+
+Enter one directory name, path, or glob pattern per line. Patterns are case-sensitive: `*` matches characters within a directory name, `?` matches one character, `[abc]` or `[a-z]` matches a character class, and a whole `**` path component matches zero or more directory levels. A single-name pattern matches directories anywhere below the selected root; a relative path pattern is anchored to that root, and an absolute or `~/` pattern is anchored to that machine's filesystem or home folder. Matching a directory excludes its subtree. Use `~/.codex*/.tmp` to skip temporary folders under both `.codex` and alternate Codex home names; use `**/build` for build folders at any depth. Backslash escapes a literal wildcard. Brace expansion and `!` negation rules are not supported. The explicitly selected root itself is always scanned. Clear the list to disable exclusions.
 
 Exclusions also omit registered worktrees in excluded subtrees. They never skip file checks during deletion: ignored files, local changes, and other blockers remain protected. SSH exclusions are resolved on the remote machine.
+
+**Settings** stays pinned below the scrolling repository list. To start over, choose **Settings → Reset to defaults…** and confirm. Arbor stops any active scan, clears its saved settings and scan results, and reopens setup. It does not delete repositories, worktrees, or SSH configuration. Reset is unavailable while worktree cleanup is running.
 
 ## CLI
 
@@ -88,6 +92,10 @@ arbor list --path "$HOME/git" --recommended
 # Add an exclusion, or replace the default exclusion list.
 arbor list --path "$HOME/git" --exclude archives
 arbor list --path "$HOME/git" --no-default-excludes --exclude node_modules
+
+# Quote globs so Arbor—not your shell—matches them, including on SSH hosts.
+arbor list --path "$HOME" --exclude '~/.codex*/.tmp'
+arbor list --host my-vps --exclude '**/build'
 
 # Stream machine-readable progress to stderr; the final JSON stays on stdout.
 arbor list --path "$HOME/git" --json --progress

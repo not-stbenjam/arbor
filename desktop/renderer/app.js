@@ -128,10 +128,16 @@
     desiredExcludes = [...defaultExcludes],
     setupStep = 1,
     setupInitialized = false,
-    setupSubmitting = false;
+    setupSubmitting = false,
+    resettingPreferences = false,
+    pollGeneration = 0;
   const items = () => state.report?.worktrees || state.partialWorktrees || [];
   const blocked = () =>
-    !connected || state.busy || removing || state.setupRequired;
+    !connected ||
+    state.busy ||
+    removing ||
+    state.setupRequired ||
+    resettingPreferences;
   const machineName = () => state.host || "This computer";
   const branchName = (w) =>
     w.branch ||
@@ -283,17 +289,26 @@
     if (anchorPath)
       anchor = items().find((w) => w.path === anchorPath)?.id || anchor;
     render();
-    if (state.setupRequired) openSetup();
+    if (state.setupRequired && !resettingPreferences) openSetup();
   }
   async function poll() {
     clearTimeout(pollTimer);
+    const generation = pollGeneration;
+    if (resettingPreferences) {
+      pollTimer = setTimeout(poll, 1000);
+      return;
+    }
     try {
-      updateState(await window.arbor.getState());
+      const next = await window.arbor.getState();
+      if (generation === pollGeneration && !resettingPreferences)
+        updateState(next);
     } catch (error) {
+      if (generation !== pollGeneration || resettingPreferences) return;
       connected = false;
       showError(error.message || "Could not connect to the Arbor backend.");
       renderControls();
     }
+    if (generation !== pollGeneration) return;
     pollTimer = setTimeout(poll, state.busy ? 700 : 3000);
   }
   function renderControls() {
@@ -307,6 +322,14 @@
     ])
       $(`#${id}`).disabled = disabled;
     $("#scan-options-button").disabled = state.setupRequired;
+    $("#reset-preferences").disabled =
+      !connected ||
+      resettingPreferences ||
+      removing ||
+      (state.busy && !state.canCancelScan && !state.cancelRequested);
+    $("#reset-preferences").textContent = resettingPreferences
+      ? "Resetting…"
+      : "Reset to defaults…";
     $("#settings-save").textContent = removing
       ? "Cleanup in progress…"
       : state.busy
@@ -1114,6 +1137,7 @@
     renderError();
   };
   function menu(action) {
+    if (resettingPreferences) return;
     if (state.setupRequired) {
       openSetup();
       return;
@@ -1149,6 +1173,65 @@
   $("#setup-reset-excludes").onclick = () => {
     $("#setup-excludes").value = defaultExcludes.join("\n");
   };
+  $("#reset-preferences").onclick = async () => {
+    if ($("#reset-preferences").disabled) return;
+    resettingPreferences = true;
+    pollGeneration++;
+    clearTimeout(pollTimer);
+    renderControls();
+    try {
+      const result = await window.arbor.resetPreferences();
+      if (result.cancelled) return;
+      document
+        .querySelectorAll("dialog[open]")
+        .forEach((dialog) => dialog.close());
+      prefs = { ...result.preferences };
+      desiredGitHub = !!prefs.scan?.github;
+      desiredFetch = !!prefs.scan?.fetch;
+      desiredExcludes = [...(prefs.scan?.excludes || defaultExcludes)];
+      view = "all";
+      repo = "";
+      search = "";
+      sort = "activity";
+      descending = true;
+      $("#search").value = "";
+      selection.clear();
+      anchor = "";
+      cursor = "";
+      inspector = false;
+      clientError = "";
+      dismissedError = "";
+      setupStep = 1;
+      setupInitialized = false;
+      setupSubmitting = false;
+      setupMachine = "local";
+      setupRoots = { local: "", remote: "~" };
+      $("#setup-form").reset();
+      $("#setup-dialog").scrollTop = 0;
+      $("#settings-form").reset();
+      $("#host-form").reset();
+      $("#setup-host-field").hidden = true;
+      $("#setup-choose-folder").hidden = false;
+      $("#setup-start").disabled = false;
+      $("#setup-back").disabled = false;
+      $("#setup-start").textContent = "Start scanning";
+      $("#scan-excludes").value = desiredExcludes.join("\n");
+      $("#scan-root").value = result.state.root || prefs.scan?.root || "~";
+      $("#scan-github").checked = desiredGitHub;
+      $("#scan-fetch").checked = desiredFetch;
+      $("#toast-region").replaceChildren();
+      resettingPreferences = false;
+      applyTheme();
+      updateState(result.state);
+    } catch (error) {
+      notify(`Could not reset settings: ${error.message}`, true);
+    } finally {
+      resettingPreferences = false;
+      renderControls();
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, 700);
+    }
+  };
   $("#stop-scan").onclick = async () => {
     if (!state.busy || !state.canCancelScan || state.cancelRequested) return;
     state.cancelRequested = true;
@@ -1167,7 +1250,8 @@
     event.preventDefault(),
   );
   $("#setup-dialog").addEventListener("close", () => {
-    if (state.setupRequired && !setupSubmitting) openSetup();
+    if (state.setupRequired && !setupSubmitting && !resettingPreferences)
+      openSetup();
   });
   let setupMachine = "local",
     setupRoots = { local: "", remote: "~" };

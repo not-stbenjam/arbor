@@ -211,11 +211,12 @@ a {
   display: flex;
   flex-direction: column;
   padding: 8px;
-  overflow: auto;
+  overflow: hidden;
   min-height: 0;
 }
 .machine-area {
   margin-bottom: 11px;
+  flex-shrink: 0;
 }
 .machine-button {
   border: 1px solid var(--line);
@@ -247,6 +248,7 @@ a {
 .views {
   display: grid;
   gap: 2px;
+  flex-shrink: 0;
 }
 .nav-item {
   display: flex;
@@ -291,10 +293,16 @@ a {
   color: var(--tertiary);
   font-size: 10px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 .repo-list {
   display: grid;
   gap: 2px;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .repo-item {
   display: flex;
@@ -329,7 +337,8 @@ a {
 }
 .sidebar-bottom {
   margin-top: auto;
-  padding-top: 24px;
+  padding-top: 12px;
+  flex-shrink: 0;
 }
 .shortcut {
   font-size: 10px;
@@ -1516,6 +1525,21 @@ dialog::backdrop {
 }
 .exclusion-setting .field-hint {
   margin-bottom: 0;
+}
+.reset-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.reset-setting p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--secondary);
 }
 .setup-dialog {
   width: min(510px, calc(100vw - 40px));

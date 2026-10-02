@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld(
     getPreferences: () => ipcRenderer.invoke("arbor:get-preferences"),
     savePreferences: (preferences) =>
       ipcRenderer.invoke("arbor:save-preferences", preferences),
+    resetPreferences: () => ipcRenderer.invoke("arbor:reset-preferences"),
     openExternal: (url) => ipcRenderer.invoke("arbor:open-external", url),
     copyText: (text) => ipcRenderer.invoke("arbor:copy-text", text),
     onMenuAction: (callback) => {

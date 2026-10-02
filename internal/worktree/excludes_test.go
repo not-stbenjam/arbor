@@ -67,13 +67,18 @@ func TestExcludedDirectoriesStillBlockUnsafeRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	testWrite(t, filepath.Join(wt, "node_modules", "precious-data"), "retain this file")
-	report := testScan(t, root)
-	w := testTree(t, report, wt)
-	if !w.Ignored || w.CanRemove || w.Recommended || w.SizeBytes < int64(len("retain this file")) {
-		t.Fatalf("excluded files were hidden from safety/measurement: %+v", w)
-	}
-	if err := Remove(context.Background(), w, w.Head, false); err == nil {
-		t.Fatal("removed ignored files inside excluded folder")
+	for _, rules := range [][]string{nil, {"node_*"}} {
+		report, err := Scan(context.Background(), Options{Root: root, Excludes: rules})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := testTree(t, report, wt)
+		if !w.Ignored || w.CanRemove || w.Recommended || w.SizeBytes < int64(len("retain this file")) {
+			t.Fatalf("excluded files were hidden from safety/measurement: %+v", w)
+		}
+		if err := Remove(context.Background(), w, w.Head, false); err == nil {
+			t.Fatal("removed ignored files inside excluded folder")
+		}
 	}
 }
 
@@ -123,5 +128,168 @@ func TestDefaultExcludesCodexScratchButKeepsManagedWorktrees(t *testing.T) {
 	}
 	if !testTree(t, all, bare).Bare {
 		t.Fatal("fixture did not reproduce an empty bare Codex repository")
+	}
+}
+
+func TestGlobCodexScratchExcludesDiscoveryAndRegisteredWorktrees(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", root)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	for _, name := range []string{".codex", ".codex-alt"} {
+		testLinked(t, repo, filepath.Join(root, name, ".tmp", "linked"), strings.TrimPrefix(name, ".")+"-scratch")
+		testLinked(t, repo, filepath.Join(root, name, "worktrees", "feature"), strings.TrimPrefix(name, ".")+"-feature")
+		testRepo(t, filepath.Join(root, name, ".tmp", "standalone"))
+	}
+	report, err := Scan(context.Background(), Options{Root: root, Excludes: []string{"~/.codex*/.tmp"}, Progress: func(event Progress) {
+		if event.Worktree != nil && strings.Contains(event.Worktree.Path, "/.tmp/") {
+			t.Errorf("glob-excluded worktree leaked into progress: %s", event.Worktree.Path)
+		}
+	}})
+	if err != nil || len(report.Worktrees) != 3 {
+		t.Fatalf("glob scratch scan: %+v, %v", report, err)
+	}
+	for _, name := range []string{".codex", ".codex-alt"} {
+		testTree(t, report, filepath.Join(root, name, "worktrees", "feature"))
+	}
+}
+
+func TestGlobExclusionComponentsAndAnchoring(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "scan")
+	for _, tc := range []struct {
+		rule string
+		path string
+		want bool
+	}{
+		{"cache*", "deep/cache-alt/repo", true},
+		{"cache*", "deep/not-cache/repo", false},
+		{"build?", "deep/build1/repo", true},
+		{"build?", "deep/build12/repo", false},
+		{"cache[0-3]", "deep/cache2/repo", true},
+		{"cache[0-3]", "deep/cache5/repo", false},
+		{"cache[^0-3]", "deep/cache5/repo", true},
+		{"cache[^0-3]", "deep/cache2/repo", false},
+		{"workspace*/cache?", "workspace-a/cache2/repo", true},
+		{"workspace*/cache?", "deep/workspace-a/cache2/repo", false},
+		{"workspace*/cache?", "workspace-a/cache12/repo", false},
+		{"**/.tmp", ".tmp/repo", true},
+		{"**/.tmp", "deep/very/deep/.tmp/repo", true},
+		{"**/.tmp", "deep/worktrees/repo", false},
+		{"workspace/**/scratch", "workspace/scratch/repo", true},
+		{"workspace/**/scratch", "workspace/a/b/scratch/repo", true},
+		{"workspace/**/scratch", "workspace2/a/scratch/repo", false},
+		{"a/**/**/z", "a/z/repo", true},
+		{"a/**/**/z", "a/b/c/z/repo", true},
+		{"literal\\*", "literal*/repo", true},
+		{"literal\\*", "literal-name/repo", false},
+		{"cache\\[old\\]", "cache[old]/repo", true},
+		{"cache\\[old\\]", "cacheo/repo", false},
+	} {
+		t.Run(tc.rule+"/"+tc.path, func(t *testing.T) {
+			excluded, err := compileExcludes(root, []string{tc.rule})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := excluded(filepath.Join(root, tc.path)); got != tc.want {
+				t.Fatalf("%q match %q = %v, want %v", tc.rule, tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGlobExclusionsKeepRootAndHomeMetacharactersLiteral(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "home[ab]*?")
+	t.Setenv("HOME", root)
+	for _, rule := range []string{"~/.codex*/.tmp", ".codex*/.tmp"} {
+		excluded, err := compileExcludes(root, []string{rule})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !excluded(filepath.Join(root, ".codex-alt", ".tmp", "repo")) {
+			t.Errorf("literal root/home didn't match for %q", rule)
+		}
+		if excluded(filepath.Join(parent, "homeaXY", ".codex-alt", ".tmp", "repo")) {
+			t.Errorf("root/home metacharacters became glob for %q", rule)
+		}
+	}
+}
+
+func TestGlobExclusionsCanonicalizeLiteralSymlinkPrefix(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, alias := filepath.Join(parent, "actual"), filepath.Join(parent, "alias")
+	if err := os.Mkdir(actual, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(actual, alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range []string{alias + "/.codex*/.tmp", alias + "/missing/.codex*/.tmp"} {
+		excluded, err := compileExcludes(parent, []string{rule})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := strings.Replace(rule, alias, actual, 1)
+		path = strings.Replace(path, ".codex*", ".codex-alt", 1)
+		if !excluded(filepath.Join(path, "repo")) {
+			t.Fatalf("symlink literal prefix failed for %q", rule)
+		}
+	}
+}
+
+func TestGlobExclusionsExplicitRootCanStillMatchDescendants(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, ".codex-alt", ".tmp")
+	excluded, err := compileExcludes(root, []string{"~/**/.tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if excluded(root) || excluded(filepath.Join(root, "repo")) || !excluded(filepath.Join(root, "nested", ".tmp", "repo")) {
+		t.Fatal("explicit root override disabled descendants or excluded selected root")
+	}
+	excluded, err = compileExcludes(root, []string{"~/.codex*/.tmp"})
+	if err != nil || excluded(filepath.Join(root, "repo")) {
+		t.Fatalf("fixed-depth wildcard root override failed: %v", err)
+	}
+}
+
+func TestGlobStarKeepsExplicitRootRepository(t *testing.T) {
+	root := testRepo(t, filepath.Join(t.TempDir(), "repo"))
+	testRepo(t, filepath.Join(root, "nested"))
+	report, err := Scan(context.Background(), Options{Root: root, Excludes: []string{"*"}})
+	if err != nil || len(report.Worktrees) != 1 {
+		t.Fatalf("explicit root hidden by broad glob: %+v, %v", report, err)
+	}
+	w := testTree(t, report, root)
+	if !w.Main || w.CanRemove {
+		t.Fatalf("explicit root lost its protections: %+v", w)
+	}
+}
+
+func TestGlobExclusionsRejectMalformedPatterns(t *testing.T) {
+	root := t.TempDir()
+	for _, rule := range []string{"cache[", "cache[]", "cache[abc", "cache\\", "~/.codex[/.tmp", "**/bad[", "bad\\/child"} {
+		if _, err := compileExcludes(root, []string{rule}); err == nil {
+			t.Errorf("malformed pattern %q accepted", rule)
+		}
+	}
+}
+
+func TestRecursiveGlobMatcherHasBoundedWork(t *testing.T) {
+	root := t.TempDir()
+	rule := strings.Repeat("**/", 150) + "absent"
+	path := filepath.Join(root, strings.Repeat("deep/", 150), "repo")
+	excluded, err := compileExcludes(root, []string{rule})
+	if err != nil || excluded(path) {
+		t.Fatalf("recursive glob mismatch: %v", err)
 	}
 }

@@ -21,7 +21,8 @@ func compileExcludes(root string, rules []string) (func(string) bool, error) {
 	if len(rules) > 128 {
 		return nil, fmt.Errorf("at most 128 scan exclusions are supported")
 	}
-	var names, paths []string
+	var names []excludeComponent
+	var paths [][]excludeComponent
 	for _, rule := range rules {
 		if rule == "" || len(rule) > 4096 || strings.ContainsRune(rule, '\x00') {
 			return nil, fmt.Errorf("scan exclusions must be nonempty directory names or paths of at most 4096 bytes")
@@ -30,38 +31,56 @@ func compileExcludes(root string, rules []string) (func(string) bool, error) {
 			return nil, fmt.Errorf("scan exclusion %q must name a directory", rule)
 		}
 		if !strings.ContainsRune(rule, filepath.Separator) && rule != "~" {
-			names = append(names, rule)
+			component, err := compileExcludeComponent(rule)
+			if err != nil {
+				return nil, fmt.Errorf("invalid scan exclusion %q: %w", rule, err)
+			}
+			names = append(names, component)
 			continue
 		}
-		path := rule
+		// Keep actual root/home components literal: a bracket or star in the
+		// user's home directory must not turn into an accidental glob.
+		base, pattern := root, rule
 		if rule == "~" || strings.HasPrefix(rule, "~/") {
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return nil, err
 			}
-			path = filepath.Join(home, strings.TrimPrefix(rule, "~/"))
+			base, pattern = home, strings.TrimPrefix(rule, "~/")
 			if rule == "~" {
-				path = home
+				pattern = ""
 			}
-		} else if !filepath.IsAbs(path) {
-			path = filepath.Join(root, path)
+		} else if filepath.IsAbs(rule) {
+			base = string(filepath.Separator)
 		}
-		path = filepath.Clean(path)
-		if canonical, err := filepath.EvalSymlinks(path); err == nil {
-			path = canonical
+		components := literalExcludeComponents(base)
+		for _, part := range strings.Split(pattern, string(filepath.Separator)) {
+			if part == "" || part == "." {
+				continue
+			}
+			if part == ".." {
+				if len(components) > 0 {
+					components = components[:len(components)-1]
+				}
+				continue
+			}
+			component, err := compileExcludeComponent(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid scan exclusion %q: %w", rule, err)
+			}
+			components = append(components, component)
 		}
-		// A deliberately selected root overrides an exclusion covering it.
-		if !within(path, root) {
-			paths = append(paths, path)
-		}
+		paths = append(paths, canonicalExcludePrefix(components))
 	}
+	rootParts := excludePathParts(root)
 	return func(path string) bool {
 		path = filepath.Clean(path)
 		if path == root {
 			return false
 		}
-		for _, excluded := range paths {
-			if within(excluded, path) {
+		pathParts := excludePathParts(path)
+		for _, pattern := range paths {
+			if excludePathMatches(pattern, pathParts, rootParts) {
 				return true
 			}
 		}
@@ -74,7 +93,7 @@ func compileExcludes(root string, rules []string) (func(string) bool, error) {
 				continue
 			}
 			for _, name := range names {
-				if part == name {
+				if name.matches(part) {
 					return true
 				}
 			}

@@ -29,7 +29,11 @@
       </div>
     </header>
     <div class="workspace">
-      <aside class="sidebar" aria-label="Workspace navigation">
+      <aside
+        id="workspace-sidebar"
+        class="sidebar"
+        aria-label="Workspace navigation"
+      >
         <div class="machine-area">
           <button id="machine-button" class="machine-button">
             <span data-icon="monitor"></span
@@ -53,7 +57,7 @@
           <span>Repositories</span><span id="repo-count">0</span>
         </div>
         <div id="repo-list" class="repo-list"></div>
-        <div class="sidebar-bottom">
+        <div id="sidebar-footer" class="sidebar-bottom">
           <button class="nav-item" id="add-host">
             <span data-icon="plus"></span><span>Add SSH host</span></button
           ><button class="nav-item" id="settings-button">
@@ -290,10 +294,18 @@
               spellcheck="false"
             ></textarea>
             <p class="field-hint">
-              One directory name or path per line, no wildcards. Names match
-              anywhere; paths exclude a specific subtree. Leave empty to scan
-              all directories. The chosen scan folder is always included.
+              One name or path pattern per line. Names match any directory;
+              paths exclude an anchored subtree. Use *, ?, or [abc] within
+              names, and a whole ** path component across directories. For
+              example, ~/.codex*/.tmp. Leave empty to scan all directories. The
+              chosen scan folder is always included.
             </p>
+          </div>
+          <div class="reset-setting">
+            <p>Resets Arbor settings, not repositories or worktrees.</p>
+            <button type="button" id="reset-preferences" class="button">
+              Reset to defaults…
+            </button>
           </div>
         </div>
         <div
@@ -435,9 +447,10 @@
                 spellcheck="false"
               ></textarea>
               <p class="field-hint">
-                Skip caches, dependencies, and temporary folders. One name or
-                path per line, no wildcards. Names match anywhere; paths exclude
-                a subtree. Empty means scan all.
+                One name or path pattern per line. Names match any directory;
+                paths exclude an anchored subtree. Use *, ?, or [abc] within
+                names, and a whole ** path component across directories.
+                Example: ~/.codex*/.tmp. Empty means scan all.
               </p>
             </div>
             <div class="setting-row">

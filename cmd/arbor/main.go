@@ -40,7 +40,7 @@ Shared options:
 List options:
   --json            Machine-readable report
   --progress        Stream scan progress as prefixed JSON lines on stderr
-  --exclude PATH    Skip a directory name or path (repeatable; extends defaults)
+  --exclude GLOB    Skip a directory name, path, or glob (repeatable; quote patterns)
   --no-default-excludes  Scan without the default cache/temp exclusions
   --recommended     Only show cleanup recommendations
 
@@ -127,7 +127,7 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		f.BoolVar(&recommended, "recommended", false, "only cleanup recommendations")
 		f.BoolVar(&progress, "progress", false, "stream scan progress on stderr")
 		f.BoolVar(&noDefaultExcludes, "no-default-excludes", false, "disable default cache/temp exclusions")
-		f.Var(&excludes, "exclude", "directory name or path to skip (repeatable)")
+		f.Var(&excludes, "exclude", "directory name, path, or glob to skip (repeatable; extends defaults)")
 		f.BoolVar(&watchStdin, "watch-stdin", false, "internal: cancel when the SSH input channel closes")
 	}
 	if command == "clean" || command == "remove" {

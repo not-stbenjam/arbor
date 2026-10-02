@@ -75,15 +75,18 @@ func discover(ctx context.Context, root string, excluded func(string) bool, prog
 			}
 			return nil
 		}
-		if d.IsDir() && excluded(path) {
-			return filepath.SkipDir
-		}
+		// The marker belongs to its parent worktree, not to a separate scan
+		// directory. Detect it even when a broad glob would exclude .git;
+		// otherwise '*' would hide the deliberately selected root repository.
 		if d.Name() == ".git" {
 			found(filepath.Dir(path))
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if d.IsDir() && excluded(path) {
+			return filepath.SkipDir
 		}
 		// Bare repositories do not have a .git marker.
 		if d.IsDir() {

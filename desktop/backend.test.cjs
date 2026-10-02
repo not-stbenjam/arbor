@@ -606,3 +606,140 @@ test("abort signal actually terminates a running child process", async () => {
   setTimeout(() => controller.abort(), 40);
   await assert.rejects(pending, /scan stopped/);
 });
+
+test("reset returns to first launch defaults without scanning or deleting worktrees", async () => {
+  const calls = [];
+  const backend = new Backend({
+    version: "v1.2.3",
+    platform: "darwin",
+    githubAvailable: true,
+    run: async (args) => {
+      calls.push(args);
+      return report();
+    },
+  });
+  backend.scan({
+    root: "~/other",
+    host: "vps",
+    github: true,
+    fetch: true,
+    excludes: [],
+  });
+  await backend.pending;
+  backend.state.error = "Old diagnostic";
+  const reset = backend.reset();
+  assert.equal(reset.setupRequired, true);
+  assert.equal(reset.busy, false);
+  assert.equal(reset.report, null);
+  assert.equal(reset.revision, null);
+  assert.equal(reset.progress, null);
+  assert.equal(reset.error, "");
+  assert.equal(reset.root, "");
+  assert.equal(reset.host, "");
+  assert.equal(reset.cancelled, false);
+  assert.equal(reset.canCancelScan, false);
+  assert.equal(reset.version, "v1.2.3");
+  assert.equal(reset.platform, "darwin");
+  assert.equal(reset.githubAvailable, true);
+  assert.deepEqual(reset.partialWorktrees, []);
+  assert.deepEqual(reset.options, scanOptions());
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "list");
+  assert.throws(() => backend.scan({}), /Complete setup/);
+  assert.equal(calls.length, 1);
+  reset.options.excludes.push("should not change state");
+  assert.deepEqual(backend.getState().options, scanOptions());
+});
+
+test("reset refuses an active scan and clears stopped partial state only after completion", async () => {
+  let finish, callbacks;
+  const backend = new Backend({
+    run: (_args, options) => {
+      callbacks = options;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  backend.scan({});
+  callbacks.onProgress({
+    stage: "inspect",
+    path: tree.path,
+    discovered: 1,
+    completed: 1,
+    total: 1,
+    worktree: tree,
+    pending: false,
+  });
+  assert.throws(() => backend.reset(), /current operation/);
+  backend.cancelScan();
+  assert.throws(() => backend.reset(), /current operation/);
+  finish(report());
+  await backend.pending;
+  assert.equal(backend.getState().partialWorktrees.length, 1);
+  const reset = backend.reset();
+  assert.equal(reset.cancelled, false);
+  assert.deepEqual(reset.partialWorktrees, []);
+  assert.equal(reset.progress, null);
+  assert.equal(reset.setupRequired, true);
+});
+
+test("reset refuses cleanup and closing state", async () => {
+  const calls = [];
+  const backend = new Backend({
+    run: async (args) => {
+      calls.push(args);
+      return report([{ ...tree, recommended: false }]);
+    },
+  });
+  backend.scan({});
+  await backend.pending;
+  let confirm;
+  const pending = backend.remove(
+    selection(backend, { recommendedOnly: false }),
+    () =>
+      new Promise((resolve) => {
+        confirm = resolve;
+      }),
+  );
+  assert.throws(() => backend.reset(), /current operation/);
+  confirm(false);
+  await pending;
+  assert.equal(calls.length, 1);
+  backend.dispose();
+  assert.throws(() => backend.reset(), /closing/);
+});
+
+test("glob exclusions persist and cross the subprocess boundary as literal argument data", async () => {
+  const excludes = [
+    "~/.codex*/.tmp",
+    "node_modules",
+    "~/agent[12]/scratch?",
+    "**/build",
+  ];
+  const preferences = validatePreferences({
+    setupCompleted: true,
+    scan: { root: "/work", excludes },
+  });
+  assert.deepEqual(preferences.scan.excludes, excludes);
+  const calls = [];
+  const backend = new Backend({
+    run: async (args) => {
+      calls.push(args);
+      return report();
+    },
+  });
+  backend.scan(preferences.scan);
+  await backend.pending;
+  assert.deepEqual(
+    calls[0].slice(-excludes.length * 2),
+    excludes.flatMap((rule) => ["--exclude", rule]),
+  );
+  const echoed = await execute(process.execPath, [
+    "-e",
+    "process.stdout.write(JSON.stringify(process.argv.slice(1)))",
+    "--",
+    ...excludes,
+  ]);
+  assert.deepEqual(JSON.parse(echoed), excludes);
+});

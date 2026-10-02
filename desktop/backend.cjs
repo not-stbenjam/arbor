@@ -494,6 +494,33 @@ class Backend {
     return this.getState();
   }
 
+  reset() {
+    if (this.disposed) throw new Error("Arbor is closing");
+    if (this.state.busy || this.operation)
+      throw new Error(
+        "Wait for the current operation to stop before resetting",
+      );
+    this.options = scanOptions();
+    this.partialPaths.clear();
+    this.scanController = null;
+    Object.assign(this.state, {
+      report: null,
+      busy: false,
+      error: "",
+      root: this.options.root,
+      host: this.options.host,
+      options: { ...this.options },
+      setupRequired: true,
+      progress: null,
+      partialWorktrees: [],
+      cancelled: false,
+      cancelRequested: false,
+      canCancelScan: false,
+      revision: null,
+    });
+    return this.getState();
+  }
+
   async remove(value, confirm) {
     if (this.disposed) throw new Error("Arbor is closing");
     if (this.state.busy) throw new Error("An operation is already running");

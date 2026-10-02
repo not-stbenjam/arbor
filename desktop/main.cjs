@@ -28,6 +28,7 @@ let window,
   backend,
   preferences = validatePreferences({}),
   setupCompleting = false,
+  resetPending = false,
   quitAfterRemoval = false,
   quitDialog = false;
 let preferenceWrite = Promise.resolve();
@@ -174,12 +175,17 @@ function handle(channel, handler) {
 
 function registerIPC() {
   handle("arbor:get-state", () => backend.getState());
-  handle("arbor:cancel-scan", () => backend.cancelScan());
+  handle("arbor:cancel-scan", () => {
+    guardReset();
+    return backend.cancelScan();
+  });
   handle("arbor:scan", (options) => {
+    guardReset();
     if (setupCompleting) throw new Error("Setup is being saved");
     return backend.scan(options);
   });
   handle("arbor:complete-setup", async (value) => {
+    guardReset();
     const options = scanOptions(value);
     if (setupCompleting || backend.state.busy)
       throw new Error("An operation is already running");
@@ -197,6 +203,7 @@ function registerIPC() {
     }
   });
   handle("arbor:remove", async (selection) => {
+    guardReset();
     const result = await backend.remove(selection, async (trees) => {
       const response = await dialog.showMessageBox(window, {
         type: "warning",
@@ -228,12 +235,52 @@ function registerIPC() {
   });
   handle("arbor:get-preferences", () => structuredClone(preferences));
   handle("arbor:save-preferences", async (value) => {
+    guardReset();
     const next = validatePreferences(value);
     return savePreferences(() => ({
       ...next,
       setupCompleted: preferences.setupCompleted,
       scan: value.scan === undefined ? preferences.scan : next.scan,
     }));
+  });
+  handle("arbor:reset-preferences", async () => {
+    guardReset();
+    if (setupCompleting) throw new Error("Setup is being saved");
+    if (backend.operation === "remove")
+      throw new Error("Wait for cleanup to finish before resetting Arbor");
+    if (backend.disposed) throw new Error("Arbor is closing");
+    resetPending = true;
+    try {
+      const response = await dialog.showMessageBox(window, {
+        type: "warning",
+        title: "Reset Arbor?",
+        message: "Reset Arbor to its defaults?",
+        detail:
+          "Saved SSH hosts, scan folders, exclusion rules, and appearance settings will be reset. The setup wizard will reopen without starting a scan. Repositories and worktrees will not be changed or deleted. Any running scan will be stopped.",
+        buttons: ["Cancel", "Reset Arbor"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (response.response !== 1)
+        return {
+          cancelled: true,
+          state: backend.getState(),
+          preferences: structuredClone(preferences),
+        };
+      if (backend.operation === "scan") {
+        backend.cancelScan();
+        await backend.pending;
+      }
+      const defaults = await savePreferences(() => validatePreferences({}));
+      return {
+        cancelled: false,
+        state: backend.reset(),
+        preferences: defaults,
+      };
+    } finally {
+      resetPending = false;
+    }
   });
   handle("arbor:open-external", async (value) => {
     if (typeof value !== "string" || value.length > 4096)
@@ -261,6 +308,10 @@ function registerIPC() {
     clipboard.writeText(value);
     return true;
   });
+}
+
+function guardReset() {
+  if (resetPending) throw new Error("Arbor reset is in progress");
 }
 
 function savePreferences(nextValue) {
@@ -580,7 +631,12 @@ app
         createWindow();
         backend.pending.finally(() => {
           backend.disposed = false;
-          if (window && !backend.state.setupRequired && !backend.state.busy)
+          if (
+            window &&
+            !resetPending &&
+            !backend.state.setupRequired &&
+            !backend.state.busy
+          )
             backend.scan(backend.options);
         });
       }
