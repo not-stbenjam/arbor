@@ -64,7 +64,7 @@ if (!process.argv.includes("--prepare")) {
   const targets = process.argv.includes("--dir")
     ? ["dir"]
     : process.platform === "darwin"
-      ? ["zip"]
+      ? ["dir"]
       : ["AppImage", "tar.gz"];
 
   build({
@@ -110,8 +110,41 @@ if (!process.argv.includes("--prepare")) {
         artifactName: `arbor_${tag}_linux_${goArch}.\${ext}`,
       },
     },
-  }).catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+  })
+    .then(() => {
+      if (process.platform !== "darwin" || process.argv.includes("--dir"))
+        return;
+      // Use Apple's archive writer for Finder/Archive Utility compatibility and
+      // preservation of signed framework symlinks and macOS bundle metadata.
+      const app = path.join(
+        root,
+        "dist",
+        process.arch === "arm64" ? "mac-arm64" : "mac",
+        "Arbor.app",
+      );
+      const destination = path.join(
+        root,
+        "dist",
+        `arbor_${tag}_darwin_${goArch}.app.zip`,
+      );
+      const staging = fs.mkdtempSync(path.join(root, "dist", ".mac-archive-"));
+      const archive = path.join(staging, "Arbor.app.zip");
+      try {
+        run("/usr/bin/ditto", [
+          "-c",
+          "-k",
+          "--sequesterRsrc",
+          "--keepParent",
+          app,
+          archive,
+        ]);
+        fs.renameSync(archive, destination);
+      } finally {
+        fs.rmSync(staging, { recursive: true, force: true });
+      }
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
 }
