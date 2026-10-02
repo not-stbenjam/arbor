@@ -6,6 +6,23 @@ type Options struct {
 	Root   string `json:"root"`
 	GitHub bool   `json:"github"`
 	Fetch  bool   `json:"fetch"`
+	// Nil uses DefaultExcludes; an explicit empty slice scans every directory.
+	Excludes []string `json:"excludes"`
+	// Progress is optional. Scan serializes callbacks, including inspection workers.
+	Progress func(Progress) `json:"-"`
+}
+
+const ProgressPrefix = "@arbor-progress "
+
+// Progress reports actual completed work. Total is zero while it is unknown.
+type Progress struct {
+	Stage      string    `json:"stage"`
+	Path       string    `json:"path"`
+	Discovered int       `json:"discovered"`
+	Completed  int       `json:"completed"`
+	Total      int       `json:"total"`
+	Worktree   *Worktree `json:"worktree,omitempty"`
+	Pending    bool      `json:"pending"`
 }
 
 type Report struct {

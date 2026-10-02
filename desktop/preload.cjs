@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     getState: () => ipcRenderer.invoke("arbor:get-state"),
     scan: (options) => ipcRenderer.invoke("arbor:scan", options),
+    completeSetup: (options) =>
+      ipcRenderer.invoke("arbor:complete-setup", options),
+    cancelScan: () => ipcRenderer.invoke("arbor:cancel-scan"),
     remove: (selection) => ipcRenderer.invoke("arbor:remove", selection),
     chooseFolder: () => ipcRenderer.invoke("arbor:choose-folder"),
     getPreferences: () => ipcRenderer.invoke("arbor:get-preferences"),

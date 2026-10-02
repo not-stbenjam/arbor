@@ -39,6 +39,9 @@ Shared options:
 
 List options:
   --json            Machine-readable report
+  --progress        Stream scan progress as prefixed JSON lines on stderr
+  --exclude PATH    Skip a directory name or path (repeatable; extends defaults)
+  --no-default-excludes  Scan without the default cache/temp exclusions
   --recommended     Only show cleanup recommendations
 
 Cleanup options:
@@ -82,7 +85,7 @@ func main() {
 		_ = os.Setenv("PATH", os.Getenv("PATH")+":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
 	}
 	engine.Version = version
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 	if err := execute(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -115,10 +118,17 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	f.SetOutput(stderr)
 	var common commonFlags
 	addCommon(f, &common)
-	var yes, recommended bool
+	var yes, recommended, progress bool
+	var noDefaultExcludes bool
+	var watchStdin bool
+	var excludes stringListFlag
 	var head, id, branch string
 	if command == "list" {
 		f.BoolVar(&recommended, "recommended", false, "only cleanup recommendations")
+		f.BoolVar(&progress, "progress", false, "stream scan progress on stderr")
+		f.BoolVar(&noDefaultExcludes, "no-default-excludes", false, "disable default cache/temp exclusions")
+		f.Var(&excludes, "exclude", "directory name or path to skip (repeatable)")
+		f.BoolVar(&watchStdin, "watch-stdin", false, "internal: cancel when the SSH input channel closes")
 	}
 	if command == "clean" || command == "remove" {
 		f.BoolVar(&yes, "yes", false, "perform removal instead of preview")
@@ -131,6 +141,13 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	}
 	if err := f.Parse(args); err != nil {
 		return err
+	}
+	if watchStdin {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		stopWatching := watchInput(ctx, os.Stdin, cancel)
+		defer stopWatching()
 	}
 	if err := engine.ValidateHost(common.host); err != nil {
 		return err
@@ -147,7 +164,22 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		}
 		common.root = f.Arg(0)
 	}
-	report, err := engine.Scan(ctx, common.host, common.options())
+	options := common.options()
+	if noDefaultExcludes || len(excludes) > 0 {
+		options.Excludes = []string{}
+		if !noDefaultExcludes {
+			options.Excludes = append(options.Excludes, worktree.DefaultExcludes()...)
+		}
+		options.Excludes = append(options.Excludes, excludes...)
+	}
+	if progress {
+		options.Progress = func(event worktree.Progress) {
+			if data, err := json.Marshal(event); err == nil {
+				fmt.Fprintf(stderr, "%s%s\n", worktree.ProgressPrefix, data)
+			}
+		}
+	}
+	report, err := engine.Scan(ctx, common.host, options)
 	if err != nil {
 		return err
 	}
@@ -244,6 +276,14 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if failed {
 		return errors.New("some worktrees could not be removed")
 	}
+	return nil
+}
+
+type stringListFlag []string
+
+func (values *stringListFlag) String() string { return strings.Join(*values, ", ") }
+func (values *stringListFlag) Set(value string) error {
+	*values = append(*values, value)
 	return nil
 }
 

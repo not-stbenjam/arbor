@@ -7,10 +7,52 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/not-stbenjam/arbor/internal/worktree"
 )
+
+func TestCLIProgressPreservesJSONStdout(t *testing.T) {
+	for _, progress := range []bool{false, true} {
+		var out, stderr bytes.Buffer
+		args := []string{"list", "--path", t.TempDir(), "--json"}
+		if progress {
+			args = append(args, "--progress")
+		}
+		if err := execute(context.Background(), args, &out, &stderr); err != nil {
+			t.Fatal(err)
+		}
+		var report worktree.Report
+		if err := json.Unmarshal(out.Bytes(), &report); err != nil || report.Worktrees == nil {
+			t.Fatalf("stdout is not a report: %q, %v", out.String(), err)
+		}
+		if !progress {
+			if stderr.Len() != 0 {
+				t.Fatalf("unexpected default progress: %q", stderr.String())
+			}
+			continue
+		}
+		lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+		if len(lines) < 2 {
+			t.Fatalf("expected discovery and inspection: %q", stderr.String())
+		}
+		for _, line := range lines {
+			if !strings.HasPrefix(line, worktree.ProgressPrefix) {
+				t.Fatalf("unframed progress: %q", line)
+			}
+			var event map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, worktree.ProgressPrefix)), &event); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range []string{"stage", "path", "discovered", "completed", "total"} {
+				if _, ok := event[key]; !ok {
+					t.Fatalf("missing progress field %q: %v", key, event)
+				}
+			}
+		}
+	}
+}
 
 func TestCLICleanupPreviewsThenRemovesRetainingBranch(t *testing.T) {
 	root := t.TempDir()

@@ -43,8 +43,25 @@ func within(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func discover(ctx context.Context, root string) ([]string, []string, error) {
+func discover(ctx context.Context, root string, excluded func(string) bool, progress func(Progress)) ([]string, []string, error) {
 	var paths, warnings []string
+	lastUpdate := time.Time{}
+	update := func(path string, force bool) {
+		if progress != nil && (force || time.Since(lastUpdate) >= 150*time.Millisecond) {
+			progress(Progress{Stage: "discovery", Path: path, Discovered: len(paths)})
+			lastUpdate = time.Now()
+		}
+	}
+	update(root, true)
+	found := func(path string) {
+		paths = append(paths, path)
+		if progress != nil {
+			sum := sha256.Sum256([]byte(path))
+			progress(Progress{Stage: "discovery", Path: path, Discovered: len(paths), Pending: true,
+				Worktree: &Worktree{ID: hex.EncodeToString(sum[:12]), Path: path, Repo: filepath.Base(path)}})
+			lastUpdate = time.Now()
+		}
+	}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -58,8 +75,11 @@ func discover(ctx context.Context, root string) ([]string, []string, error) {
 			}
 			return nil
 		}
+		if d.IsDir() && excluded(path) {
+			return filepath.SkipDir
+		}
 		if d.Name() == ".git" {
-			paths = append(paths, filepath.Dir(path))
+			found(filepath.Dir(path))
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -67,15 +87,17 @@ func discover(ctx context.Context, root string) ([]string, []string, error) {
 		}
 		// Bare repositories do not have a .git marker.
 		if d.IsDir() {
+			update(path, false)
 			if _, err := os.Stat(filepath.Join(path, "HEAD")); err == nil {
 				if st, err := os.Stat(filepath.Join(path, "objects")); err == nil && st.IsDir() && gitText(ctx, path, "rev-parse", "--is-bare-repository") == "true" {
-					paths = append(paths, path)
+					found(path)
 					return filepath.SkipDir
 				}
 			}
 		}
 		return nil
 	})
+	update(root, true)
 	return paths, warnings, err
 }
 
@@ -92,6 +114,10 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 	if !st.IsDir() {
 		return Report{}, errors.New("scan root must be a directory")
 	}
+	excluded, err := compileExcludes(root, options.Excludes)
+	if err != nil {
+		return Report{}, err
+	}
 	gitVersion, err := git(ctx, root, "--version")
 	if err != nil {
 		return Report{}, fmt.Errorf("Git is required: %w", err)
@@ -101,12 +127,17 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		return Report{}, fmt.Errorf("Git 2.36 or newer is required (found %s)", strings.TrimSpace(gitVersion))
 	}
 	report := Report{Root: root, ScannedAt: start, Worktrees: []Worktree{}, Warnings: []string{}, GitHub: options.GitHub, Fetched: options.Fetch}
-	paths, warnings, err := discover(ctx, root)
+	paths, warnings, err := discover(ctx, root, excluded, options.Progress)
 	if err != nil {
 		return report, err
 	}
 	report.Warnings = append(report.Warnings, warnings...)
 	seen := map[string]bool{}
+	notify := func(stage, path string, completed, total int) {
+		if options.Progress != nil {
+			options.Progress(Progress{Stage: stage, Path: path, Discovered: len(paths), Completed: completed, Total: total})
+		}
+	}
 	for _, path := range paths {
 		if ctx.Err() != nil {
 			return report, ctx.Err()
@@ -124,6 +155,7 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		}
 		seen[common] = true
 		if options.Fetch {
+			notify("fetch", path, len(seen)-1, 0)
 			// Fetch only on explicit request; never prune or change a local branch.
 			_, err := run(ctx, 2*time.Minute, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "fetch", "--all", "--no-recurse-submodules")
 			if err != nil {
@@ -139,6 +171,9 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		entries := parseList(raw)
 		for i := range entries {
 			w := &entries[i]
+			if excluded(w.Path) {
+				continue
+			}
 			w.CommonDir = common
 			w.Main = i == 0
 			w.Repo = filepath.Base(filepath.Dir(common))
@@ -152,22 +187,50 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 			sum := sha256.Sum256([]byte(common + "\x00" + w.Path))
 			w.ID = hex.EncodeToString(sum[:12])
 			report.Worktrees = append(report.Worktrees, *w)
+			if options.Progress != nil {
+				// Registration entries are not modified by inspection workers.
+				options.Progress(Progress{Stage: "discovery", Path: w.Path, Discovered: len(paths), Worktree: w, Pending: true})
+			}
 		}
 	}
 	// Git worktrees are independent. Keep I/O bounded for large home directories.
 	jobs := make(chan int)
 	var wg sync.WaitGroup
+	var progressMu sync.Mutex
+	completed := 0
+	notify("inspect", root, 0, len(report.Worktrees))
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for index := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				progressMu.Lock()
+				notify("inspect", report.Worktrees[index].Path, completed, len(report.Worktrees))
+				progressMu.Unlock()
 				inspect(ctx, &report.Worktrees[index], options)
+				if ctx.Err() != nil {
+					return
+				}
+				progressMu.Lock()
+				completed++
+				if options.Progress != nil {
+					w := report.Worktrees[index]
+					options.Progress(Progress{Stage: "inspect", Path: w.Path, Discovered: len(paths), Completed: completed, Total: len(report.Worktrees), Worktree: &w})
+				}
+				progressMu.Unlock()
 			}
 		}()
 	}
+dispatch:
 	for i := range report.Worktrees {
-		jobs <- i
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
+			break dispatch
+		}
 	}
 	close(jobs)
 	wg.Wait()

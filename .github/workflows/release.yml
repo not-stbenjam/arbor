@@ -88,6 +88,9 @@ jobs:
       - name: Install virtual display
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Test first-launch setup and live scan results
+        if: runner.os == 'Linux'
+        run: xvfb-run -a timeout 60s node_modules/.bin/electron scripts/test-desktop-flow.cjs --no-sandbox
       - name: Smoke-test desktop
         if: runner.os == 'Linux'
         env:

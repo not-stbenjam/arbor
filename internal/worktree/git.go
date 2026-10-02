@@ -27,6 +27,7 @@ func run(ctx context.Context, timeout time.Duration, name string, args ...string
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = commandEnv()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

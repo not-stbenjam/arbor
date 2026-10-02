@@ -20,11 +20,13 @@ const {
   execute,
   validatePreferences,
   childEnvironment,
+  scanOptions,
 } = require("./backend.cjs");
 
 let window,
   backend,
-  preferences = { hosts: [], roots: [], theme: "system" },
+  preferences = validatePreferences({}),
+  setupCompleting = false,
   quitAfterRemoval = false,
   quitDialog = false;
 let preferenceWrite = Promise.resolve();
@@ -171,7 +173,28 @@ function handle(channel, handler) {
 
 function registerIPC() {
   handle("arbor:get-state", () => backend.getState());
-  handle("arbor:scan", (options) => backend.scan(options));
+  handle("arbor:cancel-scan", () => backend.cancelScan());
+  handle("arbor:scan", (options) => {
+    if (setupCompleting) throw new Error("Setup is being saved");
+    return backend.scan(options);
+  });
+  handle("arbor:complete-setup", async (value) => {
+    const options = scanOptions(value);
+    if (setupCompleting || backend.state.busy)
+      throw new Error("An operation is already running");
+    setupCompleting = true;
+    try {
+      await savePreferences(() => ({
+        ...preferences,
+        setupCompleted: true,
+        scan: options,
+      }));
+      backend.state.setupRequired = false;
+      return backend.scan(options);
+    } finally {
+      setupCompleting = false;
+    }
+  });
   handle("arbor:remove", async (selection) => {
     const result = await backend.remove(selection, async (trees) => {
       const response = await dialog.showMessageBox(window, {
@@ -205,20 +228,11 @@ function registerIPC() {
   handle("arbor:get-preferences", () => structuredClone(preferences));
   handle("arbor:save-preferences", async (value) => {
     const next = validatePreferences(value);
-    const save = async () => {
-      const directory = app.getPath("userData");
-      await fsp.mkdir(directory, { recursive: true });
-      const temporary = path.join(directory, `preferences-${process.pid}.tmp`);
-      await fsp.writeFile(temporary, JSON.stringify(next, null, 2) + "\n", {
-        mode: 0o600,
-      });
-      await fsp.rename(temporary, path.join(directory, "preferences.json"));
-      preferences = next;
-      nativeTheme.themeSource = preferences.theme;
-      return structuredClone(preferences);
-    };
-    preferenceWrite = preferenceWrite.then(save, save);
-    return preferenceWrite;
+    return savePreferences(() => ({
+      ...next,
+      setupCompleted: preferences.setupCompleted,
+      scan: value.scan === undefined ? preferences.scan : next.scan,
+    }));
   });
   handle("arbor:open-external", async (value) => {
     if (typeof value !== "string" || value.length > 4096)
@@ -246,6 +260,24 @@ function registerIPC() {
     clipboard.writeText(value);
     return true;
   });
+}
+
+function savePreferences(nextValue) {
+  const save = async () => {
+    const next = validatePreferences(nextValue());
+    const directory = app.getPath("userData");
+    await fsp.mkdir(directory, { recursive: true });
+    const temporary = path.join(directory, `preferences-${process.pid}.tmp`);
+    await fsp.writeFile(temporary, JSON.stringify(next, null, 2) + "\n", {
+      mode: 0o600,
+    });
+    await fsp.rename(temporary, path.join(directory, "preferences.json"));
+    preferences = next;
+    nativeTheme.themeSource = preferences.theme;
+    return structuredClone(preferences);
+  };
+  preferenceWrite = preferenceWrite.then(save, save);
+  return preferenceWrite;
 }
 
 function guardQuit(event) {
@@ -506,15 +538,32 @@ app
       preferences.theme = process.env.ARBOR_SMOKE_THEME;
     nativeTheme.themeSource = preferences.theme;
     const binary = cliPath();
-    const host = argument("--host");
-    const savedRoot = host
-      ? preferences.hosts.find((entry) => entry.host === host)?.root || "~"
-      : preferences.roots[0] || "";
+    const explicitLaunch =
+      process.argv.includes("--path") ||
+      process.argv.includes("--host") ||
+      process.env.ARBOR_SMOKE_TEST === "1";
+    const host = explicitLaunch ? argument("--host") : preferences.scan.host;
+    const savedRoot = explicitLaunch
+      ? host
+        ? preferences.hosts.find((entry) => entry.host === host)?.root || "~"
+        : ""
+      : preferences.scan.root;
+    const options = scanOptions({
+      root: argument("--path") || savedRoot,
+      host,
+      github: explicitLaunch
+        ? process.argv.includes("--github")
+        : preferences.scan.github,
+      fetch: explicitLaunch
+        ? process.argv.includes("--fetch")
+        : preferences.scan.fetch,
+      excludes: preferences.scan.excludes,
+    });
     backend = new Backend({
       binary,
       version: `v${app.getVersion()}`,
-      root: argument("--path") || savedRoot,
-      host,
+      options,
+      setupRequired: !explicitLaunch && !preferences.setupCompleted,
     });
     registerIPC();
     menu();
@@ -524,18 +573,14 @@ app
         backend.state.githubAvailable = true;
       })
       .catch(() => {});
-    backend.scan({
-      root: backend.state.root,
-      host: backend.state.host,
-      github: process.argv.includes("--github"),
-      fetch: process.argv.includes("--fetch"),
-    });
+    if (!backend.state.setupRequired) backend.scan(options);
     app.on("activate", () => {
       if (!window) {
         createWindow();
         backend.pending.finally(() => {
           backend.disposed = false;
-          if (window) backend.scan(backend.options);
+          if (window && !backend.state.setupRequired && !backend.state.busy)
+            backend.scan(backend.options);
         });
       }
     });

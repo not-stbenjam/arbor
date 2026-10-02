@@ -27,7 +27,7 @@ The machine being scanned needs **Git 2.36+**, for [NUL-separated worktree metad
 
 ### macOS
 
-Unzip the desktop download, drag **Arbor.app** into Applications, and open it. It defaults to your home directory. The app is ad-hoc signed but not Apple-notarized; macOS may require first-launch approval in **System Settings → Privacy & Security → Open Anyway** after attempting to open it. Only approve a download you trust.
+Unzip the desktop download, drag **Arbor.app** into Applications, and open it. On first launch, a setup wizard lets you choose a local or SSH workspace, scan folder, exclusions, and optional network checks before any scan starts. The app is ad-hoc signed but not Apple-notarized; macOS may require first-launch approval in **System Settings → Privacy & Security → Open Anyway** after attempting to open it. Only approve a download you trust.
 
 The included backend is also usable from Terminal:
 
@@ -63,6 +63,16 @@ Add `$HOME/.local/bin` to your shell's `PATH` if needed. `arbor list`, `clean`, 
 
 Every release includes `arbor_VERSION_checksums.txt` with SHA-256 hashes for both CLI and desktop downloads. On Linux, run `sha256sum --check arbor_VERSION_checksums.txt --ignore-missing` from your download folder. On macOS, compare `shasum -a 256 YOUR_DOWNLOAD` with its entry in the checksum file.
 
+## Scanning
+
+Arbor discovers Git repositories beneath your chosen folder, lists their registered worktrees, then checks Git status, merge/push evidence, file sizes, and activity. A projects folder is usually faster than your entire home folder. Optional fetching and GitHub verification add network work.
+
+The desktop shows worktrees as they are found, with pending checks, the current scan stage and path, elapsed time, and completed counts. Cleanup stays disabled until the complete scan has passed its checks. **Stop scan** cancels the current scan and leaves incomplete results visible; scan again before removing anything.
+
+Setup and **Workspace settings** include editable exclusions. Defaults skip directories named `.cache`, `.Trash`, `node_modules`, `tmp`, and `temp`, plus `~/Library/Caches`, `~/Library/Logs`, and `~/.local/share/Trash`. Enter one directory name or path per line. A name matches directories anywhere below the selected root; a relative path is anchored to that root, and an absolute or `~/` path identifies a specific subtree. These are paths, not glob expressions. The explicitly selected root itself is always scanned. Clear the list to disable exclusions.
+
+Exclusions also omit registered worktrees in excluded subtrees. They never skip file checks during deletion: ignored files, local changes, and other blockers remain protected. SSH exclusions are resolved on the remote machine.
+
 ## CLI
 
 ```sh
@@ -74,6 +84,13 @@ arbor gui --path "$HOME/git"
 arbor list --path "$HOME/git"
 arbor list --path "$HOME/git" --json
 arbor list --path "$HOME/git" --recommended
+
+# Add an exclusion, or replace the default exclusion list.
+arbor list --path "$HOME/git" --exclude archives
+arbor list --path "$HOME/git" --no-default-excludes --exclude node_modules
+
+# Stream machine-readable progress to stderr; the final JSON stays on stdout.
+arbor list --path "$HOME/git" --json --progress
 
 # Explicitly refresh remote refs and check GitHub pull requests.
 arbor list --path "$HOME/git" --fetch --github

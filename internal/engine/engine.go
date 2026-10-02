@@ -37,14 +37,24 @@ func remoteCommand(binary string, args []string) string {
 }
 
 func ssh(ctx context.Context, host string, args ...string) ([]byte, error) {
+	return sshProgress(ctx, host, nil, args...)
+}
+
+func sshProgress(ctx context.Context, host string, progress func(worktree.Progress), args ...string) ([]byte, error) {
 	if err := ValidateHost(host); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
+	if progress != nil {
+		progress(worktree.Progress{Stage: "connecting", Path: host})
+	}
 	binary, err := managed.prepare(ctx, host, Version)
 	if err != nil {
 		return nil, err
+	}
+	if progress != nil && managed.stream != nil {
+		return managed.stream(ctx, host, remoteCommand(binary, args), nil, progress)
 	}
 	return managed.run(ctx, host, remoteCommand(binary, args), nil)
 }
@@ -57,14 +67,23 @@ func Scan(ctx context.Context, host string, options worktree.Options) (worktree.
 	if root == "" {
 		root = "~"
 	}
-	args := []string{"list", "--json", "--path", root}
+	args := []string{"list", "--json", "--watch-stdin", "--path", root}
+	if options.Excludes != nil {
+		args = append(args, "--no-default-excludes")
+		for _, exclude := range options.Excludes {
+			args = append(args, "--exclude", exclude)
+		}
+	}
+	if options.Progress != nil {
+		args = append(args, "--progress")
+	}
 	if options.GitHub {
 		args = append(args, "--github")
 	}
 	if options.Fetch {
 		args = append(args, "--fetch")
 	}
-	data, err := ssh(ctx, host, args...)
+	data, err := sshProgress(ctx, host, options.Progress, args...)
 	if err != nil {
 		return worktree.Report{}, err
 	}

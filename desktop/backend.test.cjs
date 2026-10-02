@@ -51,12 +51,15 @@ test("scan returns busy state immediately, invokes CLI with exact arguments, and
   assert.deepEqual(calls[0], [
     "list",
     "--json",
+    "--progress",
     "--path",
     "~/project's files",
     "--host",
     "user@remote",
     "--github",
     "--fetch",
+    "--no-default-excludes",
+    ...scanOptions().excludes.flatMap((entry) => ["--exclude", entry]),
   ]);
   assert.throws(() => backend.scan({}), /already running/);
   finish(report());
@@ -250,6 +253,14 @@ test("input validation and preference schema are bounded and match renderer cont
       theme: "dark",
       hosts: [{ name: "Build VPS", host: "build", root: "~/src" }],
       roots: ["/work"],
+      setupCompleted: false,
+      scan: {
+        root: "/work",
+        host: "",
+        github: false,
+        fetch: false,
+        excludes: scanOptions().excludes,
+      },
     },
   );
   assert.throws(
@@ -258,4 +269,303 @@ test("input validation and preference schema are bounded and match renderer cont
   );
   assert.throws(() => validatePreferences({ theme: "other" }), /Invalid theme/);
   assert.match(childEnvironment("darwin").PATH, /\/opt\/homebrew\/bin/);
+});
+
+test("first launch cannot scan until setup is completed", () => {
+  let calls = 0;
+  const backend = new Backend({
+    setupRequired: true,
+    run: () => {
+      calls++;
+    },
+  });
+  assert.equal(backend.getState().setupRequired, true);
+  assert.equal(backend.getState().progress, null);
+  assert.throws(() => backend.scan({}), /Complete setup/);
+  assert.equal(calls, 0);
+});
+
+test("scan exposes actual progress with a stable start time and resets it on completion", async () => {
+  let finish, progress;
+  const backend = new Backend({
+    run: (_args, callbacks) => {
+      progress = callbacks.onProgress;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  const initial = backend.scan({ root: "/work", github: true });
+  assert.equal(initial.progress.stage, "starting");
+  assert.equal(initial.options.github, true);
+  progress({
+    stage: "inspecting",
+    path: "/work/topic",
+    discovered: 4,
+    completed: 1,
+    total: 4,
+  });
+  const active = backend.getState();
+  assert.equal(active.progress.startedAt, initial.progress.startedAt);
+  assert.equal(active.progress.completed, 1);
+  assert.equal(active.busy, true);
+  progress({
+    stage: "invalid",
+    path: "",
+    discovered: -1,
+    completed: 0,
+    total: 0,
+  });
+  assert.equal(backend.getState().progress.stage, "inspecting");
+  finish(report());
+  await backend.pending;
+  assert.equal(backend.getState().progress, null);
+});
+
+test("progress protocol handles split UTF-8, split lines, multiple events and final unterminated lines", async () => {
+  const first = {
+    stage: "discovering",
+    path: "/work/🌳",
+    discovered: 1,
+    completed: 0,
+    total: 0,
+  };
+  const second = { ...first, stage: "inspecting", completed: 1, total: 1 };
+  const events = [];
+  const script = `
+    const bytes = Buffer.from(${JSON.stringify("@arbor-progress " + JSON.stringify(first) + "\n@arbor-progress " + JSON.stringify(second))});
+    let i=0;
+    const write = () => {
+      if(i===bytes.length) { process.stdout.write('ok'); return; }
+      process.stderr.write(bytes.subarray(i,++i)); setTimeout(write,1);
+    }; write();`;
+  assert.equal(
+    await execute(process.execPath, ["-e", script], {
+      onProgress: (event) => events.push(event),
+    }),
+    "ok",
+  );
+  assert.deepEqual(events, [first, second]);
+});
+
+test("progress lines do not hide real stderr errors or malformed protocol data", async () => {
+  const event = {
+    stage: "discovering",
+    path: "",
+    discovered: 0,
+    completed: 0,
+    total: 0,
+  };
+  const errors = "@arbor-progress not json\nmeaningful failure";
+  await assert.rejects(
+    execute(
+      process.execPath,
+      [
+        "-e",
+        `process.stderr.write(${JSON.stringify("@arbor-progress " + JSON.stringify(event) + "\n" + errors)}); process.exitCode=2;`,
+      ],
+      { onProgress: () => {} },
+    ),
+    (error) => {
+      assert.equal(error.message, errors);
+      return true;
+    },
+  );
+});
+
+test("large stderr lines are preserved and cannot bypass the progress protocol bound", async () => {
+  const large = "x".repeat(70000);
+  await assert.rejects(
+    execute(
+      process.execPath,
+      [
+        "-e",
+        `process.stderr.write(${JSON.stringify(large)}); process.exitCode=2;`,
+      ],
+      { onProgress: () => assert.fail("not a progress event") },
+    ),
+    (error) => {
+      assert.equal(error.message, large);
+      return true;
+    },
+  );
+});
+
+test("preferences migrate to setup and preserve saved scan choices", () => {
+  assert.equal(validatePreferences({}).setupCompleted, false);
+  const scan = { root: "~/src", host: "vps", github: true, fetch: true };
+  const prefs = validatePreferences({ setupCompleted: true, scan });
+  assert.equal(prefs.setupCompleted, true);
+  assert.deepEqual(prefs.scan, { ...scan, excludes: scanOptions().excludes });
+  assert.throws(
+    () => validatePreferences({ scan: { host: "bad host" } }),
+    /host alias/,
+  );
+});
+
+test("scan exclusions use defaults only when omitted and preserve an explicit empty list", async () => {
+  assert.ok(scanOptions().excludes.includes("node_modules"));
+  assert.deepEqual(scanOptions({ excludes: [] }).excludes, []);
+  for (const excludes of [[""], ["\0"], "tmp", Array(101).fill("tmp")])
+    assert.throws(() => scanOptions({ excludes }));
+  const calls = [];
+  const backend = new Backend({
+    run: async (args) => {
+      calls.push(args);
+      return report();
+    },
+  });
+  backend.scan({ excludes: ["build stuff", "~/Library/Caches"] });
+  await backend.pending;
+  assert.deepEqual(calls[0].slice(-5), [
+    "--no-default-excludes",
+    "--exclude",
+    "build stuff",
+    "--exclude",
+    "~/Library/Caches",
+  ]);
+  backend.scan({ excludes: [] });
+  await backend.pending;
+  assert.equal(calls[1].at(-1), "--no-default-excludes");
+  assert.equal(calls[1].includes("--exclude"), false);
+});
+
+test("live worktrees upsert by path, remain non-removable, and are cleared after failure", async () => {
+  let progress, rejectScan;
+  const backend = new Backend({
+    run: (_args, callbacks) => {
+      progress = callbacks.onProgress;
+      return new Promise((_resolve, reject) => {
+        rejectScan = reject;
+      });
+    },
+  });
+  backend.scan({ root: "/work" });
+  const event = {
+    stage: "discovery",
+    path: tree.path,
+    discovered: 1,
+    completed: 0,
+    total: 0,
+  };
+  progress({
+    ...event,
+    worktree: { ...tree, id: "provisional", branch: "" },
+    pending: true,
+  });
+  assert.equal(backend.getState().partialWorktrees.length, 1);
+  assert.equal(backend.getState().partialWorktrees[0].pending, true);
+  progress({
+    ...event,
+    stage: "inspect",
+    completed: 1,
+    total: 1,
+    worktree: tree,
+    pending: false,
+  });
+  const state = backend.getState();
+  assert.equal(state.partialWorktrees.length, 1);
+  assert.equal(state.partialWorktrees[0].id, tree.id);
+  assert.equal(state.partialWorktrees[0].pending, false);
+  assert.equal(state.partialWorktrees[0].canRemove, false);
+  assert.equal(state.partialWorktrees[0].recommended, false);
+  assert.equal(state.report, null);
+  assert.equal(state.revision, null);
+  state.partialWorktrees[0].branch = "edited";
+  assert.equal(backend.getState().partialWorktrees[0].branch, tree.branch);
+  rejectScan(new Error("failed scan"));
+  await backend.pending;
+  assert.deepEqual(backend.getState().partialWorktrees, []);
+});
+
+test("stopping a scan waits for completion, preserves incomplete rows, and discards a racing final report", async () => {
+  let finish, callbacks;
+  const backend = new Backend({
+    run: (_args, opts) => {
+      callbacks = opts;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  backend.scan({});
+  callbacks.onProgress({
+    stage: "inspect",
+    path: tree.path,
+    discovered: 1,
+    completed: 1,
+    total: 1,
+    worktree: tree,
+    pending: false,
+  });
+  assert.equal(backend.getState().canCancelScan, true);
+  const stopping = backend.cancelScan();
+  assert.equal(stopping.busy, true);
+  assert.equal(stopping.cancelRequested, true);
+  assert.equal(callbacks.signal.aborted, true);
+  finish(report());
+  await backend.pending;
+  const stopped = backend.getState();
+  assert.equal(stopped.busy, false);
+  assert.equal(stopped.cancelled, true);
+  assert.equal(stopped.cancelRequested, false);
+  assert.equal(stopped.report, null);
+  assert.equal(stopped.revision, null);
+  assert.equal(stopped.partialWorktrees.length, 1);
+  assert.equal(stopped.partialWorktrees[0].canRemove, false);
+  assert.throws(() => backend.cancelScan(), /No cancellable scan/);
+  backend.scan({});
+  assert.equal(backend.getState().cancelled, false);
+  assert.deepEqual(backend.getState().partialWorktrees, []);
+  finish(report());
+  await backend.pending;
+});
+
+test("explicit cancellation suppresses only the stopped scan's failure", async () => {
+  const backend = new Backend({
+    run: (_args, { signal }) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new Error("signal terminated")),
+          { once: true },
+        );
+      }),
+  });
+  backend.scan({});
+  backend.cancelScan();
+  await backend.pending;
+  assert.equal(backend.getState().error, "");
+  assert.equal(backend.getState().cancelled, true);
+});
+
+test("cleanup is not a cancellable scan", async () => {
+  const backend = new Backend({
+    run: async () => report([{ ...tree, recommended: false }]),
+  });
+  backend.scan({});
+  await backend.pending;
+  let decide;
+  const remove = backend.remove(
+    selection(backend, { recommendedOnly: false }),
+    () =>
+      new Promise((resolve) => {
+        decide = resolve;
+      }),
+  );
+  assert.equal(backend.getState().canCancelScan, false);
+  assert.throws(() => backend.cancelScan(), /No cancellable scan/);
+  decide(false);
+  await remove;
+});
+
+test("abort signal actually terminates a running child process", async () => {
+  const controller = new AbortController();
+  const pending = execute(
+    process.execPath,
+    ["-e", "setInterval(() => {},1000)"],
+    { signal: controller.signal },
+  );
+  setTimeout(() => controller.abort(), 40);
+  await assert.rejects(pending, /scan stopped/);
 });

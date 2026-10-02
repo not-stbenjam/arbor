@@ -116,6 +116,26 @@
             </button>
           </div>
         </div>
+        <section
+          id="scan-progress"
+          class="scan-progress"
+          aria-label="Scan progress"
+          hidden
+        >
+          <div class="progress-heading">
+            <span data-icon="refresh"></span
+            ><strong id="progress-stage" role="status">Starting scan…</strong
+            ><span id="progress-elapsed"></span
+            ><button class="button" id="stop-scan">Stop scan</button>
+          </div>
+          <div class="progress-details">
+            <span id="progress-path"></span><span id="progress-counts"></span>
+          </div>
+          <progress
+            id="progress-meter"
+            aria-label="Worktrees inspected"
+          ></progress>
+        </section>
         <div class="banner" id="error-banner" role="alert" hidden>
           <span data-icon="warning"></span><span id="error-message"></span
           ><button
@@ -251,8 +271,41 @@
               <option value="dark">Dark</option>
             </select>
           </div>
+          <div class="exclusion-setting">
+            <div class="exclusion-heading">
+              <label class="field-label" for="scan-excludes"
+                >Excluded directories</label
+              ><button
+                type="button"
+                class="text-button"
+                id="scan-reset-excludes"
+              >
+                Restore defaults
+              </button>
+            </div>
+            <textarea
+              id="scan-excludes"
+              class="text-input exclusions-input"
+              rows="4"
+              spellcheck="false"
+            ></textarea>
+            <p class="field-hint">
+              One directory name or path per line, no wildcards. Names match
+              anywhere; paths exclude a specific subtree. Leave empty to scan
+              all directories. The chosen scan folder is always included.
+            </p>
+          </div>
         </div>
+        <div
+          id="settings-progress"
+          class="settings-progress"
+          role="status"
+          hidden
+        ></div>
         <div class="dialog-footer">
+          <button type="button" class="button" id="settings-stop-scan" hidden>
+            Stop scan
+          </button>
           <button type="button" class="button" data-close="settings-dialog">
             Cancel</button
           ><button
@@ -261,6 +314,197 @@
             class="button button-accent"
           >
             Save & scan
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog
+      id="setup-dialog"
+      class="setup-dialog"
+      aria-labelledby="setup-title"
+      aria-describedby="setup-description"
+    >
+      <form id="setup-form">
+        <div class="dialog-header setup-header">
+          <div class="setup-app-mark">
+            <span data-icon="branch"></span><span>Arbor setup</span>
+          </div>
+          <span id="setup-step-label">1 of 3</span>
+        </div>
+        <div class="dialog-body setup-body">
+          <h2 id="setup-title" tabindex="-1">Choose your workspace</h2>
+          <p id="setup-description">
+            Start with the machine and folder where you keep your Git projects.
+          </p>
+          <section id="setup-step-1" aria-label="Workspace location">
+            <fieldset class="setup-machine-options">
+              <legend class="sr-only">Machine</legend>
+              <label class="setup-machine-option"
+                ><input
+                  type="radio"
+                  name="setup-machine"
+                  id="setup-local"
+                  value="local"
+                  checked
+                /><span data-icon="monitor"></span
+                ><span
+                  ><strong>This computer</strong
+                  ><small>Scan local files</small></span
+                ></label
+              ><label class="setup-machine-option"
+                ><input
+                  type="radio"
+                  name="setup-machine"
+                  id="setup-remote"
+                  value="remote"
+                /><span data-icon="server"></span
+                ><span
+                  ><strong>SSH host</strong
+                  ><small>Scan a remote machine</small></span
+                ></label
+              >
+            </fieldset>
+            <div id="setup-host-field" hidden>
+              <label class="field-label" for="setup-host">SSH host</label
+              ><input
+                class="text-input"
+                id="setup-host"
+                placeholder="user@hostname or SSH alias"
+              />
+              <p class="field-hint">
+                Uses your SSH config and keys. Arbor installs its matching CLI
+                on the host.
+              </p>
+            </div>
+            <label class="field-label" for="setup-root">Scan folder</label>
+            <div class="input-group">
+              <input
+                class="text-input"
+                id="setup-root"
+                value="~"
+                required
+              /><button class="button" type="button" id="setup-choose-folder">
+                Choose…
+              </button>
+            </div>
+            <p class="field-hint">
+              Choose your projects folder for a faster first scan. Scanning your
+              entire home folder can take longer: Arbor walks directories, then
+              checks Git status and measures worktree files.
+            </p>
+          </section>
+          <section id="setup-step-2" aria-label="Scan options" hidden>
+            <div class="setting-row">
+              <label for="setup-github"
+                ><strong>Verify pull requests with GitHub</strong
+                ><span
+                  >Uses your signed-in GitHub CLI. Adds network requests to
+                  check merged pull requests.</span
+                ></label
+              ><input type="checkbox" id="setup-github" />
+            </div>
+            <div class="setting-row">
+              <label for="setup-fetch"
+                ><strong>Fetch remote branches</strong
+                ><span
+                  >Runs a fetch for discovered repositories. More current merge
+                  and push information, but a slower scan.</span
+                ></label
+              ><input type="checkbox" id="setup-fetch" />
+            </div>
+            <p class="setup-local-note">
+              <span data-icon="info"></span
+              ><span
+                >Both are optional. With them off, Arbor uses local Git data and
+                cached remote references. You can change this later.</span
+              >
+            </p>
+            <div class="exclusion-setting">
+              <div class="exclusion-heading">
+                <label class="field-label" for="setup-excludes"
+                  >Excluded directories</label
+                ><button
+                  type="button"
+                  class="text-button"
+                  id="setup-reset-excludes"
+                >
+                  Restore defaults
+                </button>
+              </div>
+              <textarea
+                id="setup-excludes"
+                class="text-input exclusions-input"
+                rows="4"
+                spellcheck="false"
+              ></textarea>
+              <p class="field-hint">
+                Skip caches, dependencies, and temporary folders. One name or
+                path per line, no wildcards. Names match anywhere; paths exclude
+                a subtree. Empty means scan all.
+              </p>
+            </div>
+            <div class="setting-row">
+              <label for="setup-theme"
+                ><strong>Appearance</strong
+                ><span>Use your system theme or choose your own.</span></label
+              ><select id="setup-theme">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </div>
+          </section>
+          <section id="setup-step-3" aria-label="Review setup" hidden>
+            <dl class="setup-summary">
+              <div>
+                <dt>Machine</dt>
+                <dd id="setup-review-machine"></dd>
+              </div>
+              <div>
+                <dt>Folder</dt>
+                <dd id="setup-review-root"></dd>
+              </div>
+              <div>
+                <dt>GitHub verification</dt>
+                <dd id="setup-review-github"></dd>
+              </div>
+              <div>
+                <dt>Remote fetch</dt>
+                <dd id="setup-review-fetch"></dd>
+              </div>
+              <div>
+                <dt>Excluded directories</dt>
+                <dd id="setup-review-excludes"></dd>
+              </div>
+              <div>
+                <dt>Appearance</dt>
+                <dd id="setup-review-theme"></dd>
+              </div>
+            </dl>
+            <div class="setup-explanation">
+              <span data-icon="search"></span>
+              <p>
+                Arbor discovers repositories, checks their registered worktrees,
+                and reads changes, commits, and disk usage. Progress appears as
+                it works. Scanning never deletes a worktree.
+              </p>
+            </div>
+          </section>
+          <p id="setup-error" class="setup-error" role="alert" hidden></p>
+        </div>
+        <div class="dialog-footer setup-footer">
+          <button type="button" class="button" id="setup-back" hidden>
+            Back</button
+          ><span></span
+          ><button type="button" class="button button-accent" id="setup-next">
+            Continue</button
+          ><button
+            type="submit"
+            class="button button-accent"
+            id="setup-start"
+            hidden
+          >
+            Start scanning
           </button>
         </div>
       </form>

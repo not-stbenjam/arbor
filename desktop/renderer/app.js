@@ -80,8 +80,30 @@
     revision: "",
     version: "",
     platform: "linux",
+    setupRequired: false,
+    options: null,
+    progress: null,
+    partialWorktrees: [],
+    cancelled: false,
+    cancelRequested: false,
   };
-  let prefs = { hosts: [], roots: [], theme: "system" },
+  const defaultExcludes = [
+    ".cache",
+    ".Trash",
+    "node_modules",
+    "tmp",
+    "temp",
+    "~/Library/Caches",
+    "~/Library/Logs",
+    "~/.local/share/Trash",
+  ];
+  let prefs = {
+      hosts: [],
+      roots: [],
+      theme: "system",
+      scan: {},
+      setupCompleted: false,
+    },
     view = "all",
     repo = "",
     search = "",
@@ -101,13 +123,23 @@
     detailSignature = "",
     visible = [],
     desiredFetch = false,
-    desiredGitHub = false;
-  const items = () => state.report?.worktrees || [];
-  const blocked = () => !connected || state.busy || removing;
+    desiredGitHub = false,
+    desiredExcludes = [...defaultExcludes],
+    setupStep = 1,
+    setupInitialized = false,
+    setupSubmitting = false;
+  const items = () => state.report?.worktrees || state.partialWorktrees || [];
+  const blocked = () =>
+    !connected || state.busy || removing || state.setupRequired;
   const machineName = () => state.host || "This computer";
   const branchName = (w) =>
-    w.branch || (w.bare ? "Bare repository" : "Detached HEAD");
-  const repoID = (w) => w.commonDir || w.repo;
+    w.branch ||
+    (w.pending
+      ? (w.path || "Worktree").split("/").filter(Boolean).pop()
+      : w.bare
+        ? "Bare repository"
+        : "Detached HEAD");
+  const repoID = (w) => w.commonDir || w.repo || w.path;
   const parsedDate = (value) => {
     const d = new Date(value);
     return Number.isNaN(d.valueOf()) || d.getFullYear() < 1971 ? null : d;
@@ -148,6 +180,8 @@
   const badge = (text, color = "", symbol = "") =>
     `<span class="badge${color ? ` badge-${color}` : ""}">${symbol ? icon(symbol) : ""}${esc(text)}</span>`;
   function badges(w) {
+    if (w.pending)
+      return `<span class="badge badge-pending">${icon(state.cancelled ? "info" : "refresh", state.cancelled ? "" : "spinning")}${state.cancelled ? "Not checked" : "Checking…"}</span>`;
     const result = [];
     if (w.main) result.push(badge("Main", "", "lock"));
     else if (w.bare) result.push(badge("Bare"));
@@ -211,7 +245,20 @@
     }
   }
   function updateState(next) {
+    const selectedPaths = new Set(
+      items()
+        .filter((w) => selection.has(w.id))
+        .map((w) => w.path),
+    );
+    const cursorPath = items().find((w) => w.id === cursor)?.path;
+    const anchorPath = items().find((w) => w.id === anchor)?.path;
     Object.assign(state, next);
+    if (state.options) {
+      desiredGitHub = !!state.options.github;
+      desiredFetch = !!state.options.fetch;
+      if (Array.isArray(state.options.excludes))
+        desiredExcludes = [...state.options.excludes];
+    }
     connected = true;
     document.body.classList.toggle(
       "platform-darwin",
@@ -227,7 +274,15 @@
       state.platform === "darwin" ? "⌘," : "Ctrl ,";
     const existing = new Set(items().map((w) => w.id));
     selection = new Set([...selection].filter((id) => existing.has(id)));
+    items().forEach((w) => {
+      if (selectedPaths.has(w.path)) selection.add(w.id);
+    });
+    if (cursorPath)
+      cursor = items().find((w) => w.path === cursorPath)?.id || cursor;
+    if (anchorPath)
+      anchor = items().find((w) => w.path === anchorPath)?.id || anchor;
     render();
+    if (state.setupRequired) openSetup();
   }
   async function poll() {
     clearTimeout(pollTimer);
@@ -247,27 +302,34 @@
       "refresh-button",
       "machine-button",
       "path-button",
-      "scan-options-button",
       "settings-save",
     ])
       $(`#${id}`).disabled = disabled;
+    $("#scan-options-button").disabled = state.setupRequired;
+    $("#settings-save").textContent = removing
+      ? "Cleanup in progress…"
+      : state.busy
+        ? "Scanning…"
+        : "Save & scan";
     $('#host-form button[type="submit"]').disabled = disabled;
     $("#refresh-button").innerHTML =
-      `${icon("refresh", state.busy ? "spinning" : "")}<span>${state.busy ? "Scanning" : "Refresh"}</span>`;
-    $("#cleanup-button").disabled = disabled || !ready.length;
+      `${icon("refresh", state.busy ? "spinning" : "")}<span>${state.busy ? "Scanning" : state.cancelled ? "Scan again" : "Refresh"}</span>`;
+    $("#cleanup-button").disabled =
+      disabled || !state.revision || !ready.length;
     $("#cleanup-button").innerHTML =
       `${icon(removing ? "refresh" : "cleanup", removing ? "spinning" : "")}<span>${removing ? "Removing…" : `Clean up${ready.length ? ` (${ready.length})` : ""}`}</span>`;
     $("#cleanup-button").title =
       `Remove ${ready.length} recommended worktrees on ${machineName()} and reclaim ${size(sizeOf(ready))}. Branches are kept.`;
     document.querySelectorAll("[data-remove]").forEach((b) => {
       const w = items().find((w) => w.id === b.dataset.remove);
-      b.disabled = disabled || !w?.canRemove;
+      b.disabled = disabled || !state.revision || !w?.canRemove || !!w?.pending;
     });
     $("#selection-bar").hidden = selection.size < 2;
     $("#selection-label").textContent = `${selection.size} worktrees selected`;
     $("#remove-selected").disabled =
       disabled ||
       !selection.size ||
+      !state.revision ||
       items()
         .filter((w) => selection.has(w.id))
         .some((w) => !w.canRemove);
@@ -279,7 +341,11 @@
     for (const w of list) {
       const key = repoID(w);
       if (!repositories.has(key))
-        repositories.set(key, { id: key, name: w.repo, count: 0 });
+        repositories.set(key, {
+          id: key,
+          name: w.repo || "Discovering…",
+          count: 0,
+        });
       repositories.get(key).count++;
     }
     const repos = [...repositories.values()].sort((a, b) =>
@@ -287,7 +353,9 @@
     );
     $("#all-count").textContent = list.length;
     $("#recommended-count").textContent = ready.length;
-    $("#protected-count").textContent = list.filter((w) => !w.canRemove).length;
+    $("#protected-count").textContent = list.filter(
+      (w) => !w.canRemove && !w.pending,
+    ).length;
     $("#repo-count").textContent = repos.length;
     $("#machine-label").textContent = machineName();
     $("#machine-label").title = machineName();
@@ -334,13 +402,17 @@
         }[view];
     $("#view-title").textContent = title;
     $("#recommendation-note").hidden = view !== "recommended";
-    $("#status-message").textContent = removing
-      ? "Removing worktrees…"
-      : state.busy
-        ? state.host
-          ? "Connecting and scanning remote workspace…"
-          : "Scanning repositories and worktrees…"
-        : `${list.length} worktrees · ${repos.length} repositories`;
+    $("#status-message").textContent = state.setupRequired
+      ? "Choose a workspace to get started"
+      : removing
+        ? "Removing worktrees…"
+        : state.busy
+          ? state.host
+            ? `${list.length} ${list.length === 1 ? "worktree" : "worktrees"} found · scanning remote workspace…`
+            : `${list.length} ${list.length === 1 ? "worktree" : "worktrees"} found · scanning…`
+          : state.cancelled
+            ? `Scan stopped · ${list.length} ${list.length === 1 ? "worktree" : "worktrees"} found · scan again to finish checks`
+            : `${list.length} ${list.length === 1 ? "worktree" : "worktrees"} · ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`;
     const warnings = state.report?.warnings || [];
     $("#warning-button").hidden = !warnings.length;
     $("#warning-button").textContent =
@@ -355,6 +427,7 @@
       ? `${fullDate(state.report.scannedAt)} · ${state.report.durationMs} ms`
       : "";
     renderError();
+    renderProgress();
     renderRows();
     renderInspector();
     renderControls();
@@ -365,7 +438,7 @@
       (w) =>
         (!repo || repoID(w) === repo) &&
         (view !== "recommended" || w.recommended) &&
-        (view !== "protected" || !w.canRemove) &&
+        (view !== "protected" || (!w.canRemove && !w.pending)) &&
         (!query ||
           [w.branch, w.repo, w.path, w.head, w.subject].some((v) =>
             (v || "").toLowerCase().includes(query),
@@ -376,10 +449,10 @@
         sort === "branch"
           ? branchName(a).localeCompare(branchName(b))
           : sort === "repo"
-            ? a.repo.localeCompare(b.repo) ||
+            ? (a.repo || "").localeCompare(b.repo || "") ||
               branchName(a).localeCompare(branchName(b))
             : sort === "size"
-              ? a.sizeBytes - b.sizeBytes
+              ? (a.sizeBytes || 0) - (b.sizeBytes || 0)
               : (parsedDate(a.activityAt)?.valueOf() || 0) -
                 (parsedDate(b.activityAt)?.valueOf() || 0);
       return compare * (descending ? -1 : 1);
@@ -407,6 +480,7 @@
       state.busy,
       connected,
       removing,
+      state.cancelled,
       visible.map((w) => ago(w.activityAt)),
     ]);
     if (signature === rowSignature) {
@@ -445,6 +519,26 @@
       )
       .join("");
     $("#table-scroll").scrollTop = scroll;
+    for (const w of visible.filter((w) => w.pending)) {
+      const row = document.querySelector(
+        `.worktree-row[data-id="${CSS.escape(w.id)}"]`,
+      );
+      row.classList.add("pending-row");
+      row.querySelector(".branch-commit").textContent = state.cancelled
+        ? "Inspection incomplete"
+        : "Checking metadata…";
+      row.querySelector(".size-cell").textContent = "—";
+      const button = row.querySelector("[data-remove]");
+      button.innerHTML = icon(
+        state.cancelled ? "info" : "refresh",
+        state.cancelled ? "" : "spinning",
+      );
+      button.title = state.cancelled
+        ? "Scan again to complete inspection"
+        : "Inspection in progress";
+      button.setAttribute("aria-label", `Checking ${branchName(w)}`);
+    }
+    renderControls();
   }
   function renderSelection() {
     document.querySelectorAll(".worktree-row").forEach((row) => {
@@ -464,6 +558,8 @@
       state.report?.fetched,
       blocked(),
       selection.size,
+      state.revision,
+      state.cancelled,
     ]);
     if (signature === detailSignature) return;
     detailSignature = signature;
@@ -471,6 +567,11 @@
     if (!w || selection.size !== 1) {
       $("#inspector-content").innerHTML =
         `${header}<div class="inspector-empty">${icon("info")}${selection.size > 1 ? `${selection.size} worktrees selected.<br>Select one to inspect its metadata.` : "Select a worktree to inspect its metadata and cleanup status."}</div>`;
+      return;
+    }
+    if (w.pending) {
+      $("#inspector-content").innerHTML =
+        `${header}<div class="inspector-body"><h2 class="inspector-branch">${icon("branch")}<span>${esc(branchName(w))}</span></h2><div class="inspector-path"><code>${esc(w.path)}</code></div><p class="detail-note">${icon(state.cancelled ? "info" : "refresh", state.cancelled ? "" : "spinning")}<span>${state.cancelled ? "The scan stopped before inspection finished. Scan again to check this worktree." : "Checking this worktree. Commit, change, merge, and push information will appear as inspection finishes."}</span></p></div>`;
       return;
     }
     const github =
@@ -492,8 +593,183 @@
     $("#inspector-content").innerHTML =
       `${header}<div class="inspector-body"><h2 class="inspector-branch">${icon("branch")}<span>${esc(branchName(w))}</span></h2><p class="inspector-repo">${esc(w.repo)} · ${esc(machineName())}</p><div class="badges">${badges(w)}</div><div class="inspector-path"><code>${esc(w.path)}</code><button class="icon-button" data-copy="${esc(w.path)}" title="Copy path" aria-label="Copy worktree path">${icon("copy")}</button></div><section class="inspector-section"><h3>Activity</h3>${detailRow("Last active", ago(w.activityAt))}${detailRow("Disk space", size(w.sizeBytes))}${detailRow("Changed files", w.changedFiles || 0)}<p class="detail-note">Latest observed commit, Git activity, or file change. ${esc(fullDate(w.activityAt))}.</p></section><section class="inspector-section"><h3>Latest commit</h3><p class="detail-commit">${esc(w.subject || "No commit information")}</p><div class="detail-hash">${esc(w.head)}</div>${detailRow("Author", w.author || "Unknown")}${detailRow("Committed", fullDate(w.commitAt))}</section><section class="inspector-section"><h3>Remote & merge status</h3>${detailRow("Upstream", w.upstream || "Not configured")}${w.upstream ? detailRow("Tracking", `${w.ahead} ahead · ${w.behind} behind`) : ""}${detailRow("GitHub", github)}<p class="detail-note">${icon("cloud")}<span>${esc(push)}.</span></p>${(w.publishedRefs || []).length ? `<p class="detail-hash">${esc(w.publishedRefs.join(", "))}</p>` : ""}<p class="detail-note">${icon(w.merged ? "check-circle" : "info")}<span>${esc(w.merged ? w.mergeReason || "Commits are merged" : `Not verified merged${w.defaultRef ? ` into ${w.defaultRef}` : ""}`)}.</span></p>${w.pr ? `<button class="detail-link" data-external="${esc(w.pr.url)}">#${w.pr.number} ${esc(w.pr.title)} ${icon("external")}</button><p class="detail-note">${esc(w.pr.state)}</p>` : ""}</section><section class="inspector-section"><h3>Cleanup</h3>${w.recommended ? `<p class="detail-note">${icon("check-circle")}<span>Recommended: clean, merged, and safe to remove. The branch is retained.</span></p>` : ""}${(w.blockers || []).map((s) => `<p class="detail-note warning">${icon("shield")}<span>${esc(s)}</span></p>`).join("")}${(w.problems || []).map((s) => `<p class="detail-note warning">${icon("warning")}<span>${esc(s)}</span></p>`).join("")}${w.canRemove && !w.recommended ? '<p class="detail-note">Not recommended for automatic cleanup. Review unmerged commits before removing.</p>' : ""}<button class="button button-danger inspector-remove" data-remove="${esc(w.id)}" ${blocked() || !w.canRemove ? "disabled" : ""}>${icon("trash")}Remove worktree</button></section></div>`;
   }
+  function scanProgressText() {
+    const p = state.progress || {};
+    if (state.cancelRequested) return "Stopping scan…";
+    if (state.cancelled && !state.busy) return "Scan stopped";
+    if (removing && p.stage === "removing")
+      return "Removing selected worktrees…";
+    return (
+      {
+        starting: removing ? "Refreshing after cleanup…" : "Starting scan…",
+        discovery: "Finding Git repositories…",
+        fetch: "Fetching remote branches…",
+        inspect: "Inspecting worktrees…",
+        connecting: "Connecting to SSH host…",
+        removing: "Removing selected worktrees…",
+      }[p.stage] || "Scanning workspace…"
+    );
+  }
+  function renderProgress() {
+    const active = state.busy || state.cancelled;
+    $("#scan-progress").hidden = !active;
+    document.body.classList.toggle("scan-active", active);
+    const p = state.progress || {};
+    const stage = scanProgressText();
+    $("#progress-stage").textContent = stage;
+    const currentPath = p.path || state.root || "";
+    $("#progress-path").textContent =
+      state.cancelled && !state.busy
+        ? `${items().length} ${items().length === 1 ? "worktree" : "worktrees"} found. Scan again to finish checks; cleanup stays disabled.`
+        : currentPath;
+    $("#progress-path").title = currentPath;
+    const elapsed = Number.isFinite(p.startedAt)
+      ? Math.max(0, Math.floor((Date.now() - p.startedAt) / 1000))
+      : 0;
+    $("#progress-elapsed").textContent =
+      state.busy && p.startedAt
+        ? elapsed < 60
+          ? `${elapsed}s elapsed`
+          : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s elapsed`
+        : "";
+    const totalKnown =
+      Number.isFinite(p.total) &&
+      p.total > 0 &&
+      ["fetch", "inspect"].includes(p.stage);
+    const completed = Math.max(0, Number(p.completed) || 0);
+    const countText = totalKnown
+      ? `${completed} of ${p.total} ${p.stage === "fetch" ? "repositories" : "worktrees"}`
+      : Number(p.discovered) > 0
+        ? `${p.discovered} discovered`
+        : "";
+    $("#progress-counts").textContent =
+      state.cancelled && !state.busy ? "" : countText;
+    const meter = $("#progress-meter");
+    meter.hidden = !state.busy;
+    if (totalKnown) {
+      meter.max = p.total;
+      meter.value = Math.min(completed, p.total);
+    } else meter.removeAttribute("value");
+    meter.setAttribute(
+      "aria-label",
+      totalKnown
+        ? `${completed} of ${p.total} ${p.stage === "fetch" ? "repositories fetched" : "worktrees inspected"}`
+        : stage,
+    );
+    for (const selector of ["#stop-scan", "#settings-stop-scan"]) {
+      $(selector).hidden =
+        !state.busy || (!state.canCancelScan && !state.cancelRequested);
+      $(selector).disabled = !!state.cancelRequested;
+      $(selector).textContent = state.cancelRequested
+        ? "Stopping…"
+        : "Stop scan";
+    }
+    $("#settings-progress").hidden = !state.busy;
+    $("#settings-progress").textContent = state.busy
+      ? `${stage}${countText ? ` ${countText}.` : ""} You can edit these settings now; wait for the current operation to finish or stop the scan before starting another.`
+      : "";
+  }
+  const readExcludes = (selector) =>
+    $(selector)
+      .value.split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  function setupOptions() {
+    return {
+      root: $("#setup-root").value.trim(),
+      host: $("#setup-remote").checked ? $("#setup-host").value.trim() : "",
+      github: $("#setup-github").checked,
+      fetch: $("#setup-fetch").checked,
+      excludes: readExcludes("#setup-excludes"),
+    };
+  }
+  function renderSetupStep(focus = true) {
+    const titles = [
+      "Choose your workspace",
+      "Set your scan preferences",
+      "Ready to scan",
+    ];
+    const descriptions = [
+      "Start with the machine and folder where you keep your Git projects.",
+      "Choose how much to check. These settings are saved for future scans.",
+      "Review your choices. You can change them later in Settings.",
+    ];
+    $("#setup-title").textContent = titles[setupStep - 1];
+    $("#setup-description").textContent = descriptions[setupStep - 1];
+    $("#setup-step-label").textContent = `${setupStep} of 3`;
+    $("#setup-dialog").dataset.step = String(setupStep);
+    [1, 2, 3].forEach((step) => {
+      $(`#setup-step-${step}`).hidden = step !== setupStep;
+    });
+    $("#setup-back").hidden = setupStep === 1;
+    $("#setup-next").hidden = setupStep === 3;
+    $("#setup-start").hidden = setupStep !== 3;
+    $("#setup-error").hidden = true;
+    if (setupStep === 3) {
+      const options = setupOptions();
+      $("#setup-review-machine").textContent = options.host || "This computer";
+      $("#setup-review-root").textContent = options.root;
+      $("#setup-review-github").textContent = options.github
+        ? "On · network requests"
+        : "Off · local Git data";
+      $("#setup-review-fetch").textContent = options.fetch
+        ? "On · fetch each repository"
+        : "Off · cached references";
+      $("#setup-review-excludes").textContent = options.excludes.length
+        ? `${options.excludes.length} entries`
+        : "None · scan all directories";
+      $("#setup-review-excludes").title = options.excludes.join("\n");
+      $("#setup-review-theme").textContent =
+        $("#setup-theme").selectedOptions[0].textContent;
+    }
+    if (focus) {
+      $("#setup-dialog").scrollTop = 0;
+      $("#setup-title").focus({ preventScroll: true });
+    }
+  }
+  function openSetup() {
+    if (!state.setupRequired) return;
+    document.querySelectorAll("dialog[open]").forEach((dialog) => {
+      if (dialog.id !== "setup-dialog") dialog.close();
+    });
+    if (!setupInitialized) {
+      setupInitialized = true;
+      $("#setup-root").value = state.root || prefs.scan?.root || "~";
+      $("#setup-theme").value = prefs.theme;
+      $("#setup-excludes").value = desiredExcludes.join("\n");
+      $("#setup-github").checked = false;
+      $("#setup-fetch").checked = false;
+      renderSetupStep(false);
+    }
+    if (!$("#setup-dialog").open) {
+      $("#setup-dialog").showModal();
+      $("#setup-local").focus();
+    }
+  }
+  function validateSetupLocation() {
+    if (!$("#setup-root").value.trim()) {
+      $("#setup-root").focus();
+      $("#setup-root").reportValidity();
+      return false;
+    }
+    if (
+      $("#setup-remote").checked &&
+      !/^[a-zA-Z0-9_][a-zA-Z0-9._@:\[\]-]*$/.test($("#setup-host").value.trim())
+    ) {
+      $("#setup-error").textContent =
+        "Enter an SSH alias or user@hostname, without spaces or command options.";
+      $("#setup-error").hidden = false;
+      $("#setup-host").focus();
+      return false;
+    }
+    return true;
+  }
   async function scan(options) {
     if (blocked()) return;
+    options = {
+      ...options,
+      excludes: options.excludes || [...desiredExcludes],
+    };
     clientError = "";
     dismissedError = "";
     const oldHost = state.host;
@@ -503,6 +779,8 @@
       const next = await window.arbor.scan(options);
       desiredGitHub = !!options.github;
       desiredFetch = !!options.fetch;
+      desiredExcludes = [...options.excludes];
+      prefs.scan = { ...options };
       if ((options.host || "") !== oldHost) {
         view = "all";
         repo = "";
@@ -537,15 +815,21 @@
     });
   }
   function openSettings() {
+    if (state.setupRequired) {
+      openSetup();
+      return;
+    }
     $("#scan-root").value = state.root || "~";
     $("#scan-github").checked = desiredGitHub;
     $("#scan-fetch").checked = desiredFetch;
+    $("#scan-excludes").value = desiredExcludes.join("\n");
     $("#theme-select").value = prefs.theme;
     $("#choose-folder").hidden = !!state.host;
     $("#root-help").textContent = state.host
       ? `Search folder on ${state.host}. Use ~ for your remote home folder.`
       : "Discover Git repositories and registered worktrees in this folder.";
     if (!$("#settings-dialog").open) $("#settings-dialog").showModal();
+    renderProgress();
   }
   function openMachines() {
     if (blocked()) return;
@@ -569,7 +853,7 @@
     scan({ root, host, github: false, fetch: false });
   }
   async function remove(list, recommendedOnly) {
-    if (blocked() || !list.length) return;
+    if (blocked() || !state.revision || !list.length) return;
     const revision = state.revision;
     removing = true;
     clientError = "";
@@ -580,8 +864,9 @@
         recommendedOnly,
         revision,
       });
-      if (result.report) state.report = result.report;
-      if (result.revision) state.revision = result.revision;
+      if (Object.hasOwn(result, "report")) state.report = result.report;
+      if (Object.hasOwn(result, "revision")) state.revision = result.revision;
+      if (result.error) showError(result.error);
       const removed = (result.results || []).filter((r) => r.removed),
         failed = (result.results || []).filter((r) => !r.removed);
       if (removed.length) {
@@ -719,6 +1004,7 @@
       event.preventDefault();
       inspector = true;
       renderInspector();
+      renderControls();
     }
     if ((event.metaKey || event.ctrlKey) && event.key === "a") {
       event.preventDefault();
@@ -747,6 +1033,7 @@
   $("#inspector-button").onclick = () => {
     inspector = !inspector;
     renderInspector();
+    renderControls();
   };
   $("#settings-button").onclick = openSettings;
   $("#scan-options-button").onclick = openSettings;
@@ -778,6 +1065,7 @@
   };
   $("#settings-form").onsubmit = async (event) => {
     event.preventDefault();
+    if (blocked()) return;
     prefs.theme = $("#theme-select").value;
     applyTheme();
     await savePrefs();
@@ -787,6 +1075,7 @@
       host: state.host,
       github: $("#scan-github").checked,
       fetch: $("#scan-fetch").checked,
+      excludes: readExcludes("#scan-excludes"),
     });
   };
   $("#theme-button").onclick = () => {
@@ -826,6 +1115,10 @@
     renderError();
   };
   function menu(action) {
+    if (state.setupRequired) {
+      openSetup();
+      return;
+    }
     if (action === "refresh") refresh();
     if (action === "settings") openSettings();
     if (action === "focus-search") {
@@ -851,6 +1144,123 @@
       menu("focus-search");
     }
   });
+  $("#scan-reset-excludes").onclick = () => {
+    $("#scan-excludes").value = defaultExcludes.join("\n");
+  };
+  $("#setup-reset-excludes").onclick = () => {
+    $("#setup-excludes").value = defaultExcludes.join("\n");
+  };
+  $("#stop-scan").onclick = async () => {
+    if (!state.busy || !state.canCancelScan || state.cancelRequested) return;
+    state.cancelRequested = true;
+    renderProgress();
+    try {
+      updateState(await window.arbor.cancelScan());
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, 350);
+    } catch (error) {
+      state.cancelRequested = false;
+      showError(error.message);
+      renderProgress();
+    }
+  };
+  $("#settings-stop-scan").onclick = $("#stop-scan").onclick;
+  $("#setup-dialog").addEventListener("cancel", (event) =>
+    event.preventDefault(),
+  );
+  $("#setup-dialog").addEventListener("close", () => {
+    if (state.setupRequired && !setupSubmitting) openSetup();
+  });
+  let setupMachine = "local",
+    setupRoots = { local: "", remote: "~" };
+  function changeSetupMachine() {
+    setupRoots[setupMachine] = $("#setup-root").value;
+    setupMachine = $("#setup-remote").checked ? "remote" : "local";
+    $("#setup-root").value = setupRoots[setupMachine] || state.root || "~";
+    $("#setup-host-field").hidden = setupMachine !== "remote";
+    $("#setup-choose-folder").hidden = setupMachine === "remote";
+    if (setupMachine === "remote") $("#setup-host").focus();
+  }
+  $("#setup-local").onchange = changeSetupMachine;
+  $("#setup-remote").onchange = changeSetupMachine;
+  $("#setup-choose-folder").onclick = async () => {
+    try {
+      const root = await window.arbor.chooseFolder();
+      if (root) $("#setup-root").value = root;
+    } catch (error) {
+      $("#setup-error").textContent = error.message;
+      $("#setup-error").hidden = false;
+    }
+  };
+  $("#setup-next").onclick = () => {
+    if (setupSubmitting || (setupStep === 1 && !validateSetupLocation()))
+      return;
+    if (setupStep < 3) {
+      setupStep++;
+      renderSetupStep();
+    }
+  };
+  $("#setup-back").onclick = () => {
+    if (!setupSubmitting && setupStep > 1) {
+      setupStep--;
+      renderSetupStep();
+    }
+  };
+  $("#setup-theme").onchange = () => {
+    prefs.theme = $("#setup-theme").value;
+    applyTheme();
+  };
+  $("#setup-form").onsubmit = async (event) => {
+    event.preventDefault();
+    if (setupStep < 3) {
+      $("#setup-next").click();
+      return;
+    }
+    if (setupSubmitting || !validateSetupLocation()) return;
+    setupSubmitting = true;
+    $("#setup-start").disabled = true;
+    $("#setup-back").disabled = true;
+    $("#setup-start").textContent = "Starting…";
+    $("#setup-error").hidden = true;
+    const options = setupOptions();
+    prefs.theme = $("#setup-theme").value;
+    prefs.scan = { ...options };
+    if (options.host) {
+      const host = prefs.hosts.find((h) => h.host === options.host);
+      if (host) host.root = options.root;
+      else
+        prefs.hosts.push({
+          name: options.host,
+          host: options.host,
+          root: options.root,
+        });
+    } else
+      prefs.roots = [
+        options.root,
+        ...prefs.roots.filter((root) => root !== options.root),
+      ].slice(0, 8);
+    try {
+      await window.arbor.savePreferences(prefs);
+      const next = await window.arbor.completeSetup(options);
+      prefs.setupCompleted = true;
+      desiredExcludes = [...options.excludes];
+      desiredGitHub = options.github;
+      desiredFetch = options.fetch;
+      applyTheme();
+      updateState(next);
+      $("#setup-dialog").close();
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, 350);
+    } catch (error) {
+      $("#setup-error").textContent = error.message;
+      $("#setup-error").hidden = false;
+    } finally {
+      setupSubmitting = false;
+      $("#setup-start").disabled = false;
+      $("#setup-back").disabled = false;
+      $("#setup-start").textContent = "Start scanning";
+    }
+  };
   async function initialize() {
     try {
       if (!window.arbor)
@@ -869,8 +1279,21 @@
       if (!["system", "light", "dark"].includes(prefs.theme))
         prefs.theme = "system";
       applyTheme();
-      desiredGitHub = !!initial.report?.github;
-      desiredFetch = !!initial.report?.fetched;
+      desiredGitHub = !!(
+        initial.options?.github ??
+        prefs.scan?.github ??
+        initial.report?.github
+      );
+      desiredFetch = !!(
+        initial.options?.fetch ??
+        prefs.scan?.fetch ??
+        initial.report?.fetched
+      );
+      desiredExcludes = [
+        ...(initial.options?.excludes ||
+          prefs.scan?.excludes ||
+          defaultExcludes),
+      ];
       updateState(initial);
       window.arbor.onMenuAction(menu);
       pollTimer = setTimeout(poll, initial.busy ? 500 : 2000);
