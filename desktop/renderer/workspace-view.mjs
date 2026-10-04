@@ -1,26 +1,22 @@
-import {
-  icon,
-  size,
-  sizeOf,
-  ago,
-  fullDate,
-  repoID,
-  describeProgress,
-} from "./presentation.mjs";
+import { icon, size, sizeOf, ago, fullDate, repoID } from "./presentation.mjs";
+import { hostProgress } from "./host-progress.mjs";
 
 // Stateless workspace chrome: progress, operation controls, footer and errors.
 export function createWorkspaceView({ document, workspace }) {
   const $ = (selector) => document.querySelector(selector);
   const items = () => workspace.items;
   const blocked = () => workspace.blocked;
-  const machineName = () => workspace.snapshot.host || "This computer";
+  const machineName = () =>
+    workspace.snapshot.hostFilter === null
+      ? "all machines"
+      : workspace.snapshot.host || "This computer";
   function renderControls() {
     const state = workspace.snapshot;
     const disabled = blocked(),
       ready = items().filter((w) => w.recommended);
     $("#refresh-button").disabled = disabled;
     $("#refresh-button").innerHTML =
-      `${icon("refresh", state.busy ? "spinning" : "")}<span>${state.busy ? "Scanning" : state.cancelled ? "Scan again" : "Refresh"}</span>`;
+      `${icon("refresh", state.busy ? "spinning" : "")}<span>${state.cancelled ? "Scan again" : "Refresh"}</span>`;
     $("#cleanup-button").disabled =
       disabled || !state.revision || !ready.length;
     $("#cleanup-button").innerHTML =
@@ -30,61 +26,36 @@ export function createWorkspaceView({ document, workspace }) {
   }
   function renderProgress() {
     const state = workspace.snapshot;
-    const active = state.busy || state.cancelled;
-    $("#scan-progress").hidden = !active;
-    document.body.classList.toggle("scan-active", active);
-    const p = state.progress || {};
-    const { stage, totalKnown, completed, countText } = describeProgress(
-      state,
-      workspace.removing,
-    );
-    $("#progress-stage").textContent = stage;
-    const currentPath = p.path || state.root || "";
-    $("#progress-path").textContent =
-      state.cancelled && !state.busy
-        ? `${items().length} ${items().length === 1 ? "worktree" : "worktrees"} found. Scan again to finish checks; cleanup stays disabled.`
-        : currentPath;
-    $("#progress-path").title = currentPath;
-    const elapsed = Number.isFinite(p.startedAt)
-      ? Math.max(0, Math.floor((Date.now() - p.startedAt) / 1000))
-      : 0;
-    $("#progress-elapsed").textContent =
-      state.busy && p.startedAt
-        ? elapsed < 60
-          ? `${elapsed}s elapsed`
-          : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s elapsed`
-        : "";
-    $("#progress-counts").textContent =
-      state.cancelled && !state.busy ? "" : countText;
-    const meter = $("#progress-meter");
-    meter.hidden = !state.busy;
-    if (totalKnown) {
-      meter.max = p.total;
-      meter.value = Math.min(completed, p.total);
-    } else meter.removeAttribute("value");
-    meter.setAttribute(
-      "aria-label",
-      totalKnown
-        ? `${completed} of ${p.total} ${p.stage === "fetch" ? "repositories fetched" : "worktrees inspected"}`
-        : stage,
-    );
-    $("#stop-scan").hidden =
-      !state.busy || (!state.canCancelScan && !state.cancelRequested);
-    $("#stop-scan").disabled = !!state.cancelRequested;
-    $("#stop-scan").textContent = state.cancelRequested
-      ? "Stopping…"
-      : "Stop scan";
+    const hostList = $("#host-progress-list");
+    const progress = hostProgress(state.hosts);
+    $("#scan-progress").hidden = !progress.visible;
+    document.body.classList.toggle("scan-active", progress.visible);
+    hostList.hidden = false;
+    hostList.innerHTML = progress.markup;
+    $("#progress-stage").textContent = progress.active
+      ? `Scanning ${progress.active} ${progress.active === 1 ? "machine" : "machines"} in the background`
+      : "Scan activity";
+    $("#stop-scan").hidden = !progress.canCancel;
+    $("#stop-scan").disabled = !progress.canCancel;
+    $("#stop-scan").textContent = "Stop all scans";
   }
   function render() {
     const state = workspace.snapshot,
       list = items(),
-      repos = new Set(list.map(repoID));
-    $("#window-context").textContent = state.host
-      ? `${state.host} — Arbor`
-      : "Arbor";
-    $("#connection-label").textContent = state.host
-      ? "SSH workspace"
-      : "Local workspace";
+      repos = new Set(list.map(repoID)),
+      activeHosts = state.hosts.filter((source) => source.busy).length;
+    $("#window-context").textContent =
+      state.hostFilter === null
+        ? "All machines — Arbor"
+        : state.host
+          ? `${state.host} — Arbor`
+          : "Arbor";
+    $("#connection-label").textContent =
+      state.hostFilter === null
+        ? "All workspaces"
+        : state.host
+          ? "SSH workspace"
+          : "Local workspace";
     $("#version").textContent = state.version || "";
     document.body.classList.toggle(
       "platform-darwin",
@@ -102,13 +73,7 @@ export function createWorkspaceView({ document, workspace }) {
       ? "Choose a workspace to get started"
       : workspace.removing
         ? "Removing worktrees…"
-        : state.busy
-          ? state.host
-            ? `${list.length} ${list.length === 1 ? "worktree" : "worktrees"} found · scanning remote workspace…`
-            : `${list.length} ${list.length === 1 ? "worktree" : "worktrees"} found · scanning…`
-          : state.cancelled
-            ? `Scan stopped · ${list.length} ${list.length === 1 ? "worktree" : "worktrees"} found · scan again to finish checks`
-            : `${list.length} ${list.length === 1 ? "worktree" : "worktrees"} · ${repos.size} ${repos.size === 1 ? "repository" : "repositories"}`;
+        : `${list.length} ${list.length === 1 ? "worktree" : "worktrees"} · ${activeHosts ? `${activeHosts} scanning in background` : `${repos.size} ${repos.size === 1 ? "repository" : "repositories"}`}`;
     const warnings = state.report?.warnings || [];
     $("#warning-button").hidden = !warnings.length;
     $("#warning-button").textContent =
@@ -134,7 +99,11 @@ export function createWorkspaceView({ document, workspace }) {
     renderProgress();
     renderControls();
   }
-  $("#stop-scan").onclick = workspace.cancel;
+  $("#stop-scan").onclick = () => workspace.cancel(null);
+  $("#host-progress-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-stop-host]");
+    if (button && !button.disabled) workspace.cancel(button.dataset.stopHost);
+  });
   $("#refresh-button").onclick = workspace.refresh;
   $("#cleanup-button").onclick = () =>
     workspace.remove(

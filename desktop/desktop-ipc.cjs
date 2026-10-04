@@ -38,22 +38,17 @@ function registerDesktopIPC({
   function registerIPC() {
     handle("arbor:get-defaults", () => DEFAULTS);
     handle("arbor:get-state", () => backend.getState());
-    handle("arbor:get-stats", () => backend.readStats());
-    handle("arbor:activate-workspace", (options) => {
-      return backend.configureWorkspace(
-        options,
-        (scan) => preferences.saveScan(scan, { theme: options?.theme }),
-        { restore: true },
-      );
-    });
+    handle("arbor:get-stats", (host) => backend.readStats(host));
+    handle("arbor:set-host-filter", (host) => backend.setHostFilter(host));
+    handle("arbor:refresh-hosts", (host) => backend.refreshHosts(host));
     handle("arbor:inspect-worktree", (value) => {
       guardInteraction();
       return backend.inspectWorktree(value);
     });
     handle("arbor:worktree-menu", showWorktreeMenu);
-    handle("arbor:cancel-scan", () => {
+    handle("arbor:cancel-scan", (host) => {
       guardInteraction();
-      return backend.cancelScan();
+      return backend.cancelScan(host);
     });
     handle("arbor:scan", (options) => {
       return backend.configureWorkspace(options, (scan) =>
@@ -103,7 +98,9 @@ function registerDesktopIPC({
     handle("arbor:get-preferences", () => preferences.get());
     handle("arbor:save-preferences", async (value) => {
       guardInteraction();
-      return preferences.saveEditable(value);
+      const saved = await preferences.saveEditable(value);
+      await backend.synchronizeHosts(saved);
+      return saved;
     });
     handle("arbor:reset-preferences", async () => {
       const result = await backend.resetPreferences(

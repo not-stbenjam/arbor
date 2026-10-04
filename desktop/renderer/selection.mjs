@@ -9,21 +9,22 @@ export function reconcileSelection(
   if (!sameWorkspace) return { ids: new Set(), anchor: "", cursor: "" };
   const existing = new Set(next.map((row) => row.id));
   const previousByID = new Map(previous.map((row) => [row.id, row]));
+  const pathKey = (row) => JSON.stringify([row.host || "", row.path]);
   const oldPaths = new Map(),
     newPaths = new Map();
   for (const row of previous)
-    oldPaths.set(row.path, (oldPaths.get(row.path) || 0) + 1);
+    oldPaths.set(pathKey(row), (oldPaths.get(pathKey(row)) || 0) + 1);
   for (const row of next) {
-    const rows = newPaths.get(row.path) || [];
+    const rows = newPaths.get(pathKey(row)) || [];
     rows.push(row);
-    newPaths.set(row.path, rows);
+    newPaths.set(pathKey(row), rows);
   }
   const remap = (id) => {
     if (existing.has(id)) return id;
     const old = previousByID.get(id),
-      candidates = old && newPaths.get(old.path);
+      candidates = old && newPaths.get(pathKey(old));
     return old?.pending === true &&
-      oldPaths.get(old.path) === 1 &&
+      oldPaths.get(pathKey(old)) === 1 &&
       candidates?.length === 1
       ? candidates[0].id
       : "";

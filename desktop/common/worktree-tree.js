@@ -25,16 +25,25 @@
   function linked(worktrees) {
     return worktrees.filter((w) => w && w.path && !w.main && !w.bare);
   }
+  function scopedKey(host, path) {
+    return host === undefined ? path : JSON.stringify([host, path]);
+  }
+  function repositoryKey(worktree) {
+    return scopedKey(
+      worktree.host,
+      worktree.commonDir || worktree.repo || worktree.path,
+    );
+  }
   function filter(worktrees, options = {}) {
     const query = String(options.query || "")
       .trim()
       .toLowerCase();
     return linked(worktrees).filter(
       (w) =>
-        (!options.repo || (w.commonDir || w.repo || w.path) === options.repo) &&
+        (!options.repo || repositoryKey(w) === options.repo) &&
         (options.view !== "recommended" || w.recommended) &&
         (!query ||
-          [w.path, w.branch, w.repo, w.head, w.subject].some((value) =>
+          [w.path, w.branch, w.repo, w.head, w.subject, w.host].some((value) =>
             String(value || "")
               .toLowerCase()
               .includes(query),
@@ -43,7 +52,8 @@
   }
   function folderWorktrees(rows, path) {
     const entry = rows.find(
-      (row) => row.kind === "directory" && row.node.path === path,
+      (row) =>
+        row.kind === "directory" && (row.node.key || row.node.path) === path,
     );
     return entry ? [...entry.node.descendants] : [];
   }
@@ -58,7 +68,7 @@
       kept: all.filter((w) => w.pending || (!w.canRemove && !w.canDiscard)),
     };
   }
-  function build(worktrees, scanRoot) {
+  function build(worktrees, scanRoot, host) {
     worktrees = linked(worktrees);
     if (!worktrees.length) return null;
     let rootPath =
@@ -69,6 +79,8 @@
       rootPath = parent(rootPath);
     const makeNode = (path) => ({
       path,
+      key: scopedKey(host, path),
+      host,
       name: path.split("/").pop() || "/",
       children: [],
       worktrees: [],
@@ -120,7 +132,7 @@
         isRoot || node.children.length > 0 || !node.worktrees.length;
       if (group) {
         result.push({ kind: "directory", node, depth, label });
-        if (collapsed.has(node.path)) return;
+        if (collapsed.has(node.key)) return;
       }
       const registrations = [...node.worktrees];
       if (compare) registrations.sort((a, b) => compare([a], [b]));
@@ -150,6 +162,8 @@
     parent,
     contains,
     linked,
+    scopedKey,
+    repositoryKey,
     filter,
     folderWorktrees,
     descendants,

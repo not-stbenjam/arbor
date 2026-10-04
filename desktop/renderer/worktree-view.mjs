@@ -1,9 +1,10 @@
 import {
   projectTree,
+  projectRepositories,
   renderTreeRows,
   renderRepositoryList,
 } from "./worktree-presentation.mjs";
-import { icon, repoID, ago } from "./presentation.mjs";
+import { icon, ago } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
 
 // Owns tree-only interaction state: filters, sorting, expansion and selection.
@@ -25,8 +26,9 @@ export function createWorktreeView({
     repoSignature = "",
     directoryRows = [],
     visible = [];
+  const hostFilter = () => workspace.snapshot.hostFilter;
   let previousItems = [],
-    previousHost = workspace.snapshot.host;
+    previousHost = hostFilter();
   const collapsedDirectories = new Set();
   const items = () => workspace.items;
   const blocked = () => workspace.blocked;
@@ -34,7 +36,13 @@ export function createWorktreeView({
     $("#worktree-list")
       .querySelectorAll("[data-delete], [data-folder-delete]")
       .forEach((button) => {
-        button.disabled = blocked() || !workspace.snapshot.revision;
+        const row =
+          button.dataset.delete &&
+          items().find((entry) => entry.id === button.dataset.delete);
+        button.disabled =
+          blocked() ||
+          !workspace.snapshot.revision ||
+          (row && !workspace.canDelete(row));
       });
     $("#selection-bar").hidden = selection.ids.size < 2;
     $("#selection-label").textContent =
@@ -45,20 +53,8 @@ export function createWorktreeView({
   function render() {
     const list = items(),
       ready = list.filter((w) => w.recommended),
-      repositories = new Map();
-    for (const w of list) {
-      const key = repoID(w);
-      if (!repositories.has(key))
-        repositories.set(key, {
-          id: key,
-          name: w.repo || "Discovering…",
-          count: 0,
-        });
-      repositories.get(key).count++;
-    }
-    const repos = [...repositories.values()].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
+      repos = projectRepositories(list, workspace.snapshot),
+      repositories = new Map(repos.map((entry) => [entry.id, entry]));
     $("#all-count").textContent = list.length;
     $("#recommended-count").textContent = ready.length;
     $("#repo-count").textContent = repos.length;
@@ -90,6 +86,8 @@ export function createWorktreeView({
       items(),
       {
         root: workspace.snapshot.report?.root || workspace.snapshot.root,
+        hostFilter: workspace.snapshot.hostFilter,
+        hosts: workspace.snapshot.hosts,
         repo,
         view,
         search,
@@ -131,6 +129,7 @@ export function createWorktreeView({
       workspace.removing,
       workspace.snapshot.cancelled,
       workspace.snapshot.revision,
+      workspace.snapshot.hostFilter,
       filtered.map((w) => ago(w.activityAt)),
     ]);
     if (signature === rowSignature) {
@@ -160,6 +159,7 @@ export function createWorktreeView({
       selected: selection.ids,
       collapsed: collapsedDirectories,
       disabled: blocked() || !workspace.snapshot.revision,
+      canDelete: (row) => workspace.canDelete(row),
       cancelled: workspace.snapshot.cancelled,
     });
     $("#table-scroll").scrollTop = scroll;
@@ -321,10 +321,10 @@ export function createWorktreeView({
         previousItems,
         next,
         selection,
-        previousHost === workspace.snapshot.host,
+        previousHost === hostFilter(),
       );
       previousItems = next;
-      previousHost = workspace.snapshot.host;
+      previousHost = hostFilter();
       render();
     },
     focusSearch() {

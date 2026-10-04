@@ -27,13 +27,14 @@ export function createWorkspaceController({
     warning: "",
     root: "",
     host: "",
+    hostFilter: null,
+    hosts: [],
     revision: "",
     version: "",
     platform: "linux",
     setupRequired: false,
     options: null,
     progress: null,
-    partialWorktrees: [],
     cancelled: false,
     cancelRequested: false,
   };
@@ -46,18 +47,19 @@ export function createWorkspaceController({
     dismissedWarning = "",
     pollTimer,
     pollGeneration = 0;
+  const queuedPreferences = new Map();
+  let preferencesGeneration = 0;
   const setTimeout = (...args) => timers.setTimeout(...args),
     clearTimeout = (timer) => timers.clearTimeout(timer);
   // Clone only incoming data; publication then shares those frozen subtrees.
   // Getters return a cached immutable view, never a live controller-owned object.
   for (const value of Object.values(state)) deepFreeze(value);
   let published = Object.freeze({ ...state });
-  let publishedRows = published.partialWorktrees;
+  let publishedRows = [];
   let publishedItems = Object.freeze(linked(publishedRows));
   function publish() {
     published = Object.freeze({ ...state });
-    const rows =
-      published.report?.worktrees || published.partialWorktrees || [];
+    const rows = published.report?.worktrees || [];
     if (rows !== publishedRows) {
       publishedRows = rows;
       publishedItems = Object.freeze(linked(rows));
@@ -66,10 +68,18 @@ export function createWorkspaceController({
   }
   const blocked = () =>
     !connected ||
-    state.busy ||
     removing ||
+    state.removing ||
     state.setupRequired ||
     resettingPreferences;
+  const filter = () => state.hostFilter;
+  const hasActivity = () =>
+    state.busy || state.hosts.some((source) => source.busy);
+  const canDelete = (row) => {
+    if (blocked() || !state.revision || row.pending) return false;
+    const source = state.hosts.find((entry) => entry.host === (row.host || ""));
+    return !source || !["remove", "inspect"].includes(source.operation);
+  };
   function showError(message) {
     clientError = message;
     dismissedError = "";
@@ -81,6 +91,24 @@ export function createWorkspaceController({
     publish();
     if (state.setupRequired && !resettingPreferences) onSetup();
   }
+  function reloadAcceptedPreferences(next) {
+    const generation = preferencesGeneration;
+    for (const [host, options] of queuedPreferences) {
+      // queued stays true through persistence, not just scheduler waiting.
+      // Missing hosts have been forgotten; reload their canonical removal too.
+      if (next.hosts.find((source) => source.host === host)?.queued) continue;
+      queuedPreferences.delete(host);
+      Promise.resolve()
+        .then(() => {
+          if (generation === preferencesGeneration)
+            return onScanAccepted(options);
+        })
+        .catch((error) => {
+          if (generation === preferencesGeneration)
+            notify(`Could not reload settings: ${error.message}`, true);
+        });
+    }
+  }
   async function poll() {
     clearTimeout(pollTimer);
     const generation = pollGeneration;
@@ -90,8 +118,10 @@ export function createWorkspaceController({
     }
     try {
       const next = await api.getState();
-      if (generation === pollGeneration && !resettingPreferences)
+      if (generation === pollGeneration && !resettingPreferences) {
         updateState(next);
+        reloadAcceptedPreferences(next);
+      }
     } catch (error) {
       if (generation !== pollGeneration || resettingPreferences) return;
       connected = false;
@@ -99,32 +129,31 @@ export function createWorkspaceController({
       publish();
     }
     if (generation !== pollGeneration) return;
-    pollTimer = setTimeout(poll, state.busy ? 700 : 3000);
+    pollTimer = setTimeout(poll, hasActivity() ? 700 : 3000);
   }
-  async function scan(options, activate = false) {
-    if (
-      activate
-        ? !connected || removing || state.setupRequired || resettingPreferences
-        : blocked()
-    )
-      return;
+  async function scan(options) {
+    if (blocked()) return;
     options = structuredClone(options);
     clientError = "";
     dismissedError = "";
     dismissedWarning = "";
     const generation = ++pollGeneration;
     clearTimeout(pollTimer);
-    const oldHost = state.host;
+    const oldHost = filter();
     state.busy = true;
     publish();
     try {
-      const next = await (activate
-        ? api.activateWorkspace(options)
-        : api.scan(options));
+      const next = await api.scan(options);
       if (generation !== pollGeneration) return;
-      if ((options.host || "") !== oldHost) onHostChange();
+      if (next.hostFilter !== oldHost) onHostChange();
       updateState(next);
-      await onScanAccepted(options);
+      const host = options.host || "";
+      if (next.hosts.find((source) => source.host === host)?.queued)
+        queuedPreferences.set(host, options);
+      else {
+        queuedPreferences.delete(host);
+        await onScanAccepted(options);
+      }
       if (generation !== pollGeneration) return;
       clearTimeout(pollTimer);
       pollTimer = setTimeout(poll, 500);
@@ -136,12 +165,33 @@ export function createWorkspaceController({
       pollTimer = setTimeout(poll, 700);
     }
   }
+  async function hostCommand(method, host = filter()) {
+    if (blocked()) return;
+    const generation = ++pollGeneration;
+    clearTimeout(pollTimer);
+    clientError = "";
+    dismissedError = "";
+    dismissedWarning = "";
+    const previous = filter();
+    try {
+      const next = await api[method](host);
+      if (generation !== pollGeneration) return;
+      if (method === "setHostFilter" && host !== previous) onHostChange();
+      updateState(next);
+    } catch (error) {
+      if (generation === pollGeneration) showError(error.message);
+    } finally {
+      if (generation === pollGeneration) schedule(350);
+    }
+  }
+  function refreshHosts(host = filter()) {
+    return hostCommand("refreshHosts", host);
+  }
+  function setHostFilter(host) {
+    return hostCommand("setHostFilter", host);
+  }
   function refresh() {
-    return scan({
-      ...(state.options || {}),
-      root: state.root,
-      host: state.host,
-    });
+    return refreshHosts();
   }
   async function remove(list, recommendedOnly, options = {}) {
     if (blocked() || !state.revision || !list.length) return;
@@ -174,7 +224,10 @@ export function createWorkspaceController({
       if (failed.length)
         showError(
           failed
-            .map((r) => `${r.path}: ${r.error || "Not removed"}`)
+            .map(
+              (r) =>
+                `${typeof r.host === "string" ? `${r.host || "This computer"}:` : ""}${r.path}: ${r.error || "Not removed"}`,
+            )
             .join("\n"),
         );
     } catch (error) {
@@ -192,7 +245,7 @@ export function createWorkspaceController({
       }
       removing = false;
       publish();
-      pollTimer = setTimeout(poll, state.busy ? 700 : 3000);
+      pollTimer = setTimeout(poll, hasActivity() ? 700 : 3000);
     }
   }
   function explainKept(kept, append = false) {
@@ -210,10 +263,10 @@ export function createWorkspaceController({
   async function deleteWorktrees(selected) {
     if (blocked() || !state.revision || !selected.length) return;
     const kept = selected.filter(
-      (w) => w.pending || (!w.canRemove && !w.canDiscard),
+      (w) => !canDelete(w) || (!w.canRemove && !w.canDiscard),
     );
     const eligible = selected.filter(
-      (w) => !w.pending && (w.canRemove || w.canDiscard),
+      (w) => canDelete(w) && (w.canRemove || w.canDiscard),
     );
     if (!eligible.length) {
       explainKept(kept);
@@ -245,16 +298,23 @@ export function createWorkspaceController({
       throw error;
     }
   }
-  async function cancel() {
-    if (!state.busy || !state.canCancelScan || state.cancelRequested) return;
-    state.cancelRequested = true;
-    publish();
+  async function cancel(host = filter()) {
+    const sources = state.hosts.filter(
+      (entry) => host === null || entry.host === host,
+    );
+    if (!sources.some((entry) => entry.canCancelScan && !entry.cancelRequested))
+      return;
+    const generation = ++pollGeneration;
+    clearTimeout(pollTimer);
     try {
-      updateState(await api.cancelScan());
+      const next = await api.cancelScan(host);
+      if (generation !== pollGeneration) return;
+      updateState(next);
       schedule(350);
     } catch (error) {
-      state.cancelRequested = false;
+      if (generation !== pollGeneration) return;
       showError(error.message);
+      schedule(700);
     }
   }
   async function reset() {
@@ -266,6 +326,8 @@ export function createWorkspaceController({
     try {
       const result = await api.resetPreferences();
       if (result.cancelled) return;
+      preferencesGeneration++;
+      queuedPreferences.clear();
       clientError = "";
       dismissedError = "";
       onReset(result);
@@ -287,7 +349,7 @@ export function createWorkspaceController({
         );
       const initial = await api.getState();
       updateState(initial);
-      schedule(initial.busy ? 500 : 2000);
+      schedule(hasActivity() ? 500 : 2000);
     } catch (error) {
       showError(error.message);
     }
@@ -296,6 +358,9 @@ export function createWorkspaceController({
     initialize,
     scan,
     refresh,
+    refreshHosts,
+    setHostFilter,
+    canDelete,
     remove,
     deleteWorktrees,
     cancel,
@@ -315,7 +380,7 @@ export function createWorkspaceController({
       return connected;
     },
     get removing() {
-      return removing;
+      return removing || !!state.removing;
     },
     get resetting() {
       return resettingPreferences;
@@ -335,6 +400,8 @@ export function createWorkspaceController({
     },
     dispose() {
       pollGeneration++;
+      preferencesGeneration++;
+      queuedPreferences.clear();
       clearTimeout(pollTimer);
     },
   };

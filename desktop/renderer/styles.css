@@ -173,7 +173,7 @@ a {
   height: 16px;
 }
 .platform-darwin .window-brand {
-  padding-left: 69px;
+  padding-left: 80px;
 }
 .platform-darwin .titlebar {
   height: 42px;
@@ -241,9 +241,6 @@ a {
 .machine-button > .icon:last-child {
   width: 12px;
   color: var(--tertiary);
-}
-.machine-button > .icon:first-child {
-  color: var(--secondary);
 }
 .views {
   display: grid;
@@ -1089,11 +1086,75 @@ dialog::backdrop {
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
+#machine-icon {
+  display: inline-flex;
+  flex: 0 0 18px;
+  color: var(--secondary);
+}
+#machine-icon .icon {
+  width: 18px;
+  height: 18px;
+}
+#host-progress-list {
+  max-height: 150px;
+  overflow: auto;
+}
+.host-progress-row + .host-progress-row {
+  margin-top: 9px;
+}
+.host-progress-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  min-width: 0;
+}
+.host-progress-heading > .icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+.host-progress-heading strong,
+.host-progress-heading > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.host-progress-heading strong {
+  font-weight: 550;
+}
+.host-progress-heading > span {
+  color: var(--secondary);
+}
+.host-progress-heading > button {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+.host-progress-detail {
+  color: var(--secondary);
+  font-size: 10px;
+  margin: 3px 0 0 21px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.host-row .directory-toggle {
+  font-weight: 600;
+  color: var(--text);
+}
+#settings-host {
+  margin-bottom: 14px;
+}
 .progress-heading {
   display: flex;
   align-items: center;
   gap: 7px;
   font-size: 11px;
+  margin-bottom: 8px;
 }
 .progress-heading > .icon {
   width: 14px;
@@ -1103,76 +1164,11 @@ dialog::backdrop {
 .progress-heading strong {
   font-weight: 550;
 }
-#progress-elapsed {
-  margin-left: auto;
-  color: var(--secondary);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
 #stop-scan {
   padding: 3px 8px;
   min-height: 24px;
   font-size: 10px;
-  margin-left: 5px;
-}
-.progress-details {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 7px 0 8px;
-  min-width: 0;
-  color: var(--secondary);
-  font-size: 10px;
-}
-#progress-path {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-#progress-counts {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-#progress-meter {
-  display: block;
-  width: 100%;
-  height: 4px;
-  border: 0;
-  border-radius: 3px;
-  overflow: hidden;
-  appearance: none;
-  background: var(--line);
-}
-#progress-meter::-webkit-progress-bar {
-  background: var(--line);
-  border-radius: 3px;
-}
-#progress-meter::-webkit-progress-value {
-  background: var(--accent);
-  border-radius: 3px;
-}
-#progress-meter:indeterminate {
-  background: linear-gradient(
-    90deg,
-    var(--line) 25%,
-    var(--accent) 50%,
-    var(--line) 75%
-  );
-  background-size: 250% 100%;
-  animation: progress-sweep 1.6s linear infinite;
-}
-#progress-meter:indeterminate::-webkit-progress-bar {
-  background: transparent;
-}
-@keyframes progress-sweep {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: -100% 0;
-  }
+  margin-left: auto;
 }
 .settings-progress {
   margin: 0 18px 16px;
@@ -1558,9 +1554,11 @@ dialog::backdrop {
   white-space: nowrap;
 }
 .row-actions {
-  display: flex;
+  display: grid;
+  /* Reserve the menu column even on folder rows without a menu. */
+  grid-template-columns: 60px 23px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: end;
   gap: 2px;
 }
 .row-action {
@@ -1591,11 +1589,6 @@ dialog::backdrop {
 #cleanup-button:focus-visible {
   outline: 2px solid var(--red);
   outline-offset: 2px;
-}
-.folder-delete {
-  font-size: 10px;
-  display: block;
-  margin-left: auto;
 }
 .row-menu {
   width: 23px;

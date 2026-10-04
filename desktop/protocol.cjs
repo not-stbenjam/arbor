@@ -284,13 +284,26 @@ function validatePreferences(value) {
   const roots = value.roots ?? [];
   if (!Array.isArray(roots) || roots.length > 100)
     throw new Error("Invalid recent folders");
+  const scan = scanOptions(value.scan || { root: roots[0] || "" });
+  const savedScans = value.scans ?? [scan];
+  if (!Array.isArray(savedScans) || savedScans.length > 101)
+    throw new Error("Invalid per-host scan options");
+  const seenHosts = new Set();
+  const scans = savedScans.map((value) => {
+    const options = scanOptions(value);
+    if (seenHosts.has(options.host))
+      throw new Error("Duplicate per-host scan options");
+    seenHosts.add(options.host);
+    return options;
+  });
   return {
     theme,
     hosts,
     roots: roots.map((root) => text(root, "recent folder")),
     setupCompleted: value.setupCompleted === true,
     exclusionDefaultsVersion: 1,
-    scan: scanOptions(value.scan || { root: roots[0] || "" }),
+    scan,
+    scans,
   };
 }
 
@@ -301,14 +314,16 @@ function loadPreferences(value) {
   const previousDefaults = DEFAULT_EXCLUDES.filter(
     (rule) => rule !== "~/.codex/.tmp",
   );
-  const saved = preferences.scan.excludes;
-  if (
-    !value.exclusionDefaultsVersion &&
-    saved.length === previousDefaults.length &&
-    new Set(saved).size === previousDefaults.length &&
-    previousDefaults.every((rule) => saved.includes(rule))
-  ) {
-    preferences.scan.excludes = [...DEFAULT_EXCLUDES];
+  for (const options of [preferences.scan, ...preferences.scans]) {
+    const saved = options.excludes;
+    if (
+      !value.exclusionDefaultsVersion &&
+      saved.length === previousDefaults.length &&
+      new Set(saved).size === previousDefaults.length &&
+      previousDefaults.every((rule) => saved.includes(rule))
+    ) {
+      options.excludes = [...DEFAULT_EXCLUDES];
+    }
   }
   return preferences;
 }

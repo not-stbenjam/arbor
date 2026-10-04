@@ -338,6 +338,7 @@ test("input validation and preference schema are bounded and match renderer cont
       roots: ["/work"],
       setupCompleted: false,
       exclusionDefaultsVersion: 1,
+      scans: [scanOptions({ root: "/work" })],
       scan: {
         root: "/work",
         host: "",
@@ -353,23 +354,6 @@ test("input validation and preference schema are bounded and match renderer cont
   );
   assert.throws(() => validatePreferences({ theme: "other" }), /Invalid theme/);
   assert.match(childEnvironment("darwin").PATH, /\/opt\/homebrew\/bin/);
-});
-
-test("first launch cannot scan until setup is completed", () => {
-  let calls = 0;
-  const backend = new Backend({
-    setupRequired: true,
-    run: () => {
-      calls++;
-    },
-  });
-  assert.equal(backend.getState().setupRequired, true);
-  assert.equal(backend.getState().progress, null);
-  assert.throws(
-    () => backend.configureWorkspace({}, async () => {}),
-    /Complete setup/,
-  );
-  assert.equal(calls, 0);
 });
 
 test("scan exposes actual progress with a stable start time and resets it on completion", async () => {
@@ -767,160 +751,6 @@ test("abort signal actually terminates a running child process", async () => {
   );
   setTimeout(() => controller.abort(), 40);
   await assert.rejects(pending, /scan stopped/);
-});
-
-test("reset returns to first launch defaults without scanning or deleting worktrees", async () => {
-  const calls = [];
-  const backend = new Backend({
-    version: "v1.2.3",
-    platform: "darwin",
-    githubAvailable: true,
-    run: async (args) => {
-      calls.push(args);
-      if (args.includes("--target-only"))
-        throw new Error("inspection unavailable");
-      return report();
-    },
-  });
-  await backend.configureWorkspace(
-    {
-      root: "~/other",
-      host: "vps",
-      github: true,
-      fetch: true,
-      excludes: [],
-    },
-    async () => {},
-  );
-  await backend.waitUntilIdle();
-  backend.inspectWorktree({
-    id: tree.id,
-    revision: backend.getState().revision,
-  });
-  await backend.waitUntilIdle();
-  assert.match(backend.getState().error, /inspection unavailable/);
-  const { state: reset } = await backend.resetPreferences(
-    async () => true,
-    async () => {},
-  );
-  assert.equal(reset.setupRequired, true);
-  assert.equal(reset.busy, false);
-  assert.equal(reset.report, null);
-  assert.equal(reset.revision, null);
-  assert.equal(reset.progress, null);
-  assert.equal(reset.error, "");
-  assert.equal(reset.root, "");
-  assert.equal(reset.host, "");
-  assert.equal(reset.cancelled, false);
-  assert.equal(reset.canCancelScan, false);
-  assert.equal(reset.version, "v1.2.3");
-  assert.equal(reset.platform, "darwin");
-  assert.equal(reset.githubAvailable, true);
-  assert.deepEqual(reset.partialWorktrees, []);
-  assert.deepEqual(reset.options, scanOptions());
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0][0], "list");
-  assert.ok(calls[1].includes("--target-only"));
-  assert.throws(
-    () => backend.configureWorkspace({}, async () => {}),
-    /Complete setup/,
-  );
-  assert.equal(calls.length, 2);
-  reset.options.excludes.push("should not change state");
-  assert.deepEqual(backend.getState().options, scanOptions());
-});
-
-test("confirmed reset cancels an active scan and waits before clearing partial state", async () => {
-  let finish, callbacks;
-  const backend = new Backend({
-    run: (_args, options) => {
-      callbacks = options;
-      return new Promise((resolve) => {
-        finish = resolve;
-      });
-    },
-  });
-  await backend.configureWorkspace({}, async () => {});
-  callbacks.onProgress({
-    stage: "inspect",
-    path: tree.path,
-    discovered: 1,
-    completed: 1,
-    total: 1,
-    worktree: tree,
-    pending: false,
-  });
-  let persisted = false;
-  const resetting = backend.resetPreferences(
-    async () => true,
-    async () => {
-      persisted = true;
-    },
-  );
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(callbacks.signal.aborted, true);
-  assert.equal(
-    persisted,
-    false,
-    "reset must await scan completion before persisting",
-  );
-  assert.equal(backend.getState().partialWorktrees.length, 1);
-  finish(report());
-  const { state: reset } = await resetting;
-  assert.equal(persisted, true);
-  assert.equal(reset.cancelled, false);
-  assert.deepEqual(reset.partialWorktrees, []);
-  assert.equal(reset.progress, null);
-  assert.equal(reset.setupRequired, true);
-});
-
-test("reset refuses cleanup and closing state", async () => {
-  const calls = [];
-  const backend = new Backend({
-    run: async (args) => {
-      calls.push(args);
-      return report([{ ...tree, recommended: false }]);
-    },
-  });
-  await backend.configureWorkspace({}, async () => {});
-  await backend.waitUntilIdle();
-  let confirm;
-  const pending = backend.remove(
-    selection(backend, { recommendedOnly: false }),
-    () =>
-      new Promise((resolve) => {
-        confirm = resolve;
-      }),
-  );
-  let resetConfirmed = false;
-  assert.throws(
-    () =>
-      backend.resetPreferences(
-        async () => {
-          resetConfirmed = true;
-          return true;
-        },
-        async () => {},
-      ),
-    /cleanup to finish/,
-  );
-  assert.equal(
-    resetConfirmed,
-    false,
-    "cleanup blocks reset before confirmation or persistence",
-  );
-  confirm(false);
-  await pending;
-  assert.equal(calls.length, 1);
-  backend.requestClose();
-  assert.throws(
-    () =>
-      backend.resetPreferences(
-        async () => true,
-        async () => {},
-      ),
-    /closing/,
-  );
 });
 
 test("glob exclusions persist and cross the subprocess boundary as literal argument data", async () => {

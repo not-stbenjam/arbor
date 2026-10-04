@@ -1,4 +1,4 @@
-import { icon, esc, describeProgress } from "./presentation.mjs";
+import { icon, esc } from "./presentation.mjs";
 import {
   isValidSSHHost,
   MAX_HOST_LENGTH,
@@ -24,11 +24,36 @@ export function createPreferencesController({
   let context = {
     root: "",
     host: "",
+    hostFilter: null,
+    hosts: [],
     setupRequired: false,
     blocked: true,
     connected: false,
   };
   let loadGeneration = 0;
+  let editingHost = "";
+  const hostFilter = () => context.hostFilter;
+  const machines = () => [
+    { host: "", name: "This computer" },
+    ...prefs.hosts,
+    ...context.hosts
+      .filter(
+        (source) =>
+          source.sessionOnly &&
+          !prefs.hosts.some((saved) => saved.host === source.host),
+      )
+      .map((source) => ({
+        host: source.host,
+        name: source.label || source.host,
+        sessionOnly: true,
+      })),
+  ];
+  const hostName = (host) =>
+    host === null
+      ? "All hosts"
+      : host
+        ? prefs.hosts.find((entry) => entry.host === host)?.name || host
+        : "This computer";
   const options = () => {
     const value = context.options || prefs.scan || {};
     return {
@@ -75,15 +100,25 @@ export function createPreferencesController({
   }
   function renderStatus(next) {
     context = next;
-    const machine = context.host || "This computer";
-    const path = `${context.host ? `${context.host}:` : ""}${context.root || "Home folder"}`;
+    const selected = hostFilter();
+    const machine = hostName(selected);
+    const path =
+      selected === null
+        ? "All configured hosts"
+        : `${selected ? `${selected}:` : ""}${context.root || "Home folder"}`;
     $("#machine-label").textContent = machine;
     $("#machine-label").title = machine;
+    const kind = selected === "" ? "monitor" : "server";
+    $("#machine-icon").innerHTML = icon(kind);
+    $("#machine-icon").dataset.kind = kind;
     $("#root-label").textContent = path;
     $("#path-button").title = `Scan folder: ${path}`;
     $("#machine-button").disabled = context.blocked;
     $("#path-button").disabled = context.blocked;
-    $("#settings-save").disabled = context.blocked;
+    const editingState = context.hosts.find(
+      (source) => source.host === editingHost,
+    );
+    $("#settings-save").disabled = context.blocked || !!editingState?.busy;
     $("#scan-options-button").disabled = context.setupRequired;
     $("#reset-preferences").disabled =
       !context.connected ||
@@ -95,53 +130,67 @@ export function createPreferencesController({
       : "Reset to defaults…";
     $("#settings-save").textContent = context.removing
       ? "Cleanup in progress…"
-      : context.busy
+      : editingState?.busy
         ? "Scanning…"
         : "Save & scan";
     $('#host-form button[type="submit"]').disabled = context.blocked;
-    const { stage, countText } = describeProgress(context, context.removing);
-    $("#settings-progress").hidden = !context.busy;
-    $("#settings-progress").textContent = context.busy
-      ? `${stage}${countText ? ` ${countText}.` : ""} You can edit these settings now. To start another scan, wait for this one to finish or close Settings and use Stop scan in the main window.`
+    $("#settings-progress").hidden = !editingState?.busy;
+    $("#settings-progress").textContent = editingState?.busy
+      ? `${hostName(editingHost)} is scanning in the background. Stop its scan in the main window to apply new scan options.`
       : "";
+  }
+  function editHost(host) {
+    editingHost = host;
+    const source = context.hosts.find((entry) => entry.host === host);
+    const scan = source?.options || options();
+    $("#scan-root").value =
+      source?.root ||
+      (host
+        ? prefs.hosts.find((entry) => entry.host === host)?.root
+        : prefs.roots[0]) ||
+      "~";
+    $("#scan-github").checked = !!scan.github;
+    $("#scan-fetch").checked = !!scan.fetch;
+    $("#scan-excludes").value = (scan.excludes || defaults.excludes).join("\n");
+    $("#choose-folder").hidden = !!host;
+    $("#root-help").textContent = host
+      ? `Search folder on ${host}. Use ~ for your remote home folder.`
+      : "Discover Git repositories and registered worktrees in this folder.";
+    renderStatus(context);
   }
   function openSettings() {
     if (context.setupRequired) {
       onSetup();
       return;
     }
-    const scan = options();
-    $("#scan-root").value = context.root || "~";
-    $("#scan-github").checked = scan.github;
-    $("#scan-fetch").checked = scan.fetch;
-    $("#scan-excludes").value = scan.excludes.join("\n");
+    $("#settings-host").innerHTML = machines()
+      .map(
+        (entry) =>
+          `<option value="${esc(entry.host)}">${esc(entry.name || entry.host)}</option>`,
+      )
+      .join("");
+    $("#settings-host").value = hostFilter() || "";
+    editHost($("#settings-host").value);
     $("#theme-select").value = prefs.theme;
-    $("#choose-folder").hidden = !!context.host;
-    $("#root-help").textContent = context.host
-      ? `Search folder on ${context.host}. Use ~ for your remote home folder.`
-      : "Discover Git repositories and registered worktrees in this folder.";
     if (!$("#settings-dialog").open) $("#settings-dialog").showModal();
   }
   function openMachines() {
     if (context.blocked) return;
     $("#machine-list").innerHTML = [
-      { host: "", name: "This computer" },
-      ...prefs.hosts,
+      { host: null, name: "All hosts" },
+      ...machines(),
     ]
       .map(
         (h) =>
-          `<div class="machine-row"><button class="machine-option${h.host === context.host ? " active" : ""}" data-host="${esc(h.host)}">${icon(h.host ? "server" : "monitor")}<span>${esc(h.name || h.host)}</span>${h.host === context.host ? icon("check") : ""}</button>${h.host ? `<button class="icon-button" data-forget-host="${esc(h.host)}" title="Forget saved host" aria-label="Forget ${esc(h.host)}">${icon("close")}</button>` : ""}</div>`,
+          `<div class="machine-row"><button class="machine-option${h.host === hostFilter() ? " active" : ""}" ${h.host === null ? "data-all-hosts" : `data-host="${esc(h.host)}"`}>${icon(h.host !== "" ? "server" : "monitor")}<span>${esc(h.name || h.host)}</span>${h.host === hostFilter() ? icon("check") : ""}</button>${h.host && !h.sessionOnly ? `<button class="icon-button" data-forget-host="${esc(h.host)}" title="Forget saved host" aria-label="Forget ${esc(h.host)}">${icon("close")}</button>` : ""}</div>`,
       )
       .join("");
     if (!$("#machine-dialog").open) $("#machine-dialog").showModal();
   }
   function switchHost(host) {
     $("#machine-dialog").close();
-    if (host === context.host) return;
-    const root = host
-      ? prefs.hosts.find((h) => h.host === host)?.root || "~"
-      : prefs.roots[0] || "";
-    return onHostChange({ root, host, ...options() });
+    if (host === hostFilter()) return;
+    return onHostChange(host);
   }
   function reset(saved, state) {
     ++loadGeneration;
@@ -158,6 +207,7 @@ export function createPreferencesController({
     $("#scan-fetch").checked = !!saved.scan?.fetch;
   }
   $("#settings-button").onclick = openSettings;
+  $("#settings-host").onchange = () => editHost($("#settings-host").value);
   $("#scan-options-button").onclick = openSettings;
   $("#machine-button").onclick = openMachines;
   $("#add-host").onclick = () => {
@@ -186,7 +236,7 @@ export function createPreferencesController({
     }
   };
   $("#path-button").onclick = async () => {
-    if (context.host) {
+    if (hostFilter() !== "") {
       openSettings();
       return;
     }
@@ -199,12 +249,12 @@ export function createPreferencesController({
   };
   $("#settings-form").onsubmit = (event) => {
     event.preventDefault();
-    if (context.blocked) return;
+    if ($("#settings-save").disabled) return;
     setTheme($("#theme-select").value);
     $("#settings-dialog").close();
     return onScan({
       root: $("#scan-root").value.trim(),
-      host: context.host,
+      host: editingHost,
       github: $("#scan-github").checked,
       fetch: $("#scan-fetch").checked,
       excludes: readExcludes($("#scan-excludes")),
@@ -236,15 +286,16 @@ export function createPreferencesController({
     $("#host-input").value = "";
     return switchHost(host);
   };
-  $("#machine-list").addEventListener("click", (event) => {
+  $("#machine-list").addEventListener("click", async (event) => {
     const button = event.target.closest("button");
     if (!button || button.disabled) return;
-    if (button.dataset.host !== undefined) switchHost(button.dataset.host);
+    if (button.hasAttribute("data-all-hosts")) switchHost(null);
+    else if (button.dataset.host !== undefined) switchHost(button.dataset.host);
     if (button.dataset.forgetHost) {
       prefs.hosts = prefs.hosts.filter(
         (h) => h.host !== button.dataset.forgetHost,
       );
-      save();
+      await save();
       openMachines();
     }
   });

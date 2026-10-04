@@ -4,7 +4,7 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { childEnvironment } = require("./process-runner.cjs");
-const { menuTarget, terminalCommand } = require("./worktree-menu.cjs");
+const { terminalCommand } = require("./worktree-menu.cjs");
 
 async function localDirectory(target) {
   if (!target.local || target.host)
@@ -61,10 +61,10 @@ function createWorktreeContextMenu({
   function show(value) {
     const window = getWindow();
     guardInteraction();
-    const target = menuTarget(backend.getState(), value);
+    const target = backend.resolveWorktree(value);
     const current = () => {
       guardInteraction();
-      const next = menuTarget(backend.getState(), value);
+      const next = backend.resolveWorktree(value);
       if (next.path !== target.path || next.host !== target.host)
         throw new Error("The worktree list changed; try the menu again");
       return next;

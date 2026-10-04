@@ -117,6 +117,27 @@ function removalConfirmationOptions(trees, discardLocal) {
       ? "Only Git worktree registrations will be removed; their folders are already missing. Git branches and commits are retained."
       : "The selected worktree folders will be deleted. Git branches and commits are retained.",
   ];
+  const hosts = new Map();
+  for (const row of trees) {
+    const host = row.host || "";
+    const entry = hosts.get(host) || {
+      host,
+      label: row.hostLabel || host || "This computer",
+      count: 0,
+    };
+    entry.count++;
+    hosts.set(host, entry);
+  }
+  const hostName = ({ host, label }) =>
+    host && label !== host ? `${label} [${host}]` : label;
+  if (hosts.size > 1) {
+    const summary = [...hosts.values()]
+      .slice(0, 4)
+      .map((entry) => `${shorten(hostName(entry), 70)}: ${entry.count}`);
+    if (hosts.size > summary.length)
+      summary.push(`and ${hosts.size - summary.length} more hosts`);
+    notes.push(`Hosts: ${summary.join(" · ")}.`);
+  }
   if (missing && !registrationsOnly)
     notes.push(
       `${missing} missing worktree ${missing === 1 ? "registration will" : "registrations will"} also be removed; no folders exist at those paths.`,
@@ -133,7 +154,16 @@ function removalConfirmationOptions(trees, discardLocal) {
     notes.push(
       "Detached commits will be retained; recovery branches are created only if needed.",
     );
-  const preview = trees.slice(0, 5).map((row) => shorten(row.path, 120));
+  const preview = trees
+    .slice(0, 5)
+    .map((row) =>
+      shorten(
+        Object.hasOwn(row, "host")
+          ? `${hostName(hosts.get(row.host || ""))}: ${row.path}`
+          : row.path,
+        120,
+      ),
+    );
   if (trees.length > preview.length)
     preview.push(
       `and ${trees.length - preview.length} more selected ${trees.length - preview.length === 1 ? "worktree" : "worktrees"}`,
@@ -151,7 +181,7 @@ function removalConfirmationOptions(trees, discardLocal) {
     message:
       trees.length === 1
         ? `Remove ${registrationsOnly ? "registration for " : ""}“${name}”?`
-        : `Remove ${trees.length} ${registrationsOnly ? "missing worktree registrations" : "worktrees"}?`,
+        : `Remove ${trees.length} ${registrationsOnly ? "missing worktree registrations" : "worktrees"}${hosts.size > 1 ? ` on ${hosts.size} hosts` : ""}?`,
     detail: `${notes.join("\n")}\n\n${preview.join("\n")}`,
     buttons: [
       "Cancel",

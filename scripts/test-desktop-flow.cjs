@@ -156,16 +156,17 @@ app.once("browser-window-created", (_event, win) => {
       await until(
         () =>
           js(
-            "window.arbor.getState().then(s=>s.busy && s.partialWorktrees?.length > 0)",
+            "window.arbor.getState().then(s=>s.busy && s.report?.worktrees.some(row=>row.pending))",
           ),
         "live worktrees before scan completion",
       );
       const partial = await js("window.arbor.getState()");
-      assert.equal(partial.report, null);
-      assert.equal(partial.revision, null);
-      assert.equal(partial.partialWorktrees[0].canRemove, false);
-      assert.equal(partial.partialWorktrees[0].recommended, false);
-      assert.ok(partial.progress.startedAt > 0);
+      const partialSource = partial.hosts.find((host) => host.host === "");
+      assert.equal(partialSource.report, null);
+      assert.equal(partialSource.revision, null);
+      assert.ok(partial.report.worktrees.length > 0);
+      assert.ok(partial.report.worktrees.every((row) => row.pending && !row.canRemove && !row.canDiscard && !row.recommended && row.nativeRevision === null));
+      assert.ok(partialSource.progress.startedAt > 0);
       await until(
         () =>
           js(
@@ -237,6 +238,8 @@ app.once("browser-window-created", (_event, win) => {
         invocations.every((args) => args[args.indexOf("--path") + 1] === root),
       );
       if (!resumed) {
+        const completed = await js("window.arbor.getState()");
+        const tree1ID = completed.report.worktrees.find((row) => row.sourceID === "tree-1").id;
         assert.equal(await js("document.querySelector('#inspector')"), null);
         assert.equal(
           await js("document.querySelector('[data-view=protected]')"),
@@ -249,12 +252,13 @@ app.once("browser-window-created", (_event, win) => {
         );
         assert.ok(
           await js(
-            `document.querySelector('tr[data-id="tree-1"]').textContent.includes(${JSON.stringify(root + "/sessions/old/tree-1")})`,
+            `document.querySelector('tr[data-id="${tree1ID}"]').textContent.includes(${JSON.stringify(root + "/sessions/old/tree-1")})`,
           ),
         );
         const oldFolder = root + "/sessions/old";
+        const oldFolderKey = JSON.stringify(["", oldFolder]);
         await js(
-          `document.querySelector('[data-toggle-directory="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
+          `document.querySelector('[data-toggle-directory="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
         assert.equal(
           await js(
@@ -263,7 +267,7 @@ app.once("browser-window-created", (_event, win) => {
           20,
         );
         await js(
-          `document.querySelector('[data-toggle-directory="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
+          `document.querySelector('[data-toggle-directory="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
         assert.equal(
           await js(
@@ -272,7 +276,7 @@ app.once("browser-window-created", (_event, win) => {
           40,
         );
         await js(
-          `document.querySelector('tr[data-id="tree-1"]').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,cancelable:true}))`,
+          `document.querySelector('tr[data-id="${tree1ID}"]').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,cancelable:true}))`,
         );
         await until(() => lastMenu, "native row menu");
         assert.ok(
@@ -297,7 +301,7 @@ app.once("browser-window-created", (_event, win) => {
           11,
         );
         await js(
-          `document.querySelector('[data-toggle-directory="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
+          `document.querySelector('[data-toggle-directory="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
         assert.equal(
           await js(
@@ -307,7 +311,7 @@ app.once("browser-window-created", (_event, win) => {
         );
         removalResponses.push(0);
         await js(
-          `document.querySelector('[data-folder-delete="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
+          `document.querySelector('[data-folder-delete="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
         await until(
           () => removalDialogs.length === 1,
@@ -333,7 +337,7 @@ app.once("browser-window-created", (_event, win) => {
         );
         removalResponses.push(0);
         await js(
-          `document.querySelector('[data-folder-delete="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
+          `document.querySelector('[data-folder-delete="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
         await until(
           () => removalDialogs.length === 2,
@@ -357,7 +361,7 @@ app.once("browser-window-created", (_event, win) => {
         );
         removalResponses.push(1);
         await js(
-          `document.querySelector('[data-folder-delete="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
+          `document.querySelector('[data-folder-delete="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
         await until(
           () =>
@@ -436,7 +440,7 @@ app.once("browser-window-created", (_event, win) => {
         await until(
           () =>
             js(
-              "window.arbor.getState().then(s=>s.busy && s.partialWorktrees?.length > 0)",
+              "window.arbor.getState().then(s=>s.busy && s.report?.worktrees.some(row=>row.pending))",
             ),
           "second scan live results",
         );
@@ -457,9 +461,13 @@ app.once("browser-window-created", (_event, win) => {
           "scan cancellation",
         );
         const stopped = await js("window.arbor.getState()");
-        assert.equal(stopped.report, null);
-        assert.equal(stopped.revision, null);
-        assert.ok(stopped.partialWorktrees.length > 0);
+        const stoppedSource = stopped.hosts.find((host) => host.host === "");
+        assert.ok(stoppedSource.report, "cancellation retains completed report metadata");
+        assert.ok(stoppedSource.revision);
+        assert.equal(stoppedSource.worktreeCount, stopped.report.worktrees.filter((row) => row.host === "").length);
+        assert.ok(stopped.report.worktrees.some((row) => row.pending));
+        assert.equal(stopped.report.worktrees.filter((row) => !row.pending).length, 20);
+        assert.ok(stopped.report.worktrees.filter((row) => row.pending).every((row) => !row.canRemove && !row.canDiscard && !row.recommended));
         await until(
           () => js("!document.querySelector('#settings-save').disabled"),
           "settings enabled after cancellation",
@@ -467,19 +475,21 @@ app.once("browser-window-created", (_event, win) => {
         await until(
           () =>
             js(
-              "document.querySelector('#progress-stage').textContent.includes('stopped')",
+              "document.querySelector('#host-progress-list').textContent.toLowerCase().includes('stopped')",
             ),
           "stopped scan message",
         );
         assert.equal(
           await js("document.querySelector('#cleanup-button').disabled"),
-          true,
+          false,
+          "cached recommendations remain available after stopping a refresh",
         );
         assert.equal(
           await js(
-            "[...document.querySelectorAll('[data-delete]')].every(button=>button.disabled)",
+            "[...document.querySelectorAll('[data-delete]')].filter(button=>!button.disabled).length",
           ),
-          true,
+          20,
+          "only the twenty previously verified rows remain deletable",
         );
         const child = spawn(
           process.execPath,
@@ -526,16 +536,25 @@ app.once("browser-window-created", (_event, win) => {
           await js("document.querySelector('#settings-dialog').open"),
           true,
         );
+        const scanCalls = () => fs.readFileSync(calls, "utf8").trim().split("\n").map(JSON.parse).filter((args) => args[0] === "list");
+        const previousLocalCalls = scanCalls().filter((args) => !args.includes("--host")).length;
+        const previousLocalStart = (await js("window.arbor.getState()")).hosts.find((host) => host.host === "").progress.startedAt;
         await js(
           "document.querySelector('#settings-dialog').close(); document.querySelector('#refresh-button').click()",
         );
         await until(
-          () =>
-            js(
-              "window.arbor.getState().then(s=>s.busy && s.partialWorktrees.length > 0)",
-            ),
-          "scan before reset",
+          async () => {
+            const invocations = scanCalls();
+            if (invocations.filter((args) => !args.includes("--host")).length !== previousLocalCalls + 1 ||
+                !invocations.some((args) => args.includes("--host") && args[args.indexOf("--host") + 1] === "fixture-vps")) return false;
+            const current = await js("window.arbor.getState()");
+            const source = current.hosts.find((host) => host.host === "");
+            return source.busy && source.canCancelScan && source.progress?.stage !== "queued" &&
+              source.progress?.startedAt > previousLocalStart && current.report?.worktrees.some((row) => row.host === "" && row.pending);
+          },
+          "new local scan and added-host CLI actually started before reset",
         );
+        assert.equal(scanCalls().length, 5, "all intended scans started before reset confirmation");
         await js("document.querySelector('#settings-button').click()");
         await until(
           () =>
@@ -554,8 +573,9 @@ app.once("browser-window-created", (_event, win) => {
         assert.equal(resetState.busy, false);
         assert.equal(resetState.setupRequired, true);
         assert.equal(resetState.report, null);
-        assert.equal(resetState.revision, null);
-        assert.deepEqual(resetState.partialWorktrees, []);
+        assert.ok(resetState.hosts.every((host) => host.revision === null && host.report === null));
+        assert.equal(resetState.worktreeCount, 0);
+        assert.ok(resetState.hosts.every((host) => host.worktreeCount === 0));
         assert.equal(
           await js("document.querySelector('#setup-dialog').dataset.step"),
           "1",
@@ -577,7 +597,7 @@ app.once("browser-window-created", (_event, win) => {
           .map(JSON.parse);
         assert.equal(
           finalCalls.filter((args) => args[0] === "list").length,
-          4,
+          5,
           "reset must not automatically scan",
         );
         assert.equal(

@@ -2,7 +2,7 @@
 
 const { randomUUID } = require("node:crypto");
 const os = require("node:os");
-const { WorkspaceCache } = require("./workspace-cache.cjs");
+const { WorkspaceCache, cacheKey } = require("./workspace-cache.cjs");
 const { planRemoval } = require("./removal-policy.cjs");
 const { executeCleanupBatch } = require("./cleanup-batch.cjs");
 const { scanOptions, parseReport, progressEvent } = require("./protocol.cjs");
@@ -36,7 +36,6 @@ class Backend {
     root = "",
     host = "",
     options,
-    setupRequired = false,
     cache = new WorkspaceCache(),
   }) {
     this.#cache = cache;
@@ -51,7 +50,6 @@ class Backend {
       root: this.#options.root,
       host: this.#options.host,
       options: { ...this.#options },
-      setupRequired,
       progress: null,
       partialWorktrees: [],
       cancelled: false,
@@ -75,17 +73,23 @@ class Backend {
   }
 
   getState() {
-    return structuredClone(this.#state);
+    return {
+      ...structuredClone(this.#state),
+      operation: this.#operation,
+      canCancelScan:
+        this.#state.canCancelScan ||
+        (this.#transition === "workspace" &&
+          !this.#transitionController?.signal.aborted),
+    };
   }
 
   assertInteractive() {
     if (this.#disposed) throw new Error("Arbor is closing");
-    if (this.#transition === "setup") throw new Error("Setup is being saved");
     if (this.#transition) throw new Error("An operation is already running");
   }
 
   async waitUntilIdle() {
-    // Setup/reset can start or finish a scan while the caller is waiting.
+    // Workspace preparation can start a scan while the caller is waiting.
     // Observe both promises until neither ownership token changes.
     for (;;) {
       const operation = this.#pending;
@@ -108,22 +112,14 @@ class Backend {
     this.#state.githubAvailable = available === true;
   }
 
-  start({ refresh = false } = {}) {
-    this.assertInteractive();
-    if (this.#state.setupRequired) return this.getState();
-    return refresh
-      ? this.#scan(this.#options)
-      : this.#activateWorkspace(this.#options);
-  }
-
   configureWorkspace(value, persist, { restore = false } = {}) {
     this.assertInteractive();
-    if (this.#state.setupRequired)
-      throw new Error("Complete setup before scanning");
     if (this.#state.busy && (!restore || this.#operation !== "scan"))
       throw new Error("An operation is already running");
     const options = scanOptions(value);
     this.#transition = "workspace";
+    const controller = new AbortController();
+    this.#transitionController = controller;
     this.#transitionPending = (async () => {
       let warning = "";
       try {
@@ -140,62 +136,19 @@ class Backend {
         this.#options = options;
       } finally {
         this.#transition = null;
+        this.#transitionController = null;
       }
       if (this.#disposed) return this.getState();
+      if (controller.signal.aborted) {
+        this.#state.cancelRequested = false;
+        this.#state.cancelled = true;
+        this.#state.warning = warning;
+        return this.getState();
+      }
       if (restore) await this.#activateWorkspace(options);
       else this.#scan(options);
       this.#state.warning = warning;
       return this.getState();
-    })();
-    return this.#transitionPending;
-  }
-
-  completeSetup(value, persist) {
-    this.assertInteractive();
-    if (this.#state.busy) throw new Error("An operation is already running");
-    const options = scanOptions(value);
-    this.#transition = "setup";
-    this.#transitionPending = (async () => {
-      try {
-        await persist(structuredClone(options));
-        this.#options = options;
-        this.#state.setupRequired = false;
-      } finally {
-        this.#transition = null;
-      }
-      // Saving preferences must not launch a new subprocess after close.
-      return this.#disposed ? this.getState() : this.#scan(options);
-    })();
-    return this.#transitionPending;
-  }
-
-  resetPreferences(confirm, persist) {
-    this.assertInteractive();
-    if (this.#operation === "remove")
-      throw new Error("Wait for cleanup to finish before resetting Arbor");
-    if (this.#state.busy && this.#operation !== "scan")
-      throw new Error("Wait for inspection to finish before resetting Arbor");
-    this.#transition = "reset";
-    const controller = new AbortController();
-    this.#transitionController = controller;
-    this.#transitionPending = (async () => {
-      try {
-        if (!(await confirm(controller.signal)))
-          return { cancelled: true, state: this.getState() };
-        if (this.#disposed) throw new Error("Arbor is closing");
-        if (this.#operation === "scan") {
-          this.#cancelScan();
-          await this.#pending;
-        }
-        if (this.#disposed) throw new Error("Arbor is closing");
-        await persist();
-        this.#resetState();
-        await this.#cache.pending;
-        return { cancelled: false, state: this.getState() };
-      } finally {
-        this.#transitionController = null;
-        this.#transition = null;
-      }
     })();
     return this.#transitionPending;
   }
@@ -220,12 +173,13 @@ class Backend {
     });
   }
 
-  async reopen() {
+  async reopen(value = this.#options, { activate = true } = {}) {
     const generation = ++this.#lifecycleGeneration;
     await this.waitUntilIdle();
     if (generation !== this.#lifecycleGeneration) return this.getState();
     this.#disposed = false;
-    return this.start();
+    if (!activate) return this.getState();
+    return this.#activateWorkspace(scanOptions(value));
   }
 
   async readStats() {
@@ -338,8 +292,6 @@ class Backend {
 
   async #activateWorkspace(value = {}) {
     this.assertInteractive();
-    if (this.#state.setupRequired)
-      throw new Error("Complete setup before scanning");
     const options = scanOptions(value);
     if (this.#state.busy) {
       if (this.#operation !== "scan")
@@ -374,18 +326,19 @@ class Backend {
 
   #scan(value = {}) {
     this.assertInteractive();
-    if (this.#state.setupRequired)
-      throw new Error("Complete setup before scanning");
     if (this.#state.busy) throw new Error("An operation is already running");
-    this.#options = scanOptions(value);
+    const options = scanOptions(value);
+    const preserve =
+      this.#state.report && cacheKey(options) === cacheKey(this.#state.options);
+    this.#options = options;
     Object.assign(this.#state, {
-      report: null,
+      report: preserve ? this.#state.report : null,
       busy: true,
       error: "",
       warning: "",
       root: this.#options.root,
       host: this.#options.host,
-      revision: null,
+      revision: preserve ? this.#state.revision : null,
       options: { ...this.#options },
       cancelled: false,
       cancelRequested: false,
@@ -395,7 +348,6 @@ class Backend {
     this.#beginProgress();
     this.#operation = "scan";
     this.#scanController = new AbortController();
-    const options = { ...this.#options };
     this.#pending = this.#readReport(options)
       .then((report) => {
         if (this.#disposed || this.#state.cancelRequested) return;
@@ -430,6 +382,11 @@ class Backend {
   }
 
   cancelScan() {
+    if (!this.#disposed && this.#transition === "workspace") {
+      this.#transitionController.abort();
+      this.#state.cancelRequested = true;
+      return this.getState();
+    }
     this.assertInteractive();
     return this.#cancelScan();
   }
@@ -440,31 +397,6 @@ class Backend {
     this.#state.cancelRequested = true;
     this.#state.canCancelScan = false;
     this.#scanController.abort();
-    return this.getState();
-  }
-
-  #resetState() {
-    this.#options = scanOptions();
-    this.#cache.clear();
-    this.#clearPartialIndexes();
-    this.#scanController = null;
-    Object.assign(this.#state, {
-      report: null,
-      busy: false,
-      error: "",
-      warning: "",
-      root: this.#options.root,
-      host: this.#options.host,
-      options: { ...this.#options },
-      setupRequired: true,
-      progress: null,
-      partialWorktrees: [],
-      cancelled: false,
-      cancelRequested: false,
-      canCancelScan: false,
-      revision: null,
-      cached: false,
-    });
     return this.getState();
   }
 

@@ -69,7 +69,7 @@ Arbor discovers Git repositories beneath your chosen folder and lists their link
 
 The desktop groups worktrees by their actual directories. Each row shows its path, branch, repository, last activity, and size. Delete a row or use a folder's Delete action for its descendant worktrees. Folder deletion removes only the listed worktrees, not the parent folder or unrelated files. Right-click a row to copy its path, open it in Finder/a file manager, or open a local terminal. Local opening actions are unavailable for SSH worktrees.
 
-The desktop shows worktrees as they are found, with pending checks, the current scan stage and path, elapsed time, and completed counts. Cleanup stays disabled until the complete scan has passed its checks. **Stop scan** cancels the current scan and leaves incomplete results visible; scan again before removing anything.
+The desktop scans in the background, with independent progress and **Stop** controls for each host. Previously checked worktrees remain usable during a refresh; newly discovered rows show pending checks until their scan completes. Deleting a checked worktree stops and settles a refresh on that host before removing the selected target. Scans on other hosts continue. Stopping a scan keeps its previous checked results and any incomplete discoveries visible; incomplete discoveries cannot be deleted until checked.
 
 Setup and **Workspace settings** include editable exclusions. Defaults skip directories named `.cache`, `.Trash`, `node_modules`, `tmp`, and `temp`, plus `~/Library/Caches`, `~/Library/Logs`, `~/.local/share/Trash`, and `~/.codex/.tmp`. Real Codex-managed worktrees in `~/.codex/worktrees` are still included. Existing unmodified default lists gain the Codex temporary-directory exclusion on upgrade; custom lists remain unchanged.
 
@@ -79,13 +79,13 @@ Exclusions also omit registered worktrees in excluded subtrees. They never skip 
 
 **Settings** stays pinned below the scrolling repository list. To start over, choose **Settings → Reset to defaults…** and confirm. Arbor stops any active scan, clears its saved settings and scan results, and reopens setup. It does not delete repositories, worktrees, SSH configuration, or cleanup statistics. Reset is unavailable while worktree cleanup is running.
 
-Arbor remembers each workspace's last scan across host switches and app restarts. Returning to a workspace restores its tree immediately; **Refresh** runs a new scan. Saved results show their original scan time, and deletion always rechecks the selected worktree before touching it.
+Arbor remembers each workspace's last scan across host switches and app restarts. **All hosts** combines them into a machine → directory → worktree tree; the machine picker filters it without scanning or cancelling background work. Saved results appear immediately, and uncached hosts scan in the background (up to three at a time). **Refresh** scans the selected host, or all idle hosts in the combined view. Settings has its own host selector for editing a machine's scan options. Saved results show their original scan time, and deletion always rechecks the selected worktree before touching it.
 
 ## Statistics
 
 Open **Statistics**, pinned beside Settings, for lifetime cleanup totals and 30-day charts: worktrees removed, estimated space recovered, cleanup sessions, largest checkout, and average checkout size. Successful deletions from both the desktop app and CLI count. Missing checkout registrations count as cleanups but recover zero bytes; disk space is an estimate, not a measurement of free space.
 
-Statistics belong to the selected machine. Local app and CLI share one store; an SSH host keeps its own totals, including cleanups run directly on that host. View them from the terminal with `arbor stats`, `arbor stats --json`, or `arbor stats --host my-vps`.
+Statistics belong to each machine. The **All hosts** view combines their totals and charts; filtering to a machine shows only its history. Unavailable hosts are identified as partial totals. Local app and CLI share one store; an SSH host keeps its own totals, including cleanups run directly on that host. View them from the terminal with `arbor stats`, `arbor stats --json`, or `arbor stats --host my-vps`.
 
 Only aggregates and 90 days of daily totals are stored, with no worktree path history, in `arbor/statistics.json` under the operating system's user configuration directory. Writes are atomic and process-locked. Unreadable statistics are preserved in a recoverable `.corrupt-*` backup before recording new totals. Resetting preferences keeps statistics.
 
@@ -229,7 +229,8 @@ Each layer owns its state and exposes commands or snapshots to its callers:
 | `internal/engine` | The same scan/removal contract locally or over SSH, with separate transport, provisioning, download coordination, and archive verification. |
 | `cmd/arbor` | Cobra input, pure request normalization and target selection, batch execution, result presentation, and per-machine statistics recording. |
 | `internal/stats`, `desktop/workspace-cache.cjs` | Aggregate cleanup history and reusable scan snapshots, respectively. Neither owns deletion policy. |
-| `desktop/backend.cjs` | Operation lifecycle and snapshots. Electron calls explicit setup, reset, close, and reopen methods; it cannot mutate Backend state. |
+| `desktop/backend.cjs` | One host's operation lifecycle and snapshots. Callers issue commands rather than mutate Backend state. |
+| `desktop/workspace-coordinator.cjs`, `desktop/host-scheduler.cjs`, `desktop/workspace-snapshot.cjs` | Host routing and lifecycle, bounded background scheduling, and host-scoped identities/revisions and combined reports. Filtering never performs I/O. |
 | `desktop/main.cjs` | Electron composition. IPC, application/context menus, native window lifecycle, and subprocess execution have separate adapters. |
 | `desktop/preferences-store.cjs` | Serialized preference persistence with one scan-settings writer, including remembered host roots. |
 | `desktop/removal-policy.cjs`, `desktop/cleanup-batch.cjs` | Pure removal selection and consent planning; sequential execution of approved targets. Batch execution reports outcomes without owning application snapshots or caches. |

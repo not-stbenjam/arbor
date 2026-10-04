@@ -139,141 +139,6 @@ test("closing while workspace preferences persist waits without starting a new s
   assert.equal(backend.getState().root, "/work");
 });
 
-test("setup owns persistence and close cannot launch a subprocess after saving", async () => {
-  const saved = deferred();
-  let calls = 0;
-  const backend = new Backend({
-    setupRequired: true,
-    run: async () => {
-      calls++;
-      return report();
-    },
-  });
-  assert.equal(backend.start().setupRequired, true);
-  const setup = backend.completeSetup(options, async (value) => {
-    assert.equal(value.root, "/work");
-    value.root = "/mutated-copy";
-    await saved.promise;
-  });
-  assert.throws(
-    () => backend.configureWorkspace(options, async () => {}),
-    /Setup is being saved/,
-  );
-  assert.throws(
-    () => backend.completeSetup(options, async () => {}),
-    /Setup is being saved/,
-  );
-  assert.deepEqual(backend.requestClose(), { action: "wait" });
-  saved.resolve();
-  await setup;
-  await backend.waitUntilIdle();
-  assert.equal(calls, 0);
-  assert.equal(backend.getState().setupRequired, false);
-  assert.throws(() => backend.assertInteractive(), /closing/);
-  await backend.reopen();
-  await backend.waitUntilIdle();
-  assert.equal(calls, 1);
-  assert.equal(backend.getState().options.root, "/work");
-  assert.equal(backend.state, undefined);
-  assert.equal(backend.operation, undefined);
-  assert.equal(backend.pending, undefined);
-});
-
-test("failed setup persistence releases ownership and leaves the wizard required", async () => {
-  const backend = new Backend({
-    setupRequired: true,
-    run: async () => report(),
-  });
-  await assert.rejects(
-    backend.completeSetup(options, async () => {
-      throw new Error("disk full");
-    }),
-    /disk full/,
-  );
-  assert.equal(backend.getState().setupRequired, true);
-  assert.equal(backend.getState().busy, false);
-  await backend.completeSetup(options, async () => {});
-  await backend.waitUntilIdle();
-  assert.equal(backend.getState().setupRequired, false);
-  assert.ok(backend.getState().report);
-});
-
-test("cancelling reset preserves a running scan and its existing workspace", async () => {
-  const scan = deferred(),
-    confirmation = deferred();
-  let aborted = false,
-    persisted = false;
-  const backend = new Backend({
-    run: (_args, { signal }) => {
-      signal.addEventListener("abort", () => {
-        aborted = true;
-      });
-      return scan.promise;
-    },
-  });
-  await backend.configureWorkspace(options, async () => {});
-  const reset = backend.resetPreferences(
-    () => confirmation.promise,
-    async () => {
-      persisted = true;
-    },
-  );
-  assert.throws(
-    () => backend.configureWorkspace(options, async () => {}),
-    /already running/,
-  );
-  confirmation.resolve(false);
-  assert.equal((await reset).cancelled, true);
-  assert.equal(aborted, false);
-  assert.equal(persisted, false);
-  assert.equal(backend.getState().busy, true);
-  scan.resolve(report());
-  await backend.waitUntilIdle();
-  assert.equal(backend.getState().report.worktrees.length, 1);
-});
-
-test("confirmed reset stops a scan, persists before clearing, and reopens setup without rescanning", async () => {
-  const saving = deferred(),
-    saveStarted = deferred();
-  let calls = 0,
-    aborted = false;
-  const backend = new Backend({
-    run: (_args, { signal }) => {
-      calls++;
-      return new Promise((_resolve, reject) =>
-        signal.addEventListener("abort", () => {
-          aborted = true;
-          reject(new Error("stopped"));
-        }),
-      );
-    },
-  });
-  await backend.configureWorkspace(options, async () => {});
-  const reset = backend.resetPreferences(
-    async () => true,
-    async () => {
-      assert.equal(aborted, true);
-      saveStarted.resolve();
-      await saving.promise;
-    },
-  );
-  await saveStarted.promise;
-  assert.throws(
-    () => backend.configureWorkspace(options, async () => {}),
-    /already running/,
-  );
-  assert.deepEqual(backend.requestClose(), { action: "wait" });
-  saving.resolve();
-  const result = await reset;
-  assert.equal(result.cancelled, false);
-  assert.equal(result.state.setupRequired, true);
-  assert.equal(result.state.report, null);
-  await backend.reopen();
-  assert.doesNotThrow(() => backend.assertInteractive());
-  assert.equal(backend.getState().setupRequired, true);
-  assert.equal(calls, 1);
-});
-
 test("reopen waits for scan cancellation and a newer close cancels pending reopen intent", async () => {
   const scan = deferred();
   let calls = 0,
@@ -327,14 +192,6 @@ test("cleanup close requires consent, finishes only the current item, and restor
   });
   assert.deepEqual(backend.requestClose(), { action: "confirm-cleanup" });
   assert.doesNotThrow(() => backend.assertInteractive());
-  assert.throws(
-    () =>
-      backend.resetPreferences(
-        async () => true,
-        async () => {},
-      ),
-    /cleanup to finish/,
-  );
   assert.deepEqual(backend.requestClose({ finishCleanup: true }), {
     action: "wait",
   });
@@ -401,23 +258,4 @@ test("close also cancels and awaits auxiliary statistics reads", async () => {
   await backend.waitUntilIdle();
   await failure;
   assert.deepEqual(backend.requestClose(), { action: "close" });
-});
-
-test("closing during reset confirmation cancels native consent instead of stranding shutdown", async () => {
-  const backend = new Backend({ run: async () => report() });
-  let saved = false;
-  const reset = backend.resetPreferences(
-    (signal) =>
-      new Promise((resolve) =>
-        signal.addEventListener("abort", () => resolve(false)),
-      ),
-    async () => {
-      saved = true;
-    },
-  );
-  assert.deepEqual(backend.requestClose(), { action: "wait" });
-  await backend.waitUntilIdle();
-  assert.equal((await reset).cancelled, true);
-  assert.equal(saved, false);
-  assert.throws(() => backend.assertInteractive(), /closing/);
 });

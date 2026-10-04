@@ -39,6 +39,8 @@ test("tree projection preserves hierarchy while filtering and sorting", async ()
   ];
   const options = {
     root: "/work",
+    hostFilter: "",
+    hosts: [],
     repo: "",
     view: "all",
     search: "",
@@ -53,7 +55,10 @@ test("tree projection preserves hierarchy while filtering and sorting", async ()
   );
   const collapsed = projectTree(
     list,
-    { ...options, collapsedDirectories: new Set(["/work/team"]) },
+    {
+      ...options,
+      collapsedDirectories: new Set([JSON.stringify(["", "/work/team"])]),
+    },
     tree,
   );
   assert.deepEqual(
@@ -105,6 +110,8 @@ test("same-path rows sort independently and keep exact delete/selection identiti
       list,
       {
         root: "/work",
+        hostFilter: "",
+        hosts: [],
         search: "",
         view: "all",
         sort,
@@ -483,6 +490,39 @@ test("statistics never retitles old-machine data or errors after a host switch",
   }
 });
 
+function coordinatorState(changes = {}) {
+  const { hosts: _hosts, hostFilter: _hostFilter, ...sourceChanges } = changes;
+  const source = {
+    host: "",
+    root: "/local",
+    busy: false,
+    error: "",
+    warning: "",
+    options: { root: "/local", host: "", excludes: [] },
+    report: { worktrees: [], warnings: [] },
+    ...sourceChanges,
+  };
+  source.options = changes.options || {
+    root: source.root,
+    host: source.host,
+    excludes: [],
+  };
+  return {
+    ...source,
+    revision: changes.revision || "initial",
+    hostFilter: Object.hasOwn(changes, "hostFilter")
+      ? changes.hostFilter
+      : source.host,
+    hosts: [
+      {
+        ...source,
+        report: source.report && { root: source.root },
+        worktreeCount: source.report?.worktrees.length || 0,
+      },
+    ],
+  };
+}
+
 async function workspaceFixture(overrides = {}) {
   const { createWorkspaceController } = await import(
     "../renderer/workspace-controller.mjs"
@@ -491,13 +531,7 @@ async function workspaceFixture(overrides = {}) {
   const pendingTimers = new Map(),
     savedScans = [],
     notifications = [];
-  const initial = {
-    host: "",
-    root: "/local",
-    busy: false,
-    revision: "initial",
-    report: { worktrees: [], warnings: [] },
-  };
+  const initial = coordinatorState();
   const api = {
     async getState() {
       return initial;
@@ -536,24 +570,22 @@ test("settings warnings stay visible without failing scans and errors take prior
   const warning =
     "Could not save settings: read-only profile. These choices will be used for this session.";
   const scans = [],
+    refreshes = [],
     options = {
       root: "/session",
       host: "",
       excludes: ["custom"],
       github: true,
     };
+  const response = coordinatorState({ root: options.root, options, warning });
   const fixture = await workspaceFixture({
     async scan(value) {
       scans.push(value);
-      return {
-        root: options.root,
-        host: "",
-        options,
-        warning,
-        error: "",
-        busy: false,
-        report: { worktrees: [], warnings: [] },
-      };
+      return response;
+    },
+    async refreshHosts(host) {
+      refreshes.push(host);
+      return response;
     },
   });
   const { document, element } = preferenceDocument();
@@ -584,12 +616,87 @@ test("settings warnings stay visible without failing scans and errors take prior
   await fixture.workspace.refresh();
   assert.deepEqual(
     scans,
-    [options, options],
-    "refresh uses live choices even when persistence failed",
+    [options],
+    "refresh does not configure another scan or overwrite its session options",
   );
+  assert.deepEqual(refreshes, [""]);
+  assert.deepEqual(fixture.workspace.snapshot.options, options);
   view.render();
   assert.equal(element("#error-message").textContent, warning);
   assert.equal(element("#error-banner").hidden, false);
+  fixture.workspace.dispose();
+});
+
+test("workspace chrome stops coordinator scans and reset publishes a clean coordinator state", async () => {
+  const { createWorkspaceView } = await import(
+    "../renderer/workspace-view.mjs"
+  );
+  const cached = {
+    id: '["vps","cached"]',
+    host: "vps",
+    sourceID: "cached",
+    path: "/work/cached",
+    head: "abc",
+    canRemove: true,
+  };
+  const scanning = coordinatorState({
+    host: "vps",
+    root: "/work",
+    busy: true,
+    canCancelScan: true,
+    report: { worktrees: [cached], warnings: [] },
+    progress: {
+      stage: "inspect",
+      path: "/work/current",
+      completed: 1,
+      total: 2,
+    },
+  });
+  const stopped = coordinatorState({
+    ...scanning,
+    busy: false,
+    canCancelScan: false,
+    cancelled: true,
+  });
+  const resetState = coordinatorState({ report: null, setupRequired: true });
+  const stops = [];
+  const fixture = await workspaceFixture({
+    async getState() {
+      return scanning;
+    },
+    async cancelScan(host) {
+      stops.push(host);
+      return stopped;
+    },
+    async resetPreferences() {
+      return { state: resetState, preferences: {} };
+    },
+  });
+  const { document, element } = preferenceDocument();
+  const view = createWorkspaceView({ document, workspace: fixture.workspace });
+  view.render();
+  assert.equal(element("#scan-progress").hidden, false);
+  assert.match(
+    element("#host-progress-list").innerHTML,
+    /data-stop-host="vps"/,
+  );
+  assert.equal(element("#stop-scan").textContent, "Stop all scans");
+  assert.equal(
+    fixture.workspace.canDelete(cached),
+    true,
+    "cached rows remain usable while refreshing",
+  );
+  await element("#stop-scan").onclick();
+  assert.deepEqual(stops, [null]);
+  view.render();
+  assert.match(element("#host-progress-list").innerHTML, /Scan stopped/);
+  assert.equal(fixture.workspace.canDelete(cached), true);
+  await fixture.workspace.reset();
+  view.render();
+  assert.equal(fixture.workspace.snapshot.setupRequired, true);
+  assert.deepEqual(fixture.workspace.items, []);
+  assert.equal(fixture.workspace.blocked, true);
+  assert.equal(element("#scan-progress").hidden, true);
   fixture.workspace.dispose();
 });
 
@@ -602,7 +709,7 @@ test("workspace publishes cached immutable snapshots with nested mutation isolat
     blockers: ["keep"],
     pr: { title: "original", merged: false },
   };
-  const incoming = {
+  const incoming = coordinatorState({
     host: "",
     root: "/local",
     busy: false,
@@ -610,7 +717,7 @@ test("workspace publishes cached immutable snapshots with nested mutation isolat
     report: { worktrees: [row], warnings: [] },
     options: { excludes: ["cache"] },
     progress: { worktree: row },
-  };
+  });
   const scan = deferred();
   const fixture = await workspaceFixture({
     getState: async () => incoming,
@@ -637,6 +744,10 @@ test("workspace publishes cached immutable snapshots with nested mutation isolat
     },
     () => snapshot.report.worktrees[0].blockers.push("changed"),
     () => snapshot.options.excludes.push("changed"),
+    () => snapshot.hosts[0].options.excludes.push("changed"),
+    () => {
+      snapshot.hosts[0].report.root = "/changed";
+    },
     () => {
       snapshot.progress.worktree.branch = "changed";
     },
@@ -660,12 +771,14 @@ test("workspace publishes cached immutable snapshots with nested mutation isolat
     "previous publication cannot change later",
   );
   assert.equal(fixture.workspace.snapshot.busy, true);
-  scan.resolve({
-    host: "",
-    root: "/next",
-    busy: false,
-    report: { worktrees: [{ ...row, branch: "next" }], warnings: [] },
-  });
+  scan.resolve(
+    coordinatorState({
+      host: "",
+      root: "/next",
+      busy: false,
+      report: { worktrees: [{ ...row, branch: "next" }], warnings: [] },
+    }),
+  );
   await pending;
   assert.equal(snapshot.report.worktrees[0].branch, "topic");
   assert.equal(fixture.workspace.items[0].branch, "next");
@@ -728,13 +841,14 @@ test("workspace labels have single owners and tree rendering never touches them"
   );
   const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
   const fixture = await workspaceFixture({
-    getState: async () => ({
-      host: "build-vps",
-      root: "/sessions",
-      version: "test-version",
-      busy: false,
-      report: { worktrees: [], warnings: [] },
-    }),
+    getState: async () =>
+      coordinatorState({
+        host: "build-vps",
+        root: "/sessions",
+        version: "test-version",
+        busy: false,
+        report: { worktrees: [], warnings: [] },
+      }),
   });
   const { document, element } = preferenceDocument();
   const visited = new Set();
@@ -770,7 +884,9 @@ test("workspace labels have single owners and tree rendering never touches them"
   ])
     assert.equal(visited.has(selector), false, `tree must not own ${selector}`);
   visited.clear();
-  preferences.renderStatus({ host: "build-vps", root: "/sessions" });
+  preferences.renderStatus(
+    coordinatorState({ host: "build-vps", root: "/sessions" }),
+  );
   assert.equal(element("#machine-label").textContent, "build-vps");
   assert.equal(element("#machine-label").title, "build-vps");
   assert.equal(element("#root-label").textContent, "build-vps:/sessions");
@@ -795,7 +911,7 @@ test("workspace labels have single owners and tree rendering never touches them"
       false,
       `workspace chrome must not own ${selector}`,
     );
-  preferences.renderStatus({ host: "", root: "" });
+  preferences.renderStatus(coordinatorState({ host: "", root: "" }));
   assert.equal(element("#machine-label").textContent, "This computer");
   assert.equal(element("#root-label").textContent, "Home folder");
   fixture.workspace.dispose();
@@ -857,13 +973,15 @@ test("Add Host, setup and protocol share SSH alias, IPv6 and length validation",
         },
       },
     });
-    preferences.renderStatus({
-      host: "",
-      root: "/local",
-      connected: true,
-      blocked: false,
-      options: { excludes: [] },
-    });
+    preferences.renderStatus(
+      coordinatorState({
+        host: "",
+        root: "/local",
+        connected: true,
+        blocked: false,
+        options: { excludes: [] },
+      }),
+    );
     element("#host-input").value = host;
     await element("#host-form").onsubmit({ preventDefault() {} });
     assert.equal(
@@ -931,13 +1049,15 @@ test("settings emit one scan command and never persist scan options themselves",
     onReset() {},
   });
   preferences.initialize({ theme: "system", scan: { excludes: ["cache"] } });
-  preferences.renderStatus({
-    host: "_build",
-    root: "/work",
-    connected: true,
-    blocked: false,
-    options: { excludes: ["cache"] },
-  });
+  preferences.renderStatus(
+    coordinatorState({
+      host: "_build",
+      root: "/work",
+      connected: true,
+      blocked: false,
+      options: { excludes: ["cache"] },
+    }),
+  );
   preferences.openSettings();
   element("#theme-select").value = "dark";
   element("#scan-root").value = "/new";
@@ -968,34 +1088,52 @@ test("workspace ignores a poll from before an explicit scan", async () => {
   fixture.api.getState = () => oldPoll.promise;
   const poll = [...fixture.pendingTimers.values()][0]();
   const scan = fixture.workspace.scan({ root: "/new", host: "" });
-  oldPoll.resolve({ root: "/stale", busy: false, revision: "stale" });
+  oldPoll.resolve(
+    coordinatorState({ root: "/stale", busy: false, revision: "stale" }),
+  );
   await poll;
   assert.equal(fixture.workspace.snapshot.busy, true);
   assert.notEqual(fixture.workspace.snapshot.root, "/stale");
-  newScan.resolve({ root: "/new", host: "", busy: false, revision: "new" });
+  newScan.resolve(
+    coordinatorState({ root: "/new", host: "", busy: false, revision: "new" }),
+  );
   await scan;
   assert.equal(fixture.workspace.snapshot.root, "/new");
   assert.equal(fixture.savedScans.length, 1);
   fixture.workspace.dispose();
 });
 
-test("later workspace activation wins over an older asynchronous reply", async () => {
+test("later host filter wins over an older asynchronous reply without scanning", async () => {
   const old = deferred(),
     latest = deferred(),
     requests = [old, latest];
   const fixture = await workspaceFixture({
-    activateWorkspace: () => requests.shift().promise,
+    setHostFilter: () => requests.shift().promise,
   });
-  const first = fixture.workspace.scan({ root: "~", host: "one" }, true);
-  const second = fixture.workspace.scan({ root: "~", host: "two" }, true);
-  latest.resolve({ root: "/two", host: "two", busy: false, revision: "two" });
+  const first = fixture.workspace.setHostFilter("one");
+  const second = fixture.workspace.setHostFilter("two");
+  latest.resolve(
+    coordinatorState({
+      root: "/two",
+      host: "two",
+      busy: false,
+      revision: "two",
+    }),
+  );
   await second;
-  old.resolve({ root: "/one", host: "one", busy: false, revision: "one" });
+  old.resolve(
+    coordinatorState({
+      root: "/one",
+      host: "one",
+      busy: false,
+      revision: "one",
+    }),
+  );
   await first;
   assert.equal(fixture.workspace.snapshot.host, "two");
   assert.deepEqual(
     fixture.savedScans.map((options) => options.host),
-    ["two"],
+    [],
   );
   fixture.workspace.dispose();
 });

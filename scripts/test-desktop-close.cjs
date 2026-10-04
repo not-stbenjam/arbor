@@ -236,7 +236,8 @@ if (args[0] === 'remove') {
       try {
         const js = (source) => win.webContents.executeJavaScript(source);
         const checkMenu = async (state) => {
-          const row = state.report?.worktrees[0] || state.partialWorktrees[0];
+          const row = state.report.worktrees[0];
+          assert.ok(row, "native menu requires a projected row");
           const request = {
             id: row.id,
             revision: state.revision,
@@ -380,8 +381,10 @@ if (args[0] === 'remove') {
           }
         } else {
           await until(
-            async () =>
-              (await js("window.arbor.getState()")).partialWorktrees.length > 0,
+            async () => {
+              const current = await js("window.arbor.getState()");
+              return current.busy && current.report?.worktrees.some((row) => row.pending);
+            },
             "running synthetic scan",
           );
           await checkMenu(await js("window.arbor.getState()"));

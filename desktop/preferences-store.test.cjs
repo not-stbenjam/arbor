@@ -40,6 +40,57 @@ test("preferences store serializes writes and only scan commands own scan/setup/
   value.roots.length = 0;
   assert.deepEqual(store.get().scan.excludes, ["build"]);
   assert.deepEqual(store.get().roots, ["/projects"]);
+  assert.deepEqual(store.get().scans, [store.get().scan]);
+});
+
+test("per-host choices survive editable saves, host removal, and restart without borrowing other host options", async (t) => {
+  const filename = fixture(t);
+  const store = await PreferencesStore.open(filename);
+  await store.saveScan(
+    {
+      host: "",
+      root: "/local",
+      excludes: ["local"],
+      github: false,
+      fetch: false,
+    },
+    { setupCompleted: true },
+  );
+  const local = store.get().scan;
+  await store.saveScan(
+    {
+      host: "remote",
+      root: "/remote",
+      excludes: [],
+      github: true,
+      fetch: true,
+    },
+    { setupCompleted: true },
+  );
+  const remote = store.get().scan;
+  const stale = store.get();
+  await store.saveEditable({
+    ...stale,
+    theme: "dark",
+    scans: [{ host: "", root: "/spoofed" }],
+  });
+  assert.deepEqual(store.get().scans, [local, remote]);
+  assert.deepEqual((await PreferencesStore.open(filename)).get().scans, [
+    local,
+    remote,
+  ]);
+  await store.saveEditable({ ...stale, hosts: [] });
+  assert.deepEqual(store.get().scans, [local]);
+  assert.deepEqual(
+    store.get().scan,
+    local,
+    "forgotten last-selected host must not return on launch",
+  );
+  await store.reset();
+  assert.equal(
+    store.get().scans.some((scan) => scan.host === "remote"),
+    false,
+  );
 });
 
 test("setup persists host, theme and options once, and subsequent scans update host root", async (t) => {

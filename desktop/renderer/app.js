@@ -34,7 +34,7 @@ async function bootstrap() {
     defaults,
     notify,
     onScan: (options) => workspace.scan(options),
-    onHostChange: (options) => workspace.scan(options, true),
+    onHostChange: (host) => workspace.setHostFilter(host),
     onSetup: () => setup.open(),
     onReset: () => workspace.reset(),
   });
@@ -47,6 +47,8 @@ async function bootstrap() {
       preferences.renderStatus({
         root: state.root,
         host: state.host,
+        hostFilter: state.hostFilter,
+        hosts: state.hosts,
         options: state.options,
         setupRequired: state.setupRequired,
         busy: state.busy,
@@ -101,7 +103,7 @@ async function bootstrap() {
   statistics = createStatisticsController({
     document,
     api,
-    getHost: () => workspace.snapshot.host,
+    getHost: () => workspace.snapshot.hostFilter ?? null,
   });
   const showWorktreeMenu = async (id) => {
     if (!workspace.items.some((row) => row.id === id)) return;
@@ -141,13 +143,6 @@ async function bootstrap() {
     }
     if (action && typeof action === "object") {
       if (action.type === "worktree-remove") {
-        if (
-          !action.revision ||
-          action.revision !== workspace.snapshot.revision
-        ) {
-          notify("The scan changed. Try deleting the worktree again.", true);
-          return;
-        }
         const row = workspace.items.find((row) => row.id === action.id);
         if (row) workspace.deleteWorktrees([row]);
       }

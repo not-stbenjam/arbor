@@ -7,13 +7,13 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     getDefaults: () => ipcRenderer.invoke("arbor:get-defaults"),
     getState: () => ipcRenderer.invoke("arbor:get-state"),
-    getStats: () => ipcRenderer.invoke("arbor:get-stats"),
-    activateWorkspace: (options) =>
-      ipcRenderer.invoke("arbor:activate-workspace", options),
+    getStats: (host) => ipcRenderer.invoke("arbor:get-stats", host),
+    setHostFilter: (host) => ipcRenderer.invoke("arbor:set-host-filter", host),
+    refreshHosts: (host) => ipcRenderer.invoke("arbor:refresh-hosts", host),
     scan: (options) => ipcRenderer.invoke("arbor:scan", options),
     completeSetup: (options) =>
       ipcRenderer.invoke("arbor:complete-setup", options),
-    cancelScan: () => ipcRenderer.invoke("arbor:cancel-scan"),
+    cancelScan: (host) => ipcRenderer.invoke("arbor:cancel-scan", host),
     remove: (selection) => ipcRenderer.invoke("arbor:remove", selection),
     chooseFolder: () => ipcRenderer.invoke("arbor:choose-folder"),
     getPreferences: () => ipcRenderer.invoke("arbor:get-preferences"),

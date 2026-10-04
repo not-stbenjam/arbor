@@ -136,7 +136,7 @@ setTimeout(()=>process.stdout.write(JSON.stringify({root,worktrees,warnings:[],s
             const current = await state();
             return (
               !current.busy &&
-              current.host === selectedHost &&
+              current.hostFilter === selectedHost &&
               current.report?.worktrees.length === count &&
               (await js(
                 `document.querySelectorAll('#worktree-list tr[data-id]').length===${count}`,
@@ -146,6 +146,10 @@ setTimeout(()=>process.stdout.write(JSON.stringify({root,worktrees,warnings:[],s
           `${selectedHost || "local"} report with ${count} rows`,
         );
       const switchMachine = async (selectedHost, count) => {
+        await until(
+          () => js("typeof document.querySelector('#machine-button').onclick === 'function' && !document.querySelector('#machine-button').disabled"),
+          "initialized machine control",
+        );
         await js("document.querySelector('#machine-button').click()");
         await until(
           () => js("document.querySelector('#machine-dialog').open"),
@@ -159,22 +163,22 @@ setTimeout(()=>process.stdout.write(JSON.stringify({root,worktrees,warnings:[],s
       try {
         await until(() => js("!!window.arbor"), "preload bridge");
         if (phase === "restart") {
-          await ready(host, 11);
+          await switchMachine(host, 11);
           assert.equal(
             listCount(),
             2,
             "restart must restore the persisted active workspace without scanning",
           );
           assert.equal(
-            (await state()).report.worktrees.some((w) => w.id === "remote-0"),
+            (await state()).report.worktrees.some((w) => w.sourceID === "remote-0"),
             false,
           );
           await switchMachine("", 12);
           await switchMachine(host, 11);
           assert.equal(listCount(), 2, "both machine caches survive restart");
         } else {
-          await ready("", 12);
-          assert.equal(listCount(), 1);
+          await switchMachine("", 12);
+          assert.equal(listCount(), 2, "startup scans both configured hosts in the background");
           for (const theme of ["light", "dark"]) {
             const colors = await js(
               `(() => {document.documentElement.dataset.theme=${JSON.stringify(theme)}; const button=document.querySelector('[data-delete]');const style=getComputedStyle(button);return {selected:button.closest('tr').classList.contains('selected'),background:style.backgroundColor,border:style.borderTopColor,borderWidth:style.borderTopWidth,color:style.color,surface:getComputedStyle(document.body).backgroundColor};})()`,
@@ -200,9 +204,50 @@ setTimeout(()=>process.stdout.write(JSON.stringify({root,worktrees,warnings:[],s
               colors.background,
               `${theme}: Delete border is distinct`,
             );
+            for (const width of [850, 1250]) {
+              win.setSize(width, 700);
+              await until(
+                () => js(`innerWidth === ${width}`),
+                "resized workspace",
+              );
+              const actions = await js(`(() => {
+                const bounds = (element) => {
+                  const {left, right, width, height} = element.getBoundingClientRect();
+                  return {left, right, width, height};
+                };
+                return [...document.querySelectorAll('[data-delete], [data-folder-delete]')].map(button => ({
+                  folder: button.hasAttribute('data-folder-delete'),
+                  button: bounds(button),
+                  menu: button.parentElement.querySelector('.row-menu') ? bounds(button.parentElement.querySelector('.row-menu')) : null,
+                  cell: bounds(button.closest('td')),
+                }));
+              })()`);
+              assert.ok(actions.some((action) => action.folder));
+              assert.ok(actions.some((action) => !action.folder));
+              const reference = actions[0].button;
+              for (const action of actions) {
+                for (const edge of ["left", "right", "width", "height"])
+                  assert.ok(
+                    Math.abs(action.button[edge] - reference[edge]) < 1,
+                    `${theme}/${width}: all Delete buttons share ${edge}`,
+                  );
+                assert.ok(
+                  action.button.left >= action.cell.left &&
+                    action.button.right <= action.cell.right,
+                  `${theme}/${width}: Delete stays inside its action cell`,
+                );
+                if (action.menu)
+                  assert.ok(
+                    action.menu.left > action.button.right &&
+                      action.menu.right <= action.cell.right,
+                    `${theme}/${width}: menu has its own non-overlapping column`,
+                  );
+              }
+            }
           }
+          win.setSize(1050, 700);
           await switchMachine(host, 12);
-          assert.equal(listCount(), 2, "first remote visit scans exactly once");
+          assert.equal(listCount(), 2, "first remote visit reuses its background scan");
           await switchMachine("", 12);
           await switchMachine(host, 12);
           assert.equal(
@@ -211,9 +256,11 @@ setTimeout(()=>process.stdout.write(JSON.stringify({root,worktrees,warnings:[],s
             "machine switching must restore cached reports",
           );
           responses.push(1);
-          await js(
-            "document.querySelector('[data-delete=\"remote-0\"]').click()",
-          );
+          await js(`(async () => {
+            const state = await window.arbor.getState();
+            const row = state.report.worktrees.find(w => w.sourceID === 'remote-0');
+            document.querySelector('[data-delete="' + CSS.escape(row.id) + '"]').click();
+          })()`);
           await ready(host, 11);
           assert.equal(
             calls().filter((args) => args[0] === "remove").length,

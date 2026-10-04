@@ -39,17 +39,29 @@ class PreferencesStore {
 
   saveEditable(value) {
     const editable = validatePreferences(value);
-    return this.#write((current) => ({
-      ...current,
-      theme: editable.theme,
-      hosts: editable.hosts.map((host) => {
+    return this.#write((current) => {
+      const hosts = editable.hosts.map((host) => {
         const saved = current.hosts.find((entry) => entry.host === host.host);
         // Editing a name/theme must not restore an older scan destination.
         // Existing host roots, like local root history, belong to saveScan.
         return saved ? { ...host, root: saved.root } : host;
-      }),
-      // Scan choices, setup completion, and recent local roots have one writer.
-    }));
+      });
+      const retained = new Set(hosts.map((host) => host.host));
+      const removed = new Set(
+        current.hosts
+          .filter((host) => !retained.has(host.host))
+          .map((host) => host.host),
+      );
+      const scans = current.scans.filter((scan) => !removed.has(scan.host));
+      // Forgetting the selected host must not resurrect it from last-scan
+      // launch preferences on restart. Other editable fields cannot replace
+      // canonical per-host choices with an older settings form snapshot.
+      const scan = removed.has(current.scan.host)
+        ? scans.find((scan) => scan.host === "") ||
+          scanOptions({ root: current.roots[0] || "" })
+        : current.scan;
+      return { ...current, theme: editable.theme, hosts, scans, scan };
+    });
   }
 
   saveScan(value, { theme, setupCompleted = false } = {}) {
@@ -76,6 +88,10 @@ class PreferencesStore {
         ...(theme !== undefined ? { theme } : {}),
         setupCompleted: current.setupCompleted || setupCompleted,
         scan: options,
+        scans: [
+          ...current.scans.filter((scan) => scan.host !== options.host),
+          options,
+        ],
         hosts,
         roots:
           !options.host && options.root

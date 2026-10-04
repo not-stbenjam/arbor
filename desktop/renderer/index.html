@@ -38,8 +38,9 @@
       >
         <div class="machine-area">
           <button id="machine-button" class="machine-button">
-            <span data-icon="monitor"></span
-            ><span id="machine-label">This computer</span
+            <span id="machine-icon" aria-hidden="true"
+              ><span data-icon="monitor"></span></span
+            ><span id="machine-label">All hosts</span
             ><span data-icon="chevrons"></span>
           </button>
         </div>
@@ -128,19 +129,12 @@
           aria-label="Scan progress"
           hidden
         >
-          <div class="progress-heading">
+          <div class="progress-heading" id="progress-heading">
             <span data-icon="refresh"></span
             ><strong id="progress-stage" role="status">Starting scan…</strong
-            ><span id="progress-elapsed"></span
             ><button class="button" id="stop-scan">Stop scan</button>
           </div>
-          <div class="progress-details">
-            <span id="progress-path"></span><span id="progress-counts"></span>
-          </div>
-          <progress
-            id="progress-meter"
-            aria-label="Worktrees inspected"
-          ></progress>
+          <div id="host-progress-list" hidden></div>
         </section>
         <div class="banner" id="error-banner" role="alert" hidden>
           <span data-icon="warning"></span><span id="error-message"></span
@@ -228,6 +222,8 @@
           </button>
         </div>
         <div class="dialog-body">
+          <label class="field-label" for="settings-host">Host</label>
+          <select id="settings-host" class="text-input"></select>
           <label class="field-label" for="scan-root">Scan folder</label>
           <div class="input-group">
             <input id="scan-root" class="text-input" required /><button

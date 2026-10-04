@@ -301,12 +301,6 @@ test("cleanup updates all cached snapshots, uses one stats session, and refuses 
     cache.get(options({ root: "/", github: true })).worktrees.length,
     0,
   );
-  await backend.resetPreferences(
-    async () => true,
-    async () => {},
-  );
-  assert.equal(cache.entries.size, 0);
-  assert.equal(backend.getState().setupRequired, true);
 });
 
 test("failed cleanup caches refreshed metadata without reviving stale removable flags", async () => {

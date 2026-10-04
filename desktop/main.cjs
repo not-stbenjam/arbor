@@ -17,7 +17,7 @@ const { WorkspaceCache } = require("./workspace-cache.cjs");
 const { registerSmokeTest } = require("./smoke-runner.cjs");
 const { createWindowLifecycle } = require("./window-lifecycle.cjs");
 const { execute, childEnvironment } = require("./process-runner.cjs");
-const { Backend } = require("./backend.cjs");
+const { WorkspaceCoordinator } = require("./workspace-coordinator.cjs");
 const { scanOptions } = require("./protocol.cjs");
 const { PreferencesStore } = require("./preferences-store.cjs");
 const { installApplicationMenu } = require("./application-menu.cjs");
@@ -66,7 +66,7 @@ function createWindow() {
     title: "Arbor",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1f2023" : "#f6f6f7",
     ...(process.platform === "darwin"
-      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 18 } }
+      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 14 } }
       : {}),
     ...(fs.existsSync(icon) ? { icon } : {}),
     webPreferences: {
@@ -160,13 +160,16 @@ app
     const workspaceCache = await WorkspaceCache.open(
       path.join(app.getPath("userData"), "workspace-cache.json"),
     );
-    backend = new Backend({
+    backend = new WorkspaceCoordinator({
       binary,
       cache: workspaceCache,
       version: `v${app.getVersion()}`,
       options,
+      sessionHost: explicitLaunch ? options.host : undefined,
       setupRequired: !explicitLaunch && !saved.setupCompleted,
     });
+    if (!explicitLaunch) await backend.synchronizeHosts(saved);
+    else backend.setHostFilter(host);
     const showWorktreeMenu = createWorktreeContextMenu({
       backend,
       getWindow: () => window,
@@ -195,7 +198,10 @@ app
         backend.setGitHubAvailable(true);
       })
       .catch(() => {});
-    await backend.start({ refresh: explicitLaunch });
+    await backend.start({
+      refresh: explicitLaunch,
+      ...(explicitLaunch ? { host } : {}),
+    });
     app.on("activate", () => {
       if (!window) {
         createWindow();

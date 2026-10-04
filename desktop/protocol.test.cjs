@@ -8,9 +8,49 @@ const {
   progressEvent,
   scanOptions,
   DEFAULTS,
+  validatePreferences,
+  loadPreferences,
 } = require("./protocol.cjs");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
 const defaults = require("../internal/config/defaults.json");
+
+test("per-host preference scans migrate legacy state and validate bounded unique host identities", () => {
+  const legacy = scanOptions({
+    host: "remote",
+    root: "/remote",
+    excludes: [],
+    github: true,
+  });
+  assert.deepEqual(loadPreferences({ scan: legacy }).scans, [legacy]);
+  const local = scanOptions({ root: "/local", excludes: ["local"] });
+  const value = validatePreferences({ scan: legacy, scans: [local, legacy] });
+  assert.deepEqual(value.scans, [local, legacy]);
+  assert.throws(
+    () => validatePreferences({ scans: [local, local] }),
+    /Duplicate per-host/,
+  );
+  assert.throws(() => validatePreferences({ scans: {} }), /per-host scan/);
+  assert.throws(
+    () =>
+      validatePreferences({
+        scans: Array.from({ length: 102 }, (_, i) => ({ host: `host-${i}` })),
+      }),
+    /per-host scan/,
+  );
+  assert.throws(
+    () => validatePreferences({ scans: [{ host: "bad host" }] }),
+    /host alias/,
+  );
+  const previousDefaults = DEFAULTS.excludes.filter(
+    (rule) => rule !== "~/.codex/.tmp",
+  );
+  const migrated = loadPreferences({
+    scan: { excludes: previousDefaults },
+    scans: [{ excludes: previousDefaults }, legacy],
+  });
+  assert.deepEqual(migrated.scans[0].excludes, DEFAULTS.excludes);
+  assert.deepEqual(migrated.scans[1].excludes, []);
+});
 const row = {
   id: "linked",
   path: "/repo/linked",

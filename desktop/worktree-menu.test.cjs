@@ -16,6 +16,55 @@ const state = {
   report: { worktrees: [row] },
 };
 
+test("combined cleanup previews identify each machine even for identical paths", () => {
+  const options = removalConfirmationOptions(
+    [
+      { ...row, host: "" },
+      { ...row, host: "build-vps" },
+    ],
+    false,
+  );
+  assert.match(options.detail, /This computer: \/work\/topic/);
+  assert.match(options.detail, /build-vps: \/work\/topic/);
+});
+
+test("bulk mixed-host consent names hosts beyond the bounded path preview", () => {
+  const trees = [
+    ...Array.from({ length: 6 }, (_, i) => ({
+      ...row,
+      host: "",
+      path: `/work/local-${i}`,
+    })),
+    ...Array.from({ length: 2 }, (_, i) => ({
+      ...row,
+      host: "vps",
+      hostLabel: "Build server",
+      path: `/work/remote-${i}`,
+    })),
+  ];
+  const options = removalConfirmationOptions(trees, false);
+  assert.equal(options.message, "Remove 8 worktrees on 2 hosts?");
+  assert.match(
+    options.detail,
+    /Hosts: This computer: 6 · Build server \[vps\]: 2/,
+  );
+  assert.match(options.detail, /and 3 more selected worktrees/);
+  const many = removalConfirmationOptions(
+    Array.from({ length: 101 }, (_, i) => ({
+      ...row,
+      host: `host-${i}`,
+      hostLabel: `Build machine ${i} ${"long ".repeat(100)}`,
+    })),
+    false,
+  );
+  assert.match(many.message, /on 101 hosts/);
+  assert.match(many.detail, /and 97 more hosts/);
+  assert.ok(
+    many.detail.length < 1500,
+    "many hosts cannot make native consent overflow the screen",
+  );
+});
+
 test("native menu resolves the current row rather than a renderer supplied path", () => {
   const target = menuTarget(state, {
     id: row.id,

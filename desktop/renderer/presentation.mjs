@@ -60,7 +60,10 @@ const branchName = (w) =>
     : w.bare
       ? "Bare repository"
       : "Detached HEAD");
-const repoID = (w) => w.commonDir || w.repo || w.path;
+const repoID = (w) =>
+  w.host === undefined
+    ? w.commonDir || w.repo || w.path
+    : JSON.stringify([w.host, w.commonDir || w.repo || w.path]);
 const parsedDate = (value) => {
   const d = new Date(value);
   return Number.isNaN(d.valueOf()) || d.getFullYear() < 1971 ? null : d;
@@ -121,6 +124,7 @@ export function describeProgress(state, removing = false) {
       : removing && progress.stage === "removing"
         ? "Removing selected worktrees…"
         : {
+            queued: "Queued…",
             starting: "Starting scan…",
             discovery: "Finding Git repositories…",
             fetch: "Fetching remote branches…",

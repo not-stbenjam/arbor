@@ -27,7 +27,7 @@ export function createStatisticsController({ document, api, getHost }) {
     content.innerHTML = '<p class="statistics-loading">Loading statistics…</p>';
     if (!dialog.open) dialog.showModal();
     try {
-      const { host, report } = await api.getStats();
+      const { host, report } = await api.getStats(requestedHost);
       if (
         generation !== statisticsGeneration ||
         !dialog.open ||
@@ -54,7 +54,7 @@ export function createStatisticsController({ document, api, getHost }) {
       });
       const card = (value, label) =>
         `<div class="statistics-metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`;
-      content.innerHTML = `<div class="statistics-scope">${icon(host ? "server" : "monitor")}<span>${esc(host || "This computer")}</span><span class="statistics-lifetime">All time</span></div>
+      content.innerHTML = `<div class="statistics-scope">${icon(host !== "" ? "server" : "monitor")}<span>${esc(host === null ? "All hosts" : host || "This computer")}</span><span class="statistics-lifetime">All time</span></div>
         <div class="statistics-hero"><div><span class="statistics-eyebrow">A little more breathing room</span><strong data-stat="estimatedBytesReclaimed">${esc(size(bytes))}</strong><span>estimated space recovered</span></div><div class="statistics-removed"><strong data-stat="removedWorktrees">${removed.toLocaleString()}</strong><span>worktrees cleaned up</span></div></div>
         <div class="statistics-metrics">${card(statisticCount(report.cleanupSessions).toLocaleString(), "Cleanup sessions")}${card(size(report.largestWorktreeBytes), "Largest checkout")}${card(size(removed > missing ? bytes / (removed - missing) : 0), "Average checkout")}</div>
         <div class="statistics-charts">${statisticsChart(days, "removedWorktrees", "Worktrees cleaned up", (n) => n.toLocaleString())}${statisticsChart(days, "estimatedBytesReclaimed", "Space recovered", size)}</div>
@@ -62,7 +62,7 @@ export function createStatisticsController({ document, api, getHost }) {
         <p class="statistics-note">Space is estimated from checkout sizes at deletion, not a measurement of free disk space. Missing checkouts count as zero bytes. Charts use UTC dates.</p>
         ${report.warning ? `<p class="statistics-warning">${esc(report.warning)}</p>` : ""}`;
       $("#statistics-dialog .statistics-footer").textContent =
-        `Desktop + CLI · Stored ${host ? "on this SSH host" : "on this computer"} · No worktree path history`;
+        `Desktop + CLI · Stored ${host === null ? "on each host" : host ? "on this SSH host" : "on this computer"} · No worktree path history`;
     } catch (error) {
       if (
         generation !== statisticsGeneration ||
