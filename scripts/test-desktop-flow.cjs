@@ -343,7 +343,10 @@ app.once("browser-window-created", (_event, win) => {
           () => js("window.arbor.getState().then(s=>!s.busy)"),
           "cancel folder deletion",
         );
-        assert.match(removalDialogs[1].detail, /Ignored files/);
+        assert.match(
+          removalDialogs[1].detail,
+          /uncommitted, untracked, and ignored files/,
+        );
         assert.ok(removalDialogs[1].detail.includes(oldFolder + "/tree-1"));
         assert.ok(!removalDialogs[1].detail.includes("/sessions/recent/"));
         assert.equal(
