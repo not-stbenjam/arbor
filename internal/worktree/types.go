@@ -94,7 +94,8 @@ type Removal struct {
 }
 
 type RemovalResult struct {
-	Path    string `json:"path"`
-	Removed bool   `json:"removed"`
-	Error   string `json:"error,omitempty"`
+	Path           string `json:"path"`
+	Removed        bool   `json:"removed"`
+	Error          string `json:"error,omitempty"`
+	RetainedBranch string `json:"retainedBranch,omitempty"`
 }

@@ -119,7 +119,7 @@ arbor clean --path /absolute/path/to/old-sessions --all --yes # execute
 arbor version
 ```
 
-Run `arbor help` for details. Put flags before positional paths. `--path` scopes discovery and cleanup; registered worktrees outside that folder may appear for context but are protected from removal through that scan.
+Run `arbor help` for details. Put flags before positional paths. `--path` scopes discovery and cleanup: only linked worktrees inside that folder appear. `arbor list --linked-only=false` additionally includes primary checkouts and other registered worktrees for diagnostics, not deletion.
 
 ## SSH hosts
 
@@ -137,13 +137,13 @@ Both macOS and Linux support ARM64 and x86-64. Git must be installed remotely; i
 
 ## Cleanup behavior
 
-Recommendations require evidence of a merge and a fully inspected, removable worktree. Arbor checks ancestry against the default branch and can query GitHub PR metadata when enabled. Remote-tracking refs are local snapshots: **Published** means a remote-tracking ref contains the current commit; it does not prove the remote currently has it. Use **Fetch** to refresh refs and **GitHub** to query PR status. Failed network checks do not count as merge evidence.
+Recommendations require evidence of a merge and a fully inspected, removable worktree. Arbor checks ancestry against the default branch and can query GitHub PR metadata when enabled. Remote-tracking refs are local snapshots: the CLI's `published` metadata means a remote-tracking ref contains the current commit; it does not prove the remote currently has it. Use **Fetch** to refresh refs and **GitHub** to query PR status. Failed network checks do not count as merge evidence.
 
-Manual Delete can remove linked worktrees with local changes, ignored files, a Git lock, a detached HEAD, or a default branch checkout. The desktop shows one confirmation with the selected paths and any local-file disposal warning. The CLI shows a preview unless `--yes` is supplied; `arbor remove --yes` confirms disposal of that checkout's local files. `arbor clean` removes only recommendations unless `--all` is explicitly supplied. `--keep-local` makes a manual CLI removal refuse local-file disposal.
+Manual Delete can remove linked worktrees with local changes, ignored files, a Git lock, a detached HEAD, or a default branch checkout. The desktop shows one confirmation with the selected paths and any local-file disposal warning. Folder deletion applies to the worktrees matching the current filters, including collapsed children. **Delete merged** is one-click cleanup of recommendations, without another confirmation. The CLI shows a preview unless `--yes` is supplied; `arbor remove --yes` confirms disposal of that checkout's local files. `arbor clean` removes only recommendations unless `--all` is explicitly supplied. `--keep-local` makes a manual CLI removal refuse local-file disposal.
 
-Removal uses Git's worktree removal command and retains named branches. Detached commits are saved on an `arbor/retained/…` recovery branch. Arbor checks the exact target again before deletion, including its commit and branch. It never deletes primary repositories or follows a changed path. Nested repositories, submodules, sparse indexes, in-progress Git operations, and unreadable/incomplete checkouts still require resolving the specific problem reported by Git or Arbor.
+Removal uses Git's worktree removal command and retains named branches. Detached commits not already reachable from a local or remote-tracking branch are saved on an `arbor/retained/…` recovery branch; CLI results include its name. Arbor checks the exact target again before deletion, including its commit and branch. It never deletes primary repositories or follows a changed path. Nested repositories, submodules, sparse indexes, in-progress Git operations, and unreadable/incomplete checkouts still require resolving the specific problem reported by Git or Arbor.
 
-Successful deletions disappear from the existing list immediately; cleanup does not launch a new full scan. A failed deletion stays visible with its error. Refresh is explicit. Quitting cancels a scan; during deletion, Arbor can finish the current worktree and quit without starting the remaining deletions.
+Successful deletions disappear from the existing list immediately; cleanup does not launch a new full scan. A failed deletion stays visible with its error and refreshes only that worktree so it can be retried. If that inspection also fails, its context menu offers **Retry Inspection**. A full refresh is explicit. Quitting cancels a scan; during deletion, Arbor can finish the current worktree and quit without starting the remaining deletions.
 
 Deleted checkouts are not moved to Trash. Committed work can be checked out again with `git worktree add PATH BRANCH`; discarded uncommitted, untracked, and ignored files cannot be recovered through Git.
 

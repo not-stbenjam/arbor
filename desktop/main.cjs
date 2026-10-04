@@ -15,7 +15,11 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
-const { menuTarget, terminalCommand } = require("./worktree-menu.cjs");
+const {
+  menuTarget,
+  terminalCommand,
+  removalConfirmationOptions,
+} = require("./worktree-menu.cjs");
 const { pathToFileURL } = require("node:url");
 const {
   Backend,
@@ -180,6 +184,10 @@ function handle(channel, handler) {
 
 function registerIPC() {
   handle("arbor:get-state", () => backend.getState());
+  handle("arbor:inspect-worktree", (value) => {
+    guardReset();
+    return backend.inspectWorktree(value);
+  });
   handle("arbor:worktree-menu", (value) => {
     guardReset();
     const target = menuTarget(backend.state, value);
@@ -250,6 +258,16 @@ function registerIPC() {
         }),
       },
       { type: "separator" },
+      ...(target.retryInspection
+        ? [
+            {
+              label: "Retry Inspection",
+              click: click((row) =>
+                backend.inspectWorktree({ id: row.id, revision: row.revision }),
+              ),
+            },
+          ]
+        : []),
       {
         label: "Delete Worktree…",
         enabled: target.removable,
@@ -303,22 +321,7 @@ function registerIPC() {
           const response = await dialog.showMessageBox(window, {
             signal: removalConfirmation.signal,
             type: "warning",
-            title: discardLocal
-              ? "Discard local data and remove?"
-              : "Remove worktree?",
-            message:
-              trees.length === 1
-                ? `Remove “${trees[0].branch}”?`
-                : `Remove ${trees.length} worktrees?`,
-            detail: discardLocal
-              ? `Local changes, untracked files, and ignored files will be permanently deleted. Git branches and commits are retained.\n\n${trees.map((w) => `${w.path}\n${(w.discardWarnings || []).join("\n")}`).join("\n\n")}`
-              : `The selected worktree folders will be deleted. Git branches and commits are retained.\n\n${trees.map((w) => w.path).join("\n")}`,
-            buttons: [
-              "Cancel",
-              discardLocal
-                ? "Discard & Remove"
-                : "Remove Worktree" + (trees.length > 1 ? "s" : ""),
-            ],
+            ...removalConfirmationOptions(trees, discardLocal),
             defaultId: 0,
             cancelId: 0,
             noLink: true,
@@ -357,6 +360,8 @@ function registerIPC() {
     if (setupCompleting) throw new Error("Setup is being saved");
     if (backend.operation === "remove")
       throw new Error("Wait for cleanup to finish before resetting Arbor");
+    if (backend.state.busy && backend.operation !== "scan")
+      throw new Error("Wait for inspection to finish before resetting Arbor");
     if (backend.disposed) throw new Error("Arbor is closing");
     resetPending = true;
     try {
@@ -483,7 +488,7 @@ function savePreferences(nextValue) {
 }
 
 function guardQuit(event, applicationQuit = false) {
-  if (backend?.operation === "scan") {
+  if (backend?.operation === "scan" || backend?.operation === "inspect") {
     event.preventDefault();
     quitAfterScan ||= applicationQuit;
     if (!closingScan) {

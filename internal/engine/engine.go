@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,9 +72,7 @@ func Scan(ctx context.Context, host string, options worktree.Options) (worktree.
 	if options.TargetOnly {
 		args = append(args, "--target-only")
 	}
-	if options.LinkedOnly {
-		args = append(args, "--linked-only")
-	}
+	args = append(args, "--linked-only="+strconv.FormatBool(options.LinkedOnly))
 	if options.Excludes != nil {
 		args = append(args, "--no-default-excludes")
 		for _, exclude := range options.Excludes {
@@ -108,14 +107,25 @@ func Remove(ctx context.Context, host string, w worktree.Worktree, head string, 
 }
 
 func RemoveWithOptions(ctx context.Context, host string, w worktree.Worktree, head string, recommendedOnly, discardLocal bool) error {
+	_, err := RemoveWithResult(ctx, host, w, head, recommendedOnly, discardLocal)
+	return err
+}
+
+func RemoveWithResult(ctx context.Context, host string, w worktree.Worktree, head string, recommendedOnly, discardLocal bool) (result worktree.RemovalResult, err error) {
+	result.Path = w.Path
+	defer func() {
+		if err != nil {
+			result.Error = err.Error()
+		}
+	}()
 	if recommendedOnly && discardLocal {
-		return errors.New("discarding local files cannot be used for recommended cleanup")
+		return result, errors.New("discarding local files cannot be used for recommended cleanup")
 	}
 	if host == "" {
-		return worktree.RemoveWithOptions(ctx, w, head, recommendedOnly, discardLocal)
+		return worktree.RemoveWithResult(ctx, w, head, recommendedOnly, discardLocal)
 	}
 	if (!w.CanRemove && !(discardLocal && w.CanDiscard)) || w.OutsideRoot {
-		return errors.New("worktree is protected; scan again to see why")
+		return result, errors.New("worktree is protected; scan again to see why")
 	}
 	args := []string{"remove", "--json", "--yes", "--head", head, "--id", w.ID, "--branch", w.Branch}
 	if w.PR != nil && w.PR.Merged {
@@ -132,14 +142,13 @@ func RemoveWithOptions(ctx context.Context, host string, w worktree.Worktree, he
 	args = append(args, "--", w.Path)
 	data, err := ssh(ctx, host, args...)
 	if err != nil {
-		return err
+		return result, err
 	}
-	var result worktree.RemovalResult
 	if err := json.Unmarshal(data, &result); err != nil {
-		return fmt.Errorf("could not confirm remote removal: %w; scan again", err)
+		return worktree.RemovalResult{Path: w.Path}, fmt.Errorf("could not confirm remote removal: %w; scan again", err)
 	}
 	if !result.Removed || result.Path != w.Path {
-		return errors.New("remote did not confirm removal; scan again")
+		return worktree.RemovalResult{Path: w.Path}, errors.New("remote did not confirm removal; scan again")
 	}
-	return nil
+	return result, nil
 }

@@ -35,19 +35,42 @@ func TestLinkedOnlyPreservesRegisteredWorktreesAndGrouping(t *testing.T) {
 		t.Fatal(err)
 	}
 	report, err := Scan(context.Background(), Options{Root: root, LinkedOnly: true, Progress: func(event Progress) {
-		if event.Worktree != nil && (event.Worktree.Main || event.Worktree.Bare || event.Worktree.Path == repo || event.Worktree.Path == excluded || event.Worktree.CommonDir == "") {
+		if event.Worktree != nil && (event.Worktree.Main || event.Worktree.Bare || event.Worktree.OutsideRoot || event.Worktree.Path == repo || event.Worktree.Path == excluded || event.Worktree.Path == outside || event.Worktree.CommonDir == "") {
 			t.Errorf("unclassified or primary row emitted: %+v", event)
 		}
 	}})
-	if err != nil || len(report.Worktrees) != 2 {
+	if err != nil || len(report.Worktrees) != 1 {
 		t.Fatalf("linked scan: %+v, %v", report, err)
 	}
 	w := testTree(t, report, linked)
 	if w.Repo != "ordinary" || w.CommonDir != filepath.Join(repo, ".git") || !w.CanRemove {
 		t.Fatalf("linked grouping or safety metadata lost: %+v", w)
 	}
-	if !testTree(t, report, outside).OutsideRoot {
-		t.Fatal("outside registered linked worktree lost its protection")
+}
+
+func TestLinkedOnlyScopeOmitsRegisteredSiblingsOutsideSelectedFolder(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := testRepo(t, filepath.Join(root, "primary"))
+	sessions := filepath.Join(root, "sessions")
+	selected := testLinked(t, repo, filepath.Join(sessions, "current"), "current")
+	testLinked(t, repo, filepath.Join(root, "elsewhere", "sibling"), "sibling")
+	report, err := Scan(context.Background(), Options{Root: sessions, LinkedOnly: true, Progress: func(event Progress) {
+		if event.Worktree != nil && event.Worktree.Path != selected {
+			t.Errorf("scoped scan leaked registered sibling into progress: %+v", event.Worktree)
+		}
+		if event.Stage == "inspect" && event.Total != 1 {
+			t.Errorf("scoped scan inspected out-of-scope siblings: %+v", event)
+		}
+	}})
+	if err != nil || len(report.Worktrees) != 1 {
+		t.Fatalf("scoped scan: %+v, %v", report, err)
+	}
+	w := testTree(t, report, selected)
+	if w.OutsideRoot || w.CommonDir != filepath.Join(repo, ".git") || w.Repo != "primary" {
+		t.Fatalf("scoped worktree lost parent grouping: %+v", w)
 	}
 }
 

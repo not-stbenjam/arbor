@@ -285,21 +285,67 @@ app.once("browser-window-created", (_event, win) => {
           async () => (await clipboard.readText()) === oldFolder + "/tree-1",
           "copy path from native menu",
         );
+        // A folder action must use the displayed filter, even when matching
+        // children are collapsed. Hidden siblings must never enter confirmation.
+        await js(
+          `document.querySelector('#search').value='topic-1'; document.querySelector('#search').dispatchEvent(new Event('input'))`,
+        );
+        assert.equal(
+          await js(
+            "document.querySelectorAll('#worktree-list tr[data-id]').length",
+          ),
+          11,
+        );
+        await js(
+          `document.querySelector('[data-toggle-directory="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
+        );
+        assert.equal(
+          await js(
+            "document.querySelectorAll('#worktree-list tr[data-id]').length",
+          ),
+          0,
+        );
         removalResponses.push(0);
         await js(
           `document.querySelector('[data-folder-delete="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
         );
         await until(
           () => removalDialogs.length === 1,
+          "filtered folder confirmation",
+        );
+        assert.match(removalDialogs[0].message, /11 worktrees/);
+        assert.ok(removalDialogs[0].detail.includes(oldFolder + "/tree-1"));
+        assert.ok(!removalDialogs[0].detail.includes(oldFolder + "/tree-0"));
+        assert.ok(!removalDialogs[0].detail.includes(oldFolder + "/tree-2"));
+        await until(
+          () => js("window.arbor.getState().then(s=>!s.busy)"),
+          "cancel filtered deletion",
+        );
+        await js(
+          `document.querySelector('#search').value=''; document.querySelector('#search').dispatchEvent(new Event('input'))`,
+        );
+        await until(
+          () =>
+            js(
+              "document.querySelectorAll('#worktree-list tr[data-id]').length===40",
+            ),
+          "unfiltered rows restored",
+        );
+        removalResponses.push(0);
+        await js(
+          `document.querySelector('[data-folder-delete="' + ${JSON.stringify(oldFolder)} + '"]').click()`,
+        );
+        await until(
+          () => removalDialogs.length === 2,
           "folder delete confirmation",
         );
         await until(
           () => js("window.arbor.getState().then(s=>!s.busy)"),
           "cancel folder deletion",
         );
-        assert.match(removalDialogs[0].detail, /Ignored files/);
-        assert.ok(removalDialogs[0].detail.includes(oldFolder + "/tree-1"));
-        assert.ok(!removalDialogs[0].detail.includes("/sessions/recent/"));
+        assert.match(removalDialogs[1].detail, /Ignored files/);
+        assert.ok(removalDialogs[1].detail.includes(oldFolder + "/tree-1"));
+        assert.ok(!removalDialogs[1].detail.includes("/sessions/recent/"));
         assert.equal(
           await js(
             "window.arbor.getState().then(s=>s.report.worktrees.length)",
@@ -342,7 +388,7 @@ app.once("browser-window-created", (_event, win) => {
         );
         assert.equal(
           removalDialogs.length,
-          2,
+          3,
           "one confirmation per folder action",
         );
         await until(
@@ -352,7 +398,14 @@ app.once("browser-window-created", (_event, win) => {
             ),
           "deleted rows disappear",
         );
-        await until(() => js("!document.querySelector('#refresh-button').disabled && document.querySelector('#scan-progress').hidden"), "cleanup controls settle immediately", 1500);
+        await until(
+          () =>
+            js(
+              "!document.querySelector('#refresh-button').disabled && document.querySelector('#scan-progress').hidden",
+            ),
+          "cleanup controls settle immediately",
+          1500,
+        );
         win.setSize(850, 560);
         await pause(150);
         const sidebar = await js(`(() => {

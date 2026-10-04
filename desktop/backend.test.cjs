@@ -194,7 +194,7 @@ test("stale commits, duplicate selections, protected trees, and nonrecommendatio
   );
 });
 
-test("partial cleanup errors block failed rows and do not trigger a refresh", async () => {
+test("failed target reinspection keeps a retry action without a full rescan", async () => {
   let calls = 0;
   const backend = new Backend({
     run: async (args) => {
@@ -214,10 +214,12 @@ test("partial cleanup errors block failed rows and do not trigger a refresh", as
   assert.equal(result.report.worktrees[0].canRemove, false);
   assert.equal(result.report.worktrees[0].recommended, false);
   assert.match(
-    result.report.worktrees[0].blockers[0],
+    result.report.worktrees[0].lastRemovalError,
     /Ignored files now exist/,
   );
-  assert.equal(calls, 2);
+  assert.match(result.report.worktrees[0].blockers[0], /Scan failed/);
+  assert.equal(result.report.worktrees[0].retryInspection, true);
+  assert.equal(calls, 3);
   assert.equal(backend.state.busy, false);
 });
 
@@ -919,4 +921,149 @@ test("folder deletion can explicitly request one confirmation even for recommend
   );
   assert.equal(count, 1);
   assert.equal(result.cancelled, true);
+});
+
+test("manual deletion of a recommended row does not silently require recommendation revalidation", async () => {
+  const calls = [];
+  const retainedBranch = "arbor/recovered-topic";
+  const backend = new Backend({
+    run: async (args) => {
+      calls.push(args);
+      return args[0] === "list"
+        ? report()
+        : JSON.stringify({ path: tree.path, removed: true, retainedBranch });
+    },
+  });
+  backend.scan({});
+  await backend.pending;
+  let confirmations = 0;
+  const result = await backend.remove(
+    selection(backend, { recommendedOnly: false, forceConfirm: true }),
+    async () => {
+      confirmations++;
+      return true;
+    },
+  );
+  assert.equal(confirmations, 1);
+  assert.equal(calls[1].includes("--recommended-only"), false);
+  assert.equal(calls[1].includes("--keep-local"), true);
+  assert.equal(calls[1].includes("--discard-local"), false);
+  assert.deepEqual(result.results, [
+    { path: tree.path, removed: true, retainedBranch },
+  ]);
+});
+
+test("failed deletion re-inspects only its exact path and keeps the untouched snapshot", async () => {
+  const other = { ...tree, id: "other", path: "/work/other" };
+  const fresh = {
+    ...tree,
+    head: "b".repeat(40),
+    canRemove: false,
+    recommended: false,
+    canDiscard: true,
+    dirty: true,
+  };
+  const calls = [];
+  const backend = new Backend({
+    run: async (args, options) => {
+      calls.push({ args, options });
+      if (args[0] === "remove") throw new Error("Worktree changed");
+      if (args.includes("--target-only")) return report([fresh], tree.path);
+      return report([tree, other]);
+    },
+  });
+  backend.scan({ host: "vps", root: "/work", github: true, fetch: true });
+  await backend.pending;
+  const oldRevision = backend.getState().revision;
+  const result = await backend.remove(selection(backend));
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[2].args, [
+    "list",
+    "--target-only",
+    "--linked-only",
+    "--json",
+    "--path",
+    tree.path,
+    "--host",
+    "vps",
+    "--github",
+  ]);
+  assert.equal(calls[2].options.timeout, 30000);
+  assert.equal(calls[2].args.includes("--fetch"), false);
+  assert.notEqual(result.revision, oldRevision);
+  assert.equal(result.report.worktrees[0].head, fresh.head);
+  assert.equal(result.report.worktrees[0].canDiscard, true);
+  assert.equal(result.report.worktrees[0].lastRemovalError, "Worktree changed");
+  assert.deepEqual(result.report.worktrees[1], other);
+  assert.equal(result.results[0].removed, false);
+});
+
+test("inspection retry authenticates the current row and never retries deletion", async () => {
+  const calls = [];
+  let fails = true;
+  const backend = new Backend({
+    run: async (args) => {
+      calls.push(args);
+      if (args[0] === "remove") throw new Error("Changed");
+      if (args.includes("--target-only") && fails)
+        throw new Error("Disconnected");
+      return report();
+    },
+  });
+  backend.scan({});
+  await backend.pending;
+  await backend.remove(selection(backend));
+  assert.equal(backend.getState().report.worktrees[0].retryInspection, true);
+  assert.throws(
+    () => backend.inspectWorktree({ id: tree.id, revision: "old" }),
+    /list changed/,
+  );
+  const before = backend.getState().revision;
+  fails = false;
+  const state = backend.inspectWorktree({
+    id: tree.id,
+    revision: before,
+    path: "/arbitrary",
+  });
+  assert.equal(state.busy, true);
+  await backend.pending;
+  assert.notEqual(backend.getState().revision, before);
+  assert.equal(backend.getState().report.worktrees[0].canRemove, true);
+  assert.equal(backend.getState().report.worktrees[0].retryInspection, false);
+  assert.equal(calls.filter((args) => args[0] === "remove").length, 1);
+  assert.equal(calls.at(-1)[calls.at(-1).indexOf("--path") + 1], tree.path);
+});
+
+test("finish-current quit cancels read-only failure inspection without retrying deletion", async () => {
+  let inspectionStarted;
+  const started = new Promise((resolve) => {
+    inspectionStarted = resolve;
+  });
+  const calls = [];
+  const backend = new Backend({
+    run: async (args, options) => {
+      calls.push(args);
+      if (args[0] === "remove") throw new Error("Changed");
+      if (args.includes("--target-only"))
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            "abort",
+            () => reject(new Error("Inspection stopped")),
+            { once: true },
+          );
+          inspectionStarted();
+        });
+      return report();
+    },
+  });
+  backend.scan({});
+  await backend.pending;
+  const pending = backend.remove(selection(backend));
+  await started;
+  backend.stopCleanupAfterCurrent();
+  const result = await pending;
+  assert.equal(result.stopped, true);
+  assert.equal(result.report.worktrees[0].retryInspection, true);
+  assert.equal(calls.length, 3);
+  assert.equal(backend.getState().busy, false);
 });

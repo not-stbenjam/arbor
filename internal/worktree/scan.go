@@ -218,7 +218,8 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 			w := &entries[i]
 			registeredPaths[w.Path] = true
 			w.Main = i == 0
-			if (options.TargetOnly && w.Path != root) || (options.LinkedOnly && (w.Main || w.Bare)) {
+			w.OutsideRoot = !within(root, w.Path)
+			if (options.TargetOnly && w.Path != root) || (options.LinkedOnly && (w.Main || w.Bare || w.OutsideRoot)) {
 				continue
 			}
 			if excluded(w.Path) {
@@ -232,7 +233,6 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 			if len(entries) > 0 && entries[0].Bare {
 				w.Repo = strings.TrimSuffix(filepath.Base(common), ".git")
 			}
-			w.OutsideRoot = !within(root, w.Path)
 			sum := sha256.Sum256([]byte(common + "\x00" + w.Path))
 			w.ID = hex.EncodeToString(sum[:12])
 			report.Worktrees = append(report.Worktrees, *w)

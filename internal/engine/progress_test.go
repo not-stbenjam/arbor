@@ -42,7 +42,7 @@ func TestRemoteScanStreamsProgressAndPreservesReport(t *testing.T) {
 			return []byte("arbor v1.2.3\n"), nil
 		},
 		stream: func(_ context.Context, host, command string, _ io.Reader, callback func(worktree.Progress)) ([]byte, error) {
-			if host != "my-vps" || !strings.Contains(command, "'--linked-only'") || !strings.Contains(command, "'--progress'") || !strings.Contains(command, "'--watch-stdin'") || !strings.Contains(command, "'--no-default-excludes'") || !strings.Contains(command, "'--exclude' 'node_modules'") {
+			if host != "my-vps" || !strings.Contains(command, "'--linked-only=true'") || !strings.Contains(command, "'--progress'") || !strings.Contains(command, "'--watch-stdin'") || !strings.Contains(command, "'--no-default-excludes'") || !strings.Contains(command, "'--exclude' 'node_modules'") {
 				t.Fatalf("missing remote progress option: %s, %s", host, command)
 			}
 			callback(worktree.Progress{Stage: "discovery", Path: "/code", Discovered: 1})

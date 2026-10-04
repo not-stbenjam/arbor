@@ -36,6 +36,8 @@ function menuTarget(state, value) {
       !!state.revision &&
       !row.outsideRoot &&
       (row.canRemove === true || row.canDiscard === true),
+    retryInspection:
+      !state.busy && !!state.revision && row.retryInspection === true,
   };
 }
 
@@ -60,9 +62,22 @@ function terminalCommand(platform, directory, findExecutable) {
   if (platform !== "linux") return null;
   // Each directory is an argv value (or cwd), never terminal command text.
   const candidates = [
+    ["ptyxis", ["--new-window", `--working-directory=${directory}`]],
+    ["kgx", [`--working-directory=${directory}`]],
     ["gnome-terminal", [`--working-directory=${directory}`]],
     ["konsole", ["--workdir", directory]],
     ["xfce4-terminal", ["--working-directory", directory]],
+    ["kitty", ["--directory", directory]],
+    ["alacritty", ["--working-directory", directory]],
+    ["foot", [`--working-directory=${directory}`]],
+    ["wezterm", ["start", "--cwd", directory]],
+    [
+      "ghostty",
+      [
+        `--working-directory=${directory}`,
+        "--window-inherit-working-directory=false",
+      ],
+    ],
     ["x-terminal-emulator", []],
     ["xterm", []],
   ];
@@ -73,4 +88,46 @@ function terminalCommand(platform, directory, findExecutable) {
   return null;
 }
 
-module.exports = { menuTarget, terminalCommand };
+function removalConfirmationOptions(trees, discardLocal) {
+  const dirty = discardLocal && trees.some((row) => row.dirty);
+  const ignored = discardLocal && trees.some((row) => row.ignored);
+  const discardsFiles = dirty || ignored;
+  const notes = [
+    "The selected worktree folders will be deleted. Git branches and commits are retained.",
+  ];
+  if (dirty && ignored)
+    notes.push(
+      "Uncommitted, untracked, and ignored files will be permanently discarded.",
+    );
+  else if (dirty)
+    notes.push(
+      "Uncommitted and untracked files will be permanently discarded.",
+    );
+  else if (ignored) notes.push("Ignored files will be permanently discarded.");
+  if (discardLocal && trees.some((row) => row.locked))
+    notes.push(
+      "Git worktree locks on the selected folders will be overridden.",
+    );
+  if (trees.some((row) => row.detached))
+    notes.push(
+      "Detached commits will be retained; recovery branches are created only if needed.",
+    );
+  return {
+    title: discardsFiles
+      ? "Discard local data and remove?"
+      : "Remove worktree?",
+    message:
+      trees.length === 1
+        ? `Remove “${path.basename(trees[0].path) || trees[0].branch || "worktree"}”?`
+        : `Remove ${trees.length} worktrees?`,
+    detail: `${notes.join("\n")}\n\n${trees.map((row) => `${row.path}${discardLocal && row.discardWarnings?.length ? "\n" + row.discardWarnings.join("\n") : ""}`).join("\n\n")}`,
+    buttons: [
+      "Cancel",
+      discardsFiles
+        ? "Discard & Remove"
+        : "Remove Worktree" + (trees.length > 1 ? "s" : ""),
+    ],
+  };
+}
+
+module.exports = { menuTarget, terminalCommand, removalConfirmationOptions };

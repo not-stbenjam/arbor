@@ -18,6 +18,22 @@ func Remove(ctx context.Context, snapshot Worktree, expectedHead string, recomme
 // RemoveWithOptions permits explicit local-file disposal, but never bypasses
 // identity checks or turns a primary repository into a removable worktree.
 func RemoveWithOptions(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly, discardLocal bool) error {
+	_, err := RemoveWithResult(ctx, snapshot, expectedHead, recommendedOnly, discardLocal)
+	return err
+}
+
+// RemoveWithResult also reports a recovery branch created for a detached commit.
+func RemoveWithResult(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly, discardLocal bool) (RemovalResult, error) {
+	result := RemovalResult{Path: snapshot.Path}
+	err := remove(ctx, snapshot, expectedHead, recommendedOnly, discardLocal, &result)
+	result.Removed = err == nil
+	if err != nil {
+		result.Error = err.Error()
+	}
+	return result, err
+}
+
+func remove(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly, discardLocal bool, result *RemovalResult) error {
 	if recommendedOnly && discardLocal {
 		return errors.New("discarding local files cannot be used for recommended cleanup")
 	}
@@ -78,15 +94,18 @@ func RemoveWithOptions(ctx context.Context, snapshot Worktree, expectedHead stri
 	}
 	// Retaining the named branch is part of Arbor's removal contract.
 	if current.Detached && discardLocal {
-		branch := RecoveryBranch(*current)
-		ref := "refs/heads/" + branch
-		if existing := gitText(ctx, current.Path, "rev-parse", "--verify", ref); existing != expectedHead {
-			if existing != "" {
-				return errors.New("recovery branch already points to another commit")
-			}
+		// Most detached tool sessions point at an existing branch commit. Avoid
+		// creating a permanent recovery ref for each of those disposable checkouts.
+		refs, err := git(ctx, current.Path, "for-each-ref", "--contains", expectedHead, "--format=%(refname)", "refs/heads/", "refs/remotes/")
+		if err != nil {
+			return fmt.Errorf("could not check detached commit retention: %w", err)
+		}
+		if strings.TrimSpace(string(refs)) == "" {
+			branch := RecoveryBranch(*current)
 			if _, err := git(ctx, current.Path, "branch", "--", branch, expectedHead); err != nil {
 				return fmt.Errorf("could not preserve detached commit: %w", err)
 			}
+			result.RetainedBranch = branch
 		}
 	} else if current.Branch == "" || gitText(ctx, current.Path, "rev-parse", "--verify", "refs/heads/"+current.Branch) != expectedHead {
 		return errors.New("branch no longer preserves this commit")

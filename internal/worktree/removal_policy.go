@@ -22,7 +22,7 @@ func annotateDiscard(w *Worktree) {
 		case "Locked worktree":
 			w.DiscardWarnings = append(w.DiscardWarnings, "The Git worktree lock will be overridden.")
 		case "Detached HEAD; create a branch to retain its commits":
-			w.DiscardWarnings = append(w.DiscardWarnings, "The detached commit will be kept on a recovery branch.")
+			w.DiscardWarnings = append(w.DiscardWarnings, "The detached commit will be retained; a recovery branch is created only if needed.")
 		case "Default branch", "Protected branch name":
 			// A linked checkout of a named branch is removable; the branch stays.
 		default:

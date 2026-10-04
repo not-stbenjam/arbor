@@ -28,7 +28,12 @@ if (!phase) {
     app.exit(1);
   }, 45000);
   (async () => {
-    for (const current of ["scan-close", "scan-quit", "cleanup"]) {
+    for (const current of [
+      "scan-close",
+      "scan-quit",
+      "cleanup",
+      "confirmations",
+    ]) {
       const directory = path.join(root, current);
       fs.mkdirSync(directory);
       const child = spawn(
@@ -108,6 +113,10 @@ fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args)+'\\n');
 fs.writeFileSync(${JSON.stringify(path.join(directory, "cli.pid"))}, String(process.pid));
 const root = ${JSON.stringify(root)};
 const trees = [1,2].map(n=>({id:'tree-'+n,path:root+'/tree-'+n,repo:'fixture',branch:'topic-'+n,head:'a'.repeat(40),canRemove:true,recommended:true,blockers:[],problems:[],publishedRefs:[]}));
+if (${JSON.stringify(phase)} === 'confirmations') {
+  Object.assign(trees[0], {branch:'',detached:true,canRemove:false,canDiscard:true,recommended:false});
+  Object.assign(trees[1], {branch:'develop',canRemove:false,canDiscard:true,recommended:false});
+}
 if (args[0] === 'remove') {
   fs.writeFileSync(${JSON.stringify(path.join(directory, "removing"))}, 'started');
   setTimeout(()=>{fs.writeFileSync(${JSON.stringify(removed)},args.at(-1));process.stdout.write(JSON.stringify({path:args.at(-1),removed:true}));},700);
@@ -139,9 +148,14 @@ if (args[0] === 'remove') {
     return originalMenu.call(Menu, template);
   };
   const originalDialog = dialog.showMessageBox;
+  const confirmations = [];
   dialog.showMessageBox = async (...args) => {
     const options = args.at(-1);
     if (options.title === "Cleanup is running") return { response: 1 };
+    if (phase === "confirmations" && options.title === "Remove worktree?") {
+      confirmations.push(options);
+      return { response: 0 };
+    }
     if (options.title === "Worktree action unavailable") {
       console.error("Native menu callback failed:", options.message);
       return { response: 0 };
@@ -173,6 +187,13 @@ if (args[0] === 'remove') {
             .find((args) => args[0] === "remove")
             .includes("--keep-local"),
         );
+      } else if (phase === "confirmations") {
+        assert.equal(
+          invocations.length,
+          1,
+          "cancelled confirmations must not invoke removal",
+        );
+        assert.equal(confirmations.length, 2);
       }
       fs.writeFileSync(
         path.join(directory, "result.json"),
@@ -214,24 +235,54 @@ if (args[0] === 'remove') {
             !state.busy,
           );
         };
-        if (phase === "cleanup") {
+        if (phase === "cleanup" || phase === "confirmations") {
           const state = await until(async () => {
             const state = await js("window.arbor.getState()");
             return !state.busy && state.report ? state : null;
           }, "completed synthetic scan");
           await checkMenu(state);
-          const selection = {
-            revision: state.revision,
-            recommendedOnly: true,
-            items: state.report.worktrees.map(({ id, head }) => ({ id, head })),
-          };
-          void js(`window.arbor.remove(${JSON.stringify(selection)})`).catch(
-            () => {},
-          );
-          await until(
-            () => fs.existsSync(path.join(directory, "removing")),
-            "first synthetic removal",
-          );
+          if (phase === "confirmations") {
+            for (const row of state.report.worktrees) {
+              const selection = {
+                revision: state.revision,
+                items: [{ id: row.id, head: row.head }],
+                discardLocal: true,
+                forceConfirm: true,
+              };
+              const result = await js(
+                `window.arbor.remove(${JSON.stringify(selection)})`,
+              );
+              assert.equal(result.cancelled, true);
+            }
+            assert.equal(confirmations[0].message, "Remove “tree-1”?");
+            assert.match(
+              confirmations[0].detail,
+              /recovery branches are created only if needed/,
+            );
+            assert.equal(confirmations[1].message, "Remove “tree-2”?");
+            assert.ok(
+              confirmations.every(
+                (options) => !options.detail.includes("permanently discarded"),
+              ),
+              "clean detached/protected rows must not claim file loss",
+            );
+          } else {
+            const selection = {
+              revision: state.revision,
+              recommendedOnly: true,
+              items: state.report.worktrees.map(({ id, head }) => ({
+                id,
+                head,
+              })),
+            };
+            void js(`window.arbor.remove(${JSON.stringify(selection)})`).catch(
+              () => {},
+            );
+            await until(
+              () => fs.existsSync(path.join(directory, "removing")),
+              "first synthetic removal",
+            );
+          }
         } else {
           await until(
             async () =>

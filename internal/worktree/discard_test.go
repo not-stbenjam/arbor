@@ -44,8 +44,12 @@ func TestExplicitDiscardRemovesLinkedLocalFilesButKeepsBranch(t *testing.T) {
 			if err := RemoveWithOptions(context.Background(), w, w.Head, true, true); err == nil {
 				t.Fatal("automatic cleanup allowed discard")
 			}
-			if err := RemoveWithOptions(context.Background(), w, w.Head, false, true); err != nil {
+			result, err := RemoveWithResult(context.Background(), w, w.Head, false, true)
+			if err != nil {
 				t.Fatal(err)
+			}
+			if !result.Removed || result.Path != w.Path || result.Error != "" || (kind == "detached" && result.RetainedBranch != RecoveryBranch(w)) || (kind != "detached" && result.RetainedBranch != "") {
+				t.Fatalf("incorrect removal result: %+v", result)
 			}
 			if _, err := os.Stat(wt); !os.IsNotExist(err) {
 				t.Fatalf("worktree still exists: %v", err)
@@ -61,6 +65,24 @@ func TestExplicitDiscardRemovesLinkedLocalFilesButKeepsBranch(t *testing.T) {
 				t.Fatalf("primary checkout changed: %v", err)
 			}
 		})
+	}
+}
+
+func TestDetachedRemovalDoesNotCreateRedundantRecoveryBranch(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testGit(t, wt, "checkout", "--detach")
+	w := testTree(t, testScan(t, root), wt)
+	result, err := RemoveWithResult(context.Background(), w, w.Head, false, true)
+	if err != nil || !result.Removed || result.RetainedBranch != "" {
+		t.Fatalf("unexpected result: %+v, %v", result, err)
+	}
+	if refs := testGit(t, repo, "for-each-ref", "--format=%(refname)", "refs/heads/arbor/retained/"); refs != "" {
+		t.Fatalf("redundant recovery branch: %s", refs)
+	}
+	if head := testGit(t, repo, "rev-parse", "main"); head != w.Head {
+		t.Fatal("detached commit not retained")
 	}
 }
 

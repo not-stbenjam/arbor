@@ -528,6 +528,94 @@ class Backend {
     return this.getState();
   }
 
+  async refreshTarget(row) {
+    const args = [
+      "list",
+      "--target-only",
+      "--linked-only",
+      "--json",
+      "--path",
+      row.path,
+    ];
+    if (this.options.host) args.push("--host", this.options.host);
+    if (this.options.github) args.push("--github");
+    const controller = new AbortController();
+    this.targetInspectionController = controller;
+    try {
+      const report = parseReport(
+        await this.run(args, { timeout: 30000, signal: controller.signal }),
+      );
+      if (this.disposed) return;
+      const current = report.worktrees.find((entry) => entry.path === row.path);
+      const index = this.state.report.worktrees.findIndex(
+        (entry) => entry.path === row.path,
+      );
+      if (index < 0) return;
+      if (!current) this.state.report.worktrees.splice(index, 1);
+      else
+        this.state.report.worktrees[index] = {
+          ...current,
+          retryInspection: false,
+          ...(row.lastRemovalError
+            ? { lastRemovalError: row.lastRemovalError }
+            : {}),
+        };
+    } finally {
+      if (this.targetInspectionController === controller)
+        this.targetInspectionController = null;
+    }
+  }
+
+  markInspectionFailure(row, error) {
+    row.canRemove = false;
+    row.recommended = false;
+    row.canDiscard = false;
+    row.retryInspection = true;
+    row.inspectionError = error.message;
+    row.blockers = [
+      ...(row.blockers || []).filter(
+        (message) => !message.startsWith("Inspection failed:"),
+      ),
+      `Inspection failed: ${error.message}. Use Retry Inspection from the context menu.`,
+    ];
+  }
+
+  inspectWorktree(value) {
+    if (this.disposed) throw new Error("Arbor is closing");
+    if (this.state.busy) throw new Error("An operation is already running");
+    if (
+      !value ||
+      !this.state.revision ||
+      value.revision !== this.state.revision ||
+      typeof value.id !== "string"
+    )
+      throw new Error("The worktree list changed; try inspection again");
+    const row = this.state.report?.worktrees.find(
+      (entry) => entry.id === value.id,
+    );
+    if (!row) throw new Error("Worktree is no longer in the current list");
+    this.state.busy = true;
+    this.state.error = "";
+    this.operation = "inspect";
+    this.beginProgress("inspect");
+    this.state.progress.path = row.path;
+    this.state.progress.total = 1;
+    this.state.revision = null;
+    this.pending = this.refreshTarget(row)
+      .catch((error) => {
+        if (this.disposed) return;
+        this.markInspectionFailure(row, error);
+        this.state.error = `Could not inspect ${row.path}: ${error.message}`;
+      })
+      .finally(() => {
+        this.state.busy = false;
+        this.operation = null;
+        this.state.progress = null;
+        this.state.revision = this.disposed ? null : randomUUID();
+      });
+    return this.getState();
+  }
+
   async remove(value, confirm) {
     if (this.disposed) throw new Error("Arbor is closing");
     if (this.state.busy) throw new Error("An operation is already running");
@@ -620,34 +708,43 @@ class Backend {
           args.push(
             discardLocal && !w.canRemove ? "--discard-local" : "--keep-local",
           );
-          if (value.recommendedOnly === true || w.recommended)
-            args.push("--recommended-only");
+          if (value.recommendedOnly === true) args.push("--recommended-only");
           args.push("--", w.path);
           try {
             const result = JSON.parse(await this.run(args));
             if (!result || result.path !== w.path || result.removed !== true)
               throw new Error(result?.error || "Arbor did not confirm removal");
-            results.push({ path: w.path, removed: true });
+            results.push({
+              path: w.path,
+              removed: true,
+              ...(typeof result.retainedBranch === "string" &&
+              result.retainedBranch
+                ? { retainedBranch: result.retainedBranch }
+                : {}),
+            });
             this.state.report.worktrees = this.state.report.worktrees.filter(
               (entry) => entry.path !== w.path,
             );
           } catch (error) {
-            results.push({
+            const outcome = {
               path: w.path,
               removed: false,
               error: error.message,
-            });
+            };
+            results.push(outcome);
             const entry = this.state.report.worktrees.find(
               (item) => item.path === w.path,
             );
             if (entry) {
-              entry.canRemove = false;
-              entry.recommended = false;
-              entry.canDiscard = false;
-              entry.blockers = [
-                ...(entry.blockers || []),
-                `Removal refused: ${error.message}. Refresh before trying again.`,
-              ];
+              entry.lastRemovalError = error.message;
+              try {
+                if (this.stopAfterCurrent)
+                  throw new Error("Inspection skipped while closing");
+                await this.refreshTarget(entry);
+              } catch (inspectionError) {
+                this.markInspectionFailure(entry, inspectionError);
+                outcome.inspectionError = inspectionError.message;
+              }
             }
           }
           this.state.progress.completed = results.length;
@@ -677,12 +774,14 @@ class Backend {
   stopCleanupAfterCurrent() {
     if (this.operation !== "remove") throw new Error("No cleanup is running");
     this.stopAfterCurrent = true;
+    this.targetInspectionController?.abort();
   }
 
   dispose() {
     if (this.operation === "remove") return false;
     this.disposed = true;
     this.scanController?.abort();
+    this.targetInspectionController?.abort();
     for (const child of this.children) child.kill("SIGTERM");
     return true;
   }

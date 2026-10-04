@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld(
     copyText: (text) => ipcRenderer.invoke("arbor:copy-text", text),
     showWorktreeMenu: (selection) =>
       ipcRenderer.invoke("arbor:worktree-menu", selection),
+    inspectWorktree: (selection) =>
+      ipcRenderer.invoke("arbor:inspect-worktree", selection),
     onMenuAction: (callback) => {
       if (typeof callback !== "function")
         throw new TypeError("Menu callback must be a function");

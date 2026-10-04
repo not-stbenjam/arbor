@@ -44,6 +44,7 @@ List options:
   --no-default-excludes  Scan without the default cache/temp exclusions
   --recommended     Only show cleanup recommendations
   --linked-only     Only linked worktrees (default: true)
+  --linked-only=false  Also list primary repositories and registered outside trees
 
 Cleanup options:
   --yes             Perform removal (otherwise preview only)
@@ -53,7 +54,9 @@ Cleanup options:
 Remove options:
   --head COMMIT     Require this exact commit
   --recommended-only  Require a fresh cleanup recommendation
-  --discard-local  Explicitly delete local files in a linked worktree (requires --yes)
+  --keep-local     Refuse removal if local files would be discarded
+  --discard-local  Explicit alias for remove's default local-file deletion
+                   Preview without --yes; pass --yes to confirm deletion
 
 Examples:
   arbor list --path ~/code
@@ -64,7 +67,8 @@ Examples:
 Branches are retained. "remove" deletes the selected linked checkout and its
 local files; preview first, then pass --yes. "clean" defaults to merged, clean
 worktrees; --all includes other linked checkouts. Primary repositories are never
-removed. Detached commits are retained on an arbor/retained/ recovery branch.
+removed. Detached commits stay reachable from an existing branch; an
+arbor/retained/ recovery branch is created only when no branch retains the commit.
 `
 
 type commonFlags struct {
@@ -272,7 +276,7 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		if discardLocal {
 			for _, w := range selected {
 				for _, warning := range w.DiscardWarnings {
-					fmt.Fprintln(stdout, warning)
+					fmt.Fprintf(stdout, "%s: %s\n", printable(w.Path), printable(warning))
 				}
 			}
 		}
@@ -282,19 +286,26 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	results := []worktree.RemovalResult{}
 	failed := false
 	for _, w := range selected {
-		result := worktree.RemovalResult{Path: w.Path}
-		if err := engine.RemoveWithOptions(ctx, common.host, w, w.Head, (command == "clean" && !all) || recommended, discardLocal); err != nil {
+		result, err := engine.RemoveWithResult(ctx, common.host, w, w.Head, (command == "clean" && !all) || recommended, discardLocal)
+		if err != nil {
 			result.Error = err.Error()
 			failed = true
-		} else {
-			result.Removed = true
 		}
 		results = append(results, result)
 		if !common.json {
 			if result.Removed {
-				fmt.Fprintln(stdout, "Removed", w.Path, "(branch retained)")
+				retention := "(branch retained)"
+				if result.RetainedBranch != "" {
+					retention = "(commit retained on " + printable(result.RetainedBranch) + ")"
+				} else if w.Detached {
+					retention = "(commit retained)"
+				}
+				fmt.Fprintln(stdout, "Removed", printable(w.Path), retention)
 			} else {
-				fmt.Fprintln(stderr, w.Path+":", result.Error)
+				fmt.Fprintln(stderr, printable(w.Path)+":", printable(result.Error))
+				if result.RetainedBranch != "" {
+					fmt.Fprintln(stderr, printable(w.Path)+": commit retained on", printable(result.RetainedBranch))
+				}
 			}
 		}
 	}

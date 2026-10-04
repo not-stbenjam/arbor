@@ -17,8 +17,6 @@
     "chevron-right": '<path d="m9 6 6 6-6 6"/>',
     more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
     "check-circle": '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
-    shield:
-      '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>',
     settings:
       '<path d="m10 3-1 3-3 1-3 3 2 2-1 3 3 3 3-1 2 4 3-2 1-3 4-1 1-4-3-1-1-3-4-1-1-3Z"/><circle cx="12" cy="12" r="3"/>',
     sliders:
@@ -34,8 +32,6 @@
     trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
     folder:
       '<path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"/>',
-    cloud: '<path d="M7 18a5 5 0 1 1 1-10 6 6 0 0 1 11 2 4 4 0 0 1-1 8H7Z"/>',
-    lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v2"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
     warning: '<path d="m12 3 10 18H2L12 3Zm0 6v5m0 3h.01"/>',
     edit: '<path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6Z"/>',
@@ -43,8 +39,6 @@
       '<path d="M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/>',
     moon: '<path d="M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11Z"/>',
-    panel:
-      '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
   };
@@ -356,11 +350,6 @@
     const path = `${state.host ? `${state.host}:` : ""}${state.root || "Home folder"}`;
     $("#root-label").textContent = path;
     $("#path-button").title = `Scan folder: ${path}`;
-    $("#verification-label").textContent = state.report?.github
-      ? `GitHub checked · ${state.report.fetched ? "remotes fetched" : "cached refs"}`
-      : state.report?.fetched
-        ? "Remote branches fetched"
-        : "Local Git metadata · cached refs";
     const signature = JSON.stringify([repos, repo]);
     if (signature !== repoSignature) {
       $("#repo-list").innerHTML = repos.length
@@ -419,15 +408,7 @@
   }
   function renderRows() {
     const query = search.trim().toLowerCase();
-    const filtered = items().filter(
-      (w) =>
-        (!repo || repoID(w) === repo) &&
-        (view !== "recommended" || w.recommended) &&
-        (!query ||
-          [w.path, w.branch, w.repo, w.head, w.subject].some((value) =>
-            (value || "").toLowerCase().includes(query),
-          )),
-    );
+    const filtered = tree.filter(items(), { repo, view, query });
     const directoryTree = tree.build(
       filtered,
       state.report?.root || state.root,
@@ -457,7 +438,7 @@
     };
     directoryRows = tree.flatten(
       directoryTree,
-      query ? new Set() : collapsedDirectories,
+      collapsedDirectories,
       sort === "path" && !descending ? undefined : compare,
     );
     if (sort === "path" && descending && directoryTree) {
@@ -466,10 +447,7 @@
         node.children.forEach(reverse);
       };
       reverse(directoryTree);
-      directoryRows = tree.flatten(
-        directoryTree,
-        query ? new Set() : collapsedDirectories,
-      );
+      directoryRows = tree.flatten(directoryTree, collapsedDirectories);
     }
     visible = directoryRows
       .filter((entry) => entry.kind === "worktree")
@@ -535,21 +513,20 @@
       .map((entry) => {
         if (entry.kind === "directory") {
           const node = entry.node;
-          const all = tree.descendants(items(), node.path);
-          const expanded = !!query || !collapsedDirectories.has(node.path);
-          const count =
-            all.length === node.descendants.length
-              ? `${all.length} ${all.length === 1 ? "worktree" : "worktrees"}`
-              : `${node.descendants.length} of ${all.length} shown`;
-          return `<tr class="directory-row" data-directory-path="${esc(node.path)}" aria-level="${entry.depth + 1}" aria-expanded="${expanded}"><td colspan="3" class="directory-cell"><div class="directory-line">${indentation(entry.depth)}<button class="directory-toggle" data-toggle-directory="${esc(node.path)}" aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${esc(node.path)}">${icon(expanded ? "chevron-down" : "chevron-right")}${icon("folder")}<span title="${esc(node.path)}">${esc(entry.depth === 0 ? node.path : node.name)}</span></button><span class="directory-count">${count}</span></div></td><td class="action-cell"><button class="row-action folder-delete" data-folder-delete="${esc(node.path)}" title="Delete linked worktrees under ${esc(node.path)}; keep this folder" ${blocked() || !state.revision ? "disabled" : ""}>Delete…</button></td></tr>`;
+          const expanded = !collapsedDirectories.has(node.path);
+          const count = `${node.descendants.length} ${node.descendants.length === 1 ? "worktree" : "worktrees"}`;
+          return `<tr class="directory-row" data-directory-path="${esc(node.path)}" aria-level="${entry.depth + 1}" aria-expanded="${expanded}"><td colspan="3" class="directory-cell"><div class="directory-line">${indentation(entry.depth)}<button class="directory-toggle" data-toggle-directory="${esc(node.path)}" aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${esc(node.path)}">${icon(expanded ? "chevron-down" : "chevron-right")}${icon("folder")}<span title="${esc(node.path)}">${esc(entry.label)}</span></button><span class="directory-count">${count}</span></div></td><td class="action-cell"><button class="row-action folder-delete" data-folder-delete="${esc(node.path)}" title="Delete matching worktrees in this group; keep this folder" ${blocked() || !state.revision ? "disabled" : ""}>Delete…</button></td></tr>`;
         }
         const w = entry.worktree;
+        const leaf = entry.label.split("/").pop();
+        const prefix = entry.label.slice(0, -leaf.length);
+        const pathLabel = `${prefix ? `<span class="path-chain">${esc(prefix)}</span>` : ""}<span class="path-basename">${esc(leaf)}</span>`;
         const context = w.pending
           ? state.cancelled
             ? "Scan incomplete"
             : "Checking…"
           : `${branchName(w)}${w.repo ? ` · ${w.repo}` : ""}`;
-        return `<tr class="worktree-row${selection.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" aria-level="${entry.depth + 1}" aria-selected="${selection.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}" aria-label="${esc(w.path)}"><span class="path-parent">${esc(tree.parent(w.path).replace(/\/$/, "") + "/")}</span><span class="path-leaf">${esc(w.path.split("/").filter(Boolean).pop())}</span></span><span class="worktree-context" title="${esc(context)}">${esc(context)}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${blocked() || !state.revision ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
+        return `<tr class="worktree-row${selection.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" aria-level="${entry.depth + 1}" aria-selected="${selection.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}" aria-label="${esc(w.path)}"><span class="path-parent">${esc(entry.pathPrefix.replace(/\/$/, "") + "/")}</span><span class="path-leaf">${pathLabel}</span></span><span class="worktree-context" title="${esc(context)}">${esc(context)}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${blocked() || !state.revision ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
       })
       .join("");
     $("#table-scroll").scrollTop = scroll;
@@ -569,7 +546,7 @@
       return "Removing selected worktrees…";
     return (
       {
-        starting: removing ? "Refreshing after cleanup…" : "Starting scan…",
+        starting: "Starting scan…",
         discovery: "Finding Git repositories…",
         fetch: "Fetching remote branches…",
         inspect: "Inspecting worktrees…",
@@ -969,7 +946,9 @@
           ?.focus({ preventScroll: true });
       }
       if (button.dataset.folderDelete)
-        deleteWorktrees(tree.descendants(items(), button.dataset.folderDelete));
+        deleteWorktrees(
+          tree.folderWorktrees(directoryRows, button.dataset.folderDelete),
+        );
       if (button.dataset.delete) {
         const w = items().find((w) => w.id === button.dataset.delete);
         if (w) deleteWorktrees([w]);
@@ -1045,6 +1024,7 @@
     }
   });
   $("#search").oninput = (event) => {
+    if (search !== event.target.value) collapsedDirectories.clear();
     search = event.target.value;
     selection.clear();
     render();

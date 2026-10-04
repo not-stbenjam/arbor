@@ -25,6 +25,28 @@
   function linked(worktrees) {
     return worktrees.filter((w) => w && w.path && !w.main && !w.bare);
   }
+  function filter(worktrees, options = {}) {
+    const query = String(options.query || "")
+      .trim()
+      .toLowerCase();
+    return linked(worktrees).filter(
+      (w) =>
+        (!options.repo || (w.commonDir || w.repo || w.path) === options.repo) &&
+        (options.view !== "recommended" || w.recommended) &&
+        (!query ||
+          [w.path, w.branch, w.repo, w.head, w.subject].some((value) =>
+            String(value || "")
+              .toLowerCase()
+              .includes(query),
+          )),
+    );
+  }
+  function folderWorktrees(rows, path) {
+    const entry = rows.find(
+      (row) => row.kind === "directory" && row.node.path === path,
+    );
+    return entry ? [...entry.node.descendants] : [];
+  }
   function descendants(worktrees, path) {
     return linked(worktrees).filter((w) => contains(path, w.path));
   }
@@ -86,15 +108,25 @@
     if (!root) return [];
     const result = [];
     function visit(node, depth, isRoot) {
+      const pathPrefix = parent(node.path);
+      let label = isRoot ? node.path : node.name;
+      // Retain the scan root and actual worktree boundaries, but compress
+      // intermediate folders that offer no branching choice.
+      while (!isRoot && !node.worktree && node.children.length === 1) {
+        node = node.children[0];
+        label += "/" + node.name;
+      }
       const group = isRoot || node.children.length > 0 || !node.worktree;
       if (group) {
-        result.push({ kind: "directory", node, depth });
+        result.push({ kind: "directory", node, depth, label });
         if (collapsed.has(node.path)) return;
       }
       if (node.worktree)
         result.push({
           kind: "worktree",
           worktree: node.worktree,
+          label: group ? node.name : label,
+          pathPrefix: group ? parent(node.path) : pathPrefix,
           depth: depth + (group ? 1 : 0),
           parent: group ? node.path : parent(node.path),
         });
@@ -115,6 +147,8 @@
     parent,
     contains,
     linked,
+    filter,
+    folderWorktrees,
     descendants,
     cleanup,
     build,

@@ -1525,11 +1525,24 @@ dialog::backdrop {
   font-size: 10px;
 }
 .path-leaf {
+  display: flex;
   flex: 0 0 auto;
   max-width: 80%;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 600;
+}
+.path-chain {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.path-basename {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .worktree-context {
   display: block;

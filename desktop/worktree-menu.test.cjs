@@ -2,7 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { menuTarget, terminalCommand } = require("./worktree-menu.cjs");
+const {
+  menuTarget,
+  terminalCommand,
+  removalConfirmationOptions,
+} = require("./worktree-menu.cjs");
 
 const row = { id: "topic", path: "/work/topic", canRemove: true };
 const state = {
@@ -118,4 +122,79 @@ test("Linux terminals use argv or cwd without shell interpolation", () => {
   );
   assert.throws(() => terminalCommand("linux", "relative", () => null));
   assert.throws(() => terminalCommand("linux", "/bad\0path", () => null));
+});
+
+test("modern Linux terminal launchers preserve opaque working directories", () => {
+  const directory = "/work/a'; $(do-not-run)\nline";
+  const expected = {
+    ptyxis: ["--new-window", `--working-directory=${directory}`],
+    kgx: [`--working-directory=${directory}`],
+    kitty: ["--directory", directory],
+    alacritty: ["--working-directory", directory],
+    foot: [`--working-directory=${directory}`],
+    wezterm: ["start", "--cwd", directory],
+    ghostty: [
+      `--working-directory=${directory}`,
+      "--window-inherit-working-directory=false",
+    ],
+  };
+  for (const [name, args] of Object.entries(expected)) {
+    const command = terminalCommand("linux", directory, (candidate) =>
+      candidate === name ? "/usr/bin/" + name : null,
+    );
+    assert.deepEqual(command.args, args);
+    assert.equal(command.cwd, directory);
+  }
+});
+
+test("confirmation names detached worktree folders and does not invent local file loss", () => {
+  const cleanDetached = removalConfirmationOptions(
+    [{ ...row, branch: "", detached: true }],
+    true,
+  );
+  assert.equal(cleanDetached.message, "Remove “topic”?");
+  assert.equal(cleanDetached.title, "Remove worktree?");
+  assert.match(cleanDetached.detail, /recovery branches/);
+  assert.match(cleanDetached.detail, /only if needed/);
+  assert.doesNotMatch(
+    cleanDetached.detail,
+    /files will be permanently discarded/,
+  );
+  const cleanProtected = removalConfirmationOptions(
+    [{ ...row, branch: "develop" }],
+    true,
+  );
+  assert.doesNotMatch(cleanProtected.detail, /discarded|recovery branches/);
+  const locked = removalConfirmationOptions([{ ...row, locked: true }], true);
+  assert.match(locked.detail, /locks.*overridden/);
+  assert.doesNotMatch(locked.detail, /files will be permanently discarded/);
+});
+
+test("confirmation describes only actual local-file categories", () => {
+  const dirty = removalConfirmationOptions([{ ...row, dirty: true }], true);
+  assert.equal(dirty.title, "Discard local data and remove?");
+  assert.match(dirty.detail, /Uncommitted and untracked files/);
+  assert.doesNotMatch(dirty.detail, /ignored files/i);
+  const ignored = removalConfirmationOptions([{ ...row, ignored: true }], true);
+  assert.match(ignored.detail, /Ignored files/);
+  assert.doesNotMatch(ignored.detail, /uncommitted/i);
+});
+
+test("failed inspections expose a targeted native retry without enabling stale deletion", () => {
+  const failed = {
+    ...state,
+    report: {
+      worktrees: [{ ...row, canRemove: false, retryInspection: true }],
+    },
+  };
+  const target = menuTarget(failed, { id: row.id, revision: failed.revision });
+  assert.equal(target.retryInspection, true);
+  assert.equal(target.removable, false);
+  assert.equal(
+    menuTarget(
+      { ...failed, busy: true },
+      { id: row.id, revision: failed.revision },
+    ).retryInspection,
+    false,
+  );
 });

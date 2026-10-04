@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ func TestRemoteTargetAndRemovalPolicyArguments(t *testing.T) {
 	t.Cleanup(func() { managed, Version = old, oldVersion })
 	Version = "v1.2.3"
 	var command string
+	retainedBranch := "arbor/retained/fixture"
 	w := worktree.Worktree{ID: "fixture", Path: "/code/old session", Head: strings.Repeat("a", 40), Branch: "topic", CanRemove: true, CanDiscard: true}
 	managed = &provisioner{
 		run: func(_ context.Context, host, value string, _ io.Reader) ([]byte, error) {
@@ -31,22 +33,32 @@ func TestRemoteTargetAndRemovalPolicyArguments(t *testing.T) {
 				return json.Marshal(worktree.Report{Root: w.Path, Worktrees: []worktree.Worktree{w}})
 			case strings.Contains(value, "'remove'"):
 				command = value
-				return json.Marshal(worktree.RemovalResult{Path: w.Path, Removed: true})
+				return json.Marshal(worktree.RemovalResult{Path: w.Path, Removed: true, RetainedBranch: retainedBranch})
 			default:
 				t.Fatalf("unexpected command: %s", value)
 				return nil, nil
 			}
 		},
 	}
-	if _, err := Scan(context.Background(), "fixture-vps", worktree.Options{Root: w.Path, TargetOnly: true, LinkedOnly: true}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(command, "'--target-only'") || !strings.Contains(command, "'--linked-only'") {
-		t.Fatalf("target filtering lost over SSH: %s", command)
+	for _, linkedOnly := range []bool{false, true} {
+		if _, err := Scan(context.Background(), "fixture-vps", worktree.Options{Root: w.Path, TargetOnly: true, LinkedOnly: linkedOnly}); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(command, "'--target-only'") || !strings.Contains(command, "'--linked-only="+strconv.FormatBool(linkedOnly)+"'") {
+			t.Fatalf("target filtering lost over SSH: %s", command)
+		}
 	}
 	for _, discard := range []bool{false, true} {
-		if err := RemoveWithOptions(context.Background(), "fixture-vps", w, w.Head, false, discard); err != nil {
+		retainedBranch = ""
+		if discard {
+			retainedBranch = "arbor/retained/fixture"
+		}
+		result, err := RemoveWithResult(context.Background(), "fixture-vps", w, w.Head, false, discard)
+		if err != nil {
 			t.Fatal(err)
+		}
+		if result.RetainedBranch != retainedBranch || !result.Removed || result.Path != w.Path {
+			t.Fatalf("remote recovery branch/result was lost: %+v", result)
 		}
 		if strings.Contains(command, "'--discard-local'") != discard || strings.Contains(command, "'--keep-local'") == discard {
 			t.Fatalf("removal consent changed across SSH: %s", command)
