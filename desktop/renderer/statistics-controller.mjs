@@ -74,7 +74,9 @@ export function createStatisticsController({ document, api, getHost }) {
     }
   }
   $("#statistics-dialog").addEventListener("close", () => {
-    statisticsGeneration++;
+    // Native close events are queued: an earlier close can arrive after the
+    // dialog has reopened. Opening already invalidates the previous request.
+    if (!$("#statistics-dialog").open) statisticsGeneration++;
   });
   return {
     open: openStatistics,

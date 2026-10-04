@@ -404,7 +404,7 @@ test("setup owns draft machine roots, steps, and duplicate submission guard", as
   assert.equal(element("#setup-start").textContent, "Start scanning");
 });
 
-function dialogFixture() {
+function dialogFixture({ deferredClose = false } = {}) {
   const content = { innerHTML: "" },
     footer = { textContent: "" },
     listeners = {};
@@ -418,7 +418,7 @@ function dialogFixture() {
     },
     close() {
       this.open = false;
-      listeners.close?.();
+      if (!deferredClose) listeners.close?.();
     },
   };
   const document = {
@@ -429,7 +429,13 @@ function dialogFixture() {
         "#statistics-dialog .statistics-footer": footer,
       })[selector],
   };
-  return { document, dialog, content, footer };
+  return {
+    document,
+    dialog,
+    content,
+    footer,
+    dispatchClose: () => listeners.close?.(),
+  };
 }
 const statsReport = (removedWorktrees) => ({
   version: 1,
@@ -463,6 +469,33 @@ test("statistics opening owns its async response, including stale errors", async
   assert.match(fixture.content.innerHTML, /data-stat="removedWorktrees">7</);
   const rendered = fixture.content.innerHTML;
   first.reject(new Error("stale failed request"));
+  await opening;
+  assert.equal(fixture.content.innerHTML, rendered);
+});
+
+test("a queued close event cannot invalidate a reopened statistics dialog", async () => {
+  const { createStatisticsController } = await import(
+    "../renderer/statistics-controller.mjs"
+  );
+  const fixture = dialogFixture({ deferredClose: true });
+  const first = deferred(),
+    second = deferred();
+  const requests = [first, second];
+  const controller = createStatisticsController({
+    document: fixture.document,
+    getHost: () => "",
+    api: { getStats: () => requests.shift().promise },
+  });
+  const opening = controller.open();
+  fixture.dialog.close();
+  const reopened = controller.open();
+  fixture.dispatchClose();
+  second.resolve({ host: "", report: statsReport(12) });
+  await reopened;
+  assert.equal(fixture.dialog.open, true);
+  assert.match(fixture.content.innerHTML, /data-stat="removedWorktrees">12</);
+  const rendered = fixture.content.innerHTML;
+  first.resolve({ host: "", report: statsReport(99) });
   await opening;
   assert.equal(fixture.content.innerHTML, rendered);
 });

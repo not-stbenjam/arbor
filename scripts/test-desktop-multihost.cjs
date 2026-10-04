@@ -89,6 +89,8 @@ if(args[0]==='stats') {
   process.stdout.write(JSON.stringify({version:1,removedWorktrees:host===${JSON.stringify(alpha)}?45:host?7:12,estimatedBytesReclaimed:1048576,missingRegistrations:0,cleanupSessions:1,largestWorktreeBytes:1048576,detachedCommitsRetained:0,firstCleanupAt:'2026-09-30T12:00:00Z',lastCleanupAt:'2026-09-30T12:00:00Z',daily:[{date:'2026-09-30',removedWorktrees:1,estimatedBytesReclaimed:1048576}]})); process.exit(0);
 }
 if(args[0]!=='list') { console.error('unexpected fixture command'); process.exit(1); }
+// A failed Electron assertion must not leave its gated fake scans alive.
+setTimeout(()=>process.exit(70),40000).unref();
 // Identical native IDs and paths on every host exercise provenance isolation.
 const worktrees=[0,1].map(i=>({id:'same-'+i,path:root+'/sessions/same-'+i,repo:'fixture',branch:'topic-'+i,head:'a'.repeat(40),commonDir:root+'/repo/.git',canRemove:true,canDiscard:true,recommended:true,sizeBytes:1024,activityAt:'2026-09-30T12:00:00Z',blockers:[],problems:[],publishedRefs:[],discardWarnings:[]}));
 process.on('SIGTERM',()=>{fs.writeFileSync(directory+'/'+process.pid+'.stopped','yes');process.exit(0);});
@@ -123,11 +125,18 @@ const timer=setInterval(()=>{
       const state = () => js("window.arbor.getState()");
       const hostState = async (host) => (await state()).hosts?.find((entry) => entry.host === host);
       const switchHost = async (host) => {
+        // Main-process results can arrive before the renderer's remove promise
+        // settles. A real user cannot activate a still-disabled machine picker.
+        await until(() => js("typeof document.querySelector('#machine-button').onclick === 'function' && !document.querySelector('#machine-button').disabled"), "enabled machine picker after prior operation");
         await js("document.querySelector('#machine-button').click()");
         await until(() => js("document.querySelector('#machine-dialog').open"), "machine picker");
         const selector = host === null ? "[data-all-hosts]" : `.machine-option[data-host=${JSON.stringify(host)}]`;
         await js(`document.querySelector(${JSON.stringify(selector)}).click()`);
         await until(async () => (await state()).hostFilter === host, `filter ${host ?? "all"}`);
+        // All hosts and every remote share the server icon. Wait for the exact
+        // rendered scope, not only the earlier backend filter change.
+        const label = host === null ? "All hosts" : host || "This computer";
+        await until(() => js(`!document.querySelector('#machine-dialog').open && document.querySelector('#machine-label').textContent === ${JSON.stringify(label)}`), `rendered scope ${label}`);
         await until(() => js(`document.querySelector('#machine-icon')?.dataset.kind === ${JSON.stringify(host === "" ? "monitor" : "server")}`), "host icon matches selected scope");
       };
       try {
@@ -187,9 +196,13 @@ const timer=setInterval(()=>{
         for (const [host, expected] of [[alpha, "45"], ["", "12"]]) {
           await switchHost(host);
           await js("document.querySelector('#statistics-button').click()");
-          await until(() => js(`document.querySelector('[data-stat="removedWorktrees"]')?.textContent === ${JSON.stringify(expected)}`), "source-specific statistics");
+          await until(() => js(`document.querySelector('#statistics-dialog').open && document.querySelector('[data-stat="removedWorktrees"]')?.textContent === ${JSON.stringify(expected)}`), `source-specific statistics for ${host || "local"}`);
           assert.equal(calls().filter((call) => call.args[0] === "stats").at(-1).host, host);
-          await js("document.querySelector('#statistics-dialog').close()");
+          await js(`new Promise(resolve => {
+            const dialog = document.querySelector('#statistics-dialog');
+            dialog.addEventListener('close', resolve, {once: true});
+            dialog.close();
+          })`);
         }
         assert.equal(listCalls().length, 4, "statistics/filter changes perform no scans");
         await switchHost(null);
@@ -202,6 +215,22 @@ const timer=setInterval(()=>{
         app.quit();
       } catch (error) {
         console.error(error);
+        try {
+          console.error("Multi-host failure details:", {
+            statsHosts: calls().filter((call) => call.args[0] === "stats").map((call) => call.host),
+            renderer: await js(`(() => ({
+              machine: document.querySelector('#machine-label').textContent,
+              machineDisabled: document.querySelector('#machine-button').disabled,
+              machineDialogOpen: document.querySelector('#machine-dialog').open,
+              statisticsOpen: document.querySelector('#statistics-dialog').open,
+              statisticsContent: document.querySelector('#statistics-content').textContent.slice(0, 1000)
+            }))()`),
+          });
+          await js("window.arbor.cancelScan(null)");
+          await until(async () => (await state()).hosts.every((host) => !host.busy), "fixture scans stopped after failure");
+        } catch (cleanupError) {
+          console.error("Fixture shutdown:", cleanupError.message);
+        }
         clearTimeout(deadline);
         app.exit(1);
       }
