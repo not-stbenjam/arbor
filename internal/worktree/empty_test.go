@@ -18,7 +18,7 @@ func replaceFixtureWithEmptyDirectory(t *testing.T, target string) {
 func TestEmptyStaleCheckoutRequiresExplicitRemovalAndKeepsOtherRegistrations(t *testing.T) {
 	for _, locked := range []bool{false, true} {
 		t.Run(map[bool]string{false: "unlocked", true: "locked"}[locked], func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalFixtureDir(t)
 			repo := testRepo(t, filepath.Join(root, "repo"))
 			target := testLinked(t, repo, filepath.Join(root, "empty"), "empty-topic")
 			other := testLinked(t, repo, filepath.Join(root, "other"), "other-topic")
@@ -63,7 +63,7 @@ func TestEmptyStaleCheckoutRequiresExplicitRemovalAndKeepsOtherRegistrations(t *
 }
 
 func TestEmptyStaleDetachedCheckoutRetainsUniqueCommit(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalFixtureDir(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	target := testLinked(t, repo, filepath.Join(root, "detached"), "topic")
 	testGit(t, target, "checkout", "--detach")
@@ -83,7 +83,7 @@ func TestEmptyStaleDetachedCheckoutRetainsUniqueCommit(t *testing.T) {
 func TestEmptyStaleCheckoutRejectsNewFilesAndReplacementPaths(t *testing.T) {
 	for _, replacement := range []string{"file-inside", "dotgit", "symlink", "file"} {
 		t.Run(replacement, func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalFixtureDir(t)
 			repo := testRepo(t, filepath.Join(root, "repo"))
 			target := testLinked(t, repo, filepath.Join(root, "empty"), "topic")
 			replaceFixtureWithEmptyDirectory(t, target)
@@ -98,7 +98,7 @@ func TestEmptyStaleCheckoutRejectsNewFilesAndReplacementPaths(t *testing.T) {
 					t.Fatal(err)
 				}
 				if replacement == "symlink" {
-					if err := os.Symlink(t.TempDir(), target); err != nil {
+					if err := os.Symlink(canonicalFixtureDir(t), target); err != nil {
 						t.Fatal(err)
 					}
 				} else {
@@ -126,7 +126,7 @@ func TestEmptyStaleCheckoutRejectsNewFilesAndReplacementPaths(t *testing.T) {
 func TestEmptyCheckoutFinalRemovalRejectsChangedIdentityAndContents(t *testing.T) {
 	for _, replacement := range []string{"new-file", "new-directory"} {
 		t.Run(replacement, func(t *testing.T) {
-			target := filepath.Join(t.TempDir(), "empty")
+			target := filepath.Join(canonicalFixtureDir(t), "empty")
 			if err := os.Mkdir(target, 0700); err != nil {
 				t.Fatal(err)
 			}

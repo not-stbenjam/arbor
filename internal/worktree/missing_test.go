@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+// Resolve aliases while the temporary directory still exists. Once a checkout
+// is moved or removed, EvalSymlinks(target) cannot recover its canonical prefix
+// (notably /var -> /private/var on macOS).
+func canonicalFixtureDir(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func moveFixtureCheckout(t *testing.T, path string) string {
 	t.Helper()
 	saved := path + "-saved"
@@ -20,10 +32,10 @@ func moveFixtureCheckout(t *testing.T, path string) string {
 func TestRemoveOneMissingRegistrationKeepsOtherEntriesAndBranches(t *testing.T) {
 	for _, locked := range []bool{false, true} {
 		t.Run(map[bool]string{false: "unlocked", true: "locked"}[locked], func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalFixtureDir(t)
 			repo := testRepo(t, filepath.Join(root, "repo"))
 			target := testLinked(t, repo, filepath.Join(root, "gone"), "gone-topic")
-			other := testLinked(t, repo, filepath.Join(t.TempDir(), "other-gone"), "other-topic")
+			other := testLinked(t, repo, filepath.Join(canonicalFixtureDir(t), "other-gone"), "other-topic")
 			if locked {
 				testGit(t, repo, "worktree", "lock", "--reason", "offline", target)
 			}
@@ -62,18 +74,18 @@ func TestRemoveOneMissingRegistrationKeepsOtherEntriesAndBranches(t *testing.T) 
 }
 
 func TestMissingTargetFindsOnlyNearestAncestorRepository(t *testing.T) {
-	repo := testRepo(t, filepath.Join(t.TempDir(), "repo"))
+	repo := testRepo(t, filepath.Join(canonicalFixtureDir(t), "repo"))
 	target := testLinked(t, repo, filepath.Join(repo, ".claude", "worktrees", "topic"), "topic")
 	moveFixtureCheckout(t, target)
 	report, err := Scan(context.Background(), Options{Root: target, TargetOnly: true, LinkedOnly: true})
 	if err != nil || len(report.Worktrees) != 1 || !report.Worktrees[0].Missing {
 		t.Fatalf("ancestor lookup: %+v %v", report, err)
 	}
-	unrelated := filepath.Join(t.TempDir(), "missing")
+	unrelated := filepath.Join(canonicalFixtureDir(t), "missing")
 	if _, err := Scan(context.Background(), Options{Root: unrelated, TargetOnly: true}); err == nil || !strings.Contains(err.Error(), "--repo") {
 		t.Fatalf("unrelated missing path should require repository hint: %v", err)
 	}
-	wrong := testRepo(t, filepath.Join(t.TempDir(), "other-repo"))
+	wrong := testRepo(t, filepath.Join(canonicalFixtureDir(t), "other-repo"))
 	report, err = Scan(context.Background(), Options{Root: target, Repository: wrong, TargetOnly: true})
 	if err != nil || len(report.Worktrees) != 0 {
 		t.Fatalf("wrong repository authorized target: %+v %v", report, err)
@@ -81,7 +93,7 @@ func TestMissingTargetFindsOnlyNearestAncestorRepository(t *testing.T) {
 }
 
 func TestMissingDetachedRegistrationPreservesUniqueCommit(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalFixtureDir(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	target := testLinked(t, repo, filepath.Join(root, "detached"), "topic")
 	testGit(t, target, "checkout", "--detach")
@@ -104,13 +116,13 @@ func TestMissingDetachedRegistrationPreservesUniqueCommit(t *testing.T) {
 func TestMissingRegistrationRejectsReplacedPathsAndStaleHeads(t *testing.T) {
 	for _, kind := range []string{"directory", "symlink", "dangling-symlink", "parent-symlink", "head"} {
 		t.Run(kind, func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalFixtureDir(t)
 			repo := testRepo(t, filepath.Join(root, "repo"))
 			parent := filepath.Join(root, "sessions")
 			target := testLinked(t, repo, filepath.Join(parent, "topic"), "topic")
 			moveFixtureCheckout(t, target)
 			w := testTree(t, testScan(t, root), target)
-			other := t.TempDir()
+			other := canonicalFixtureDir(t)
 			switch kind {
 			case "directory":
 				if err := os.Mkdir(target, 0700); err != nil {
@@ -148,7 +160,7 @@ func TestMissingRegistrationRejectsReplacedPathsAndStaleHeads(t *testing.T) {
 }
 
 func TestEmptyLinkedCheckoutIsRemovable(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalFixtureDir(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	target := testLinked(t, repo, filepath.Join(root, "empty"), "empty-topic")
 	testGit(t, target, "rm", "--", "tracked.txt", ".gitignore")
@@ -166,7 +178,7 @@ func TestEmptyLinkedCheckoutIsRemovable(t *testing.T) {
 }
 
 func TestMissingTargetCanonicalizesAnExistingParentAlias(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalFixtureDir(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	parent := filepath.Join(root, "sessions")
 	target := testLinked(t, repo, filepath.Join(parent, "topic"), "topic")
