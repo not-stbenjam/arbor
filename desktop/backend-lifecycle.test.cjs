@@ -24,6 +24,84 @@ const report = (rows = [row]) =>
   JSON.stringify({ root: "/work", worktrees: rows, warnings: [] });
 const options = { root: "/work", excludes: [] };
 
+test("workspace configuration persists once before scanning and restores without another scan", async () => {
+  const saved = deferred();
+  let calls = 0,
+    writes = 0;
+  const backend = new Backend({
+    run: async () => {
+      calls++;
+      return report();
+    },
+  });
+  const configuring = backend.configureWorkspace(options, async (value) => {
+    writes++;
+    assert.deepEqual(value.excludes, []);
+    value.root = "/mutated-copy";
+    await saved.promise;
+  });
+  assert.equal(calls, 0);
+  assert.throws(() => backend.scan(options), /already running/);
+  saved.resolve();
+  await configuring;
+  await backend.waitUntilIdle();
+  assert.equal(calls, 1);
+  assert.equal(writes, 1);
+  assert.equal(backend.getState().root, "/work");
+  await backend.configureWorkspace(
+    options,
+    async () => {
+      writes++;
+    },
+    { restore: true },
+  );
+  assert.equal(writes, 2);
+  assert.equal(calls, 1, "workspace restore never triggers a healthy rescan");
+});
+
+test("failed workspace persistence leaves the current snapshot and scan options unchanged", async () => {
+  let calls = 0;
+  const backend = new Backend({
+    run: async () => {
+      calls++;
+      return report();
+    },
+  });
+  backend.scan(options);
+  await backend.waitUntilIdle();
+  const before = backend.getState();
+  await assert.rejects(
+    backend.configureWorkspace({ root: "/other" }, async () => {
+      throw new Error("disk full");
+    }),
+    /disk full/,
+  );
+  assert.deepEqual(backend.getState(), before);
+  assert.equal(calls, 1);
+  assert.doesNotThrow(() => backend.assertInteractive());
+});
+
+test("closing while workspace preferences persist waits without starting a new subprocess", async () => {
+  const saved = deferred();
+  let calls = 0;
+  const backend = new Backend({
+    run: async () => {
+      calls++;
+      return report();
+    },
+  });
+  const configuring = backend.configureWorkspace(options, () => saved.promise);
+  assert.deepEqual(backend.requestClose(), { action: "wait" });
+  saved.resolve();
+  await configuring;
+  await backend.waitUntilIdle();
+  assert.equal(calls, 0);
+  await backend.reopen();
+  await backend.waitUntilIdle();
+  assert.equal(calls, 1);
+  assert.equal(backend.getState().root, "/work");
+});
+
 test("setup owns persistence and close cannot launch a subprocess after saving", async () => {
   const saved = deferred();
   let calls = 0;
@@ -40,7 +118,6 @@ test("setup owns persistence and close cannot launch a subprocess after saving",
     value.root = "/mutated-copy";
     await saved.promise;
   });
-  assert.equal(backend.getLifecycle().operation, "setup");
   assert.throws(() => backend.scan(options), /Setup is being saved/);
   assert.throws(
     () => backend.completeSetup(options, async () => {}),
@@ -52,7 +129,7 @@ test("setup owns persistence and close cannot launch a subprocess after saving",
   await backend.waitUntilIdle();
   assert.equal(calls, 0);
   assert.equal(backend.getState().setupRequired, false);
-  assert.equal(backend.getLifecycle().closing, true);
+  assert.throws(() => backend.assertInteractive(), /closing/);
   await backend.reopen();
   await backend.waitUntilIdle();
   assert.equal(calls, 1);
@@ -74,7 +151,7 @@ test("failed setup persistence releases ownership and leaves the wizard required
     /disk full/,
   );
   assert.equal(backend.getState().setupRequired, true);
-  assert.equal(backend.getLifecycle().busy, false);
+  assert.equal(backend.getState().busy, false);
   await backend.completeSetup(options, async () => {});
   await backend.waitUntilIdle();
   assert.equal(backend.getState().setupRequired, false);
@@ -146,7 +223,7 @@ test("confirmed reset stops a scan, persists before clearing, and reopens setup 
   assert.equal(result.state.setupRequired, true);
   assert.equal(result.state.report, null);
   await backend.reopen();
-  assert.equal(backend.getLifecycle().closing, false);
+  assert.doesNotThrow(() => backend.assertInteractive());
   assert.equal(backend.getState().setupRequired, true);
   assert.equal(calls, 1);
 });
@@ -172,12 +249,12 @@ test("reopen waits for scan cancellation and a newer close cancels pending reope
   backend.requestClose();
   scan.resolve(report());
   await reopening;
-  assert.equal(backend.getLifecycle().closing, true);
+  assert.throws(() => backend.assertInteractive(), /closing/);
   assert.equal(calls, 1);
   await backend.reopen();
   await backend.waitUntilIdle();
   assert.equal(calls, 2);
-  assert.equal(backend.getLifecycle().closing, false);
+  assert.doesNotThrow(() => backend.assertInteractive());
   backend.requestClose();
   await backend.reopen();
   assert.equal(calls, 2, "healthy reopen restores cache without a rescan");
@@ -203,7 +280,7 @@ test("cleanup close requires consent, finishes only the current item, and restor
     items: [row, second].map(({ id, head }) => ({ id, head })),
   });
   assert.deepEqual(backend.requestClose(), { action: "confirm-cleanup" });
-  assert.equal(backend.getLifecycle().closing, false);
+  assert.doesNotThrow(() => backend.assertInteractive());
   assert.throws(
     () =>
       backend.resetPreferences(
@@ -293,5 +370,5 @@ test("closing during reset confirmation cancels native consent instead of strand
   await backend.waitUntilIdle();
   assert.equal((await reset).cancelled, true);
   assert.equal(saved, false);
-  assert.equal(backend.getLifecycle().closing, true);
+  assert.throws(() => backend.assertInteractive(), /closing/);
 });

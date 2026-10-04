@@ -112,6 +112,34 @@ export function initializeDOM() {
       ),
     );
 }
+export function describeProgress(state, removing = false) {
+  const progress = state.progress || {};
+  const stage = state.cancelRequested
+    ? "Stopping scan…"
+    : state.cancelled && !state.busy
+      ? "Scan stopped"
+      : removing && progress.stage === "removing"
+        ? "Removing selected worktrees…"
+        : {
+            starting: "Starting scan…",
+            discovery: "Finding Git repositories…",
+            fetch: "Fetching remote branches…",
+            inspect: "Inspecting worktrees…",
+            connecting: "Connecting to SSH host…",
+            removing: "Removing selected worktrees…",
+          }[progress.stage] || "Scanning workspace…";
+  const totalKnown =
+    Number.isFinite(progress.total) &&
+    progress.total > 0 &&
+    ["fetch", "inspect"].includes(progress.stage);
+  const completed = Math.max(0, Number(progress.completed) || 0);
+  const countText = totalKnown
+    ? `${completed} of ${progress.total} ${progress.stage === "fetch" ? "repositories" : "worktrees"}`
+    : Number(progress.discovered) > 0
+      ? `${progress.discovered} discovered`
+      : "";
+  return { stage, totalKnown, completed, countText };
+}
 export {
   icon,
   esc,

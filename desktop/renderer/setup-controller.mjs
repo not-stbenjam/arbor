@@ -1,17 +1,26 @@
-import { readExcludes } from "./preferences-controller.mjs";
+import { readExcludes } from "./input-values.mjs";
+import { isValidSSHHost, MAX_HOST_LENGTH } from "../common/ssh-host.mjs";
 
 // Wizard owns only its steps, per-machine draft roots, and submission state.
 export function createSetupController({
   document,
   api,
   defaults,
-  preferences,
-  getWorkspace,
+  onSubmit,
+  onThemeChange,
 }) {
   const $ = (selector) => document.querySelector(selector);
+  $("#setup-host").maxLength = MAX_HOST_LENGTH;
   let setupStep = 1,
     setupInitialized = false,
     setupSubmitting = false;
+  let context = {
+    required: false,
+    root: "",
+    resetting: false,
+    theme: "system",
+    excludes: [...defaults.excludes],
+  };
   function setupOptions() {
     return {
       root: $("#setup-root").value.trim(),
@@ -66,16 +75,15 @@ export function createSetupController({
     }
   }
   function openSetup() {
-    if (!getWorkspace().snapshot.setupRequired) return;
+    if (!context.required) return;
     document.querySelectorAll("dialog[open]").forEach((dialog) => {
       if (dialog.id !== "setup-dialog") dialog.close();
     });
     if (!setupInitialized) {
       setupInitialized = true;
-      $("#setup-root").value =
-        getWorkspace().snapshot.root || preferences.savedRoot || "~";
-      $("#setup-theme").value = preferences.theme;
-      $("#setup-excludes").value = preferences.options.excludes.join("\n");
+      $("#setup-root").value = context.root || "~";
+      $("#setup-theme").value = context.theme;
+      $("#setup-excludes").value = context.excludes.join("\n");
       $("#setup-github").checked = false;
       $("#setup-fetch").checked = false;
       renderSetupStep(false);
@@ -93,10 +101,10 @@ export function createSetupController({
     }
     if (
       $("#setup-remote").checked &&
-      !/^[a-zA-Z0-9_][a-zA-Z0-9._@:\[\]-]*$/.test($("#setup-host").value.trim())
+      !isValidSSHHost($("#setup-host").value.trim())
     ) {
       $("#setup-error").textContent =
-        "Enter an SSH alias or user@hostname, without spaces or command options.";
+        `Enter an SSH alias or user@hostname, up to ${MAX_HOST_LENGTH} characters, without spaces or command options.`;
       $("#setup-error").hidden = false;
       $("#setup-host").focus();
       return false;
@@ -107,20 +115,14 @@ export function createSetupController({
     event.preventDefault(),
   );
   $("#setup-dialog").addEventListener("close", () => {
-    if (
-      getWorkspace().snapshot.setupRequired &&
-      !setupSubmitting &&
-      !getWorkspace().resetting
-    )
-      openSetup();
+    if (context.required && !setupSubmitting && !context.resetting) openSetup();
   });
   let setupMachine = "local",
     setupRoots = { local: "", remote: "~" };
   function changeSetupMachine() {
     setupRoots[setupMachine] = $("#setup-root").value;
     setupMachine = $("#setup-remote").checked ? "remote" : "local";
-    $("#setup-root").value =
-      setupRoots[setupMachine] || getWorkspace().snapshot.root || "~";
+    $("#setup-root").value = setupRoots[setupMachine] || context.root || "~";
     $("#setup-host-field").hidden = setupMachine !== "remote";
     $("#setup-choose-folder").hidden = setupMachine === "remote";
     if (setupMachine === "remote") $("#setup-host").focus();
@@ -151,7 +153,7 @@ export function createSetupController({
     }
   };
   $("#setup-theme").onchange = () => {
-    preferences.setTheme($("#setup-theme").value);
+    onThemeChange($("#setup-theme").value);
   };
   $("#setup-form").onsubmit = async (event) => {
     event.preventDefault();
@@ -166,13 +168,10 @@ export function createSetupController({
     $("#setup-start").textContent = "Starting…";
     $("#setup-error").hidden = true;
     const options = setupOptions();
-    preferences.setTheme($("#setup-theme").value);
-    preferences.recordScan(options, true);
+    const theme = $("#setup-theme").value;
+    onThemeChange(theme);
     try {
-      await preferences.save(true);
-      await getWorkspace().completeSetup(options);
-      preferences.completeSetup();
-      preferences.syncOptions(options);
+      await onSubmit({ ...options, theme });
       $("#setup-dialog").close();
     } catch (error) {
       $("#setup-error").textContent = error.message;
@@ -202,5 +201,11 @@ export function createSetupController({
     $("#setup-back").disabled = false;
     $("#setup-start").textContent = "Start scanning";
   }
-  return { open: openSetup, reset };
+  return {
+    open: openSetup,
+    reset,
+    setContext(next) {
+      context = next;
+    },
+  };
 }

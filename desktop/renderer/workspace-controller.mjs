@@ -1,14 +1,23 @@
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+const immutableCopy = (value) => deepFreeze(structuredClone(value));
+
 // Owns backend snapshots and operation generations. Views consume snapshots and
 // issue commands; no renderer controller may mutate scan/cleanup lifecycle state.
 export function createWorkspaceController({
   api,
-  preferences,
   linked,
   notify,
   onChange,
   onSetup,
   onHostChange,
   onReset,
+  onScanAccepted = () => {},
   timers = globalThis,
 }) {
   const state = {
@@ -37,8 +46,22 @@ export function createWorkspaceController({
     pollGeneration = 0;
   const setTimeout = (...args) => timers.setTimeout(...args),
     clearTimeout = (timer) => timers.clearTimeout(timer);
-  const items = () =>
-    linked(state.report?.worktrees || state.partialWorktrees || []);
+  // Clone only incoming data; publication then shares those frozen subtrees.
+  // Getters return a cached immutable view, never a live controller-owned object.
+  for (const value of Object.values(state)) deepFreeze(value);
+  let published = Object.freeze({ ...state });
+  let publishedRows = published.partialWorktrees;
+  let publishedItems = Object.freeze(linked(publishedRows));
+  function publish() {
+    published = Object.freeze({ ...state });
+    const rows =
+      published.report?.worktrees || published.partialWorktrees || [];
+    if (rows !== publishedRows) {
+      publishedRows = rows;
+      publishedItems = Object.freeze(linked(rows));
+    }
+    onChange();
+  }
   const blocked = () =>
     !connected ||
     state.busy ||
@@ -48,13 +71,12 @@ export function createWorkspaceController({
   function showError(message) {
     clientError = message;
     dismissedError = "";
-    onChange();
+    publish();
   }
   function updateState(next) {
-    Object.assign(state, next);
-    preferences.syncOptions(state.options);
+    Object.assign(state, immutableCopy(next));
     connected = true;
-    onChange();
+    publish();
     if (state.setupRequired && !resettingPreferences) onSetup();
   }
   async function poll() {
@@ -72,7 +94,7 @@ export function createWorkspaceController({
       if (generation !== pollGeneration || resettingPreferences) return;
       connected = false;
       showError(error.message || "Could not connect to the Arbor backend.");
-      onChange();
+      publish();
     }
     if (generation !== pollGeneration) return;
     pollTimer = setTimeout(poll, state.busy ? 700 : 3000);
@@ -84,26 +106,22 @@ export function createWorkspaceController({
         : blocked()
     )
       return;
-    options = {
-      ...options,
-      excludes: options.excludes || [...preferences.options.excludes],
-    };
+    options = structuredClone(options);
     clientError = "";
     dismissedError = "";
     const generation = ++pollGeneration;
     clearTimeout(pollTimer);
     const oldHost = state.host;
     state.busy = true;
-    onChange();
+    publish();
     try {
       const next = await (activate
         ? api.activateWorkspace(options)
         : api.scan(options));
       if (generation !== pollGeneration) return;
-      preferences.recordScan(options);
       if ((options.host || "") !== oldHost) onHostChange();
       updateState(next);
-      await preferences.save();
+      await onScanAccepted(options);
       if (generation !== pollGeneration) return;
       clearTimeout(pollTimer);
       pollTimer = setTimeout(poll, 500);
@@ -111,16 +129,15 @@ export function createWorkspaceController({
       if (generation !== pollGeneration) return;
       state.busy = false;
       showError(error.message);
-      onChange();
+      publish();
       pollTimer = setTimeout(poll, 700);
     }
   }
   function refresh() {
-    scan({
+    return scan({
+      ...(state.options || {}),
       root: state.root,
       host: state.host,
-      github: preferences.options.github,
-      fetch: preferences.options.fetch,
     });
   }
   async function remove(list, recommendedOnly, options = {}) {
@@ -131,7 +148,7 @@ export function createWorkspaceController({
     pollGeneration++;
     clearTimeout(pollTimer);
     pollTimer = setTimeout(poll, 350);
-    onChange();
+    publish();
     try {
       const result = await api.remove({
         items: list.map((w) => ({ id: w.id, head: w.head })),
@@ -140,7 +157,8 @@ export function createWorkspaceController({
         discardLocal: options.discardLocal === true,
         forceConfirm: options.forceConfirm === true,
       });
-      if (Object.hasOwn(result, "report")) state.report = result.report;
+      if (Object.hasOwn(result, "report"))
+        state.report = immutableCopy(result.report);
       if (Object.hasOwn(result, "revision")) state.revision = result.revision;
       if (result.error) showError(result.error);
       const removed = (result.results || []).filter((r) => r.removed),
@@ -170,7 +188,7 @@ export function createWorkspaceController({
         showError(`Could not refresh Arbor after deletion: ${error.message}`);
       }
       removing = false;
-      onChange();
+      publish();
       pollTimer = setTimeout(poll, state.busy ? 700 : 3000);
     }
   }
@@ -216,6 +234,8 @@ export function createWorkspaceController({
       const next = await api.completeSetup(options);
       if (generation !== pollGeneration) return;
       updateState(next);
+      await onScanAccepted(options);
+      if (generation !== pollGeneration) return;
       schedule(350);
     } catch (error) {
       if (generation === pollGeneration) schedule(700);
@@ -225,7 +245,7 @@ export function createWorkspaceController({
   async function cancel() {
     if (!state.busy || !state.canCancelScan || state.cancelRequested) return;
     state.cancelRequested = true;
-    onChange();
+    publish();
     try {
       updateState(await api.cancelScan());
       schedule(350);
@@ -239,21 +259,20 @@ export function createWorkspaceController({
     resettingPreferences = true;
     pollGeneration++;
     clearTimeout(pollTimer);
-    onChange();
+    publish();
     try {
       const result = await api.resetPreferences();
       if (result.cancelled) return;
       clientError = "";
       dismissedError = "";
-      preferences.reset(result.preferences, result.state);
-      onReset();
+      onReset(result);
       resettingPreferences = false;
       updateState(result.state);
     } catch (error) {
       notify(`Could not reset settings: ${error.message}`, true);
     } finally {
       resettingPreferences = false;
-      onChange();
+      publish();
       schedule(700);
     }
   }
@@ -263,11 +282,7 @@ export function createWorkspaceController({
         throw new Error(
           "Open Arbor as a desktop app to connect to your workspace.",
         );
-      const [saved, initial] = await Promise.all([
-        api.getPreferences(),
-        api.getState(),
-      ]);
-      preferences.initialize(saved, initial);
+      const initial = await api.getState();
       updateState(initial);
       schedule(initial.busy ? 500 : 2000);
     } catch (error) {
@@ -285,10 +300,10 @@ export function createWorkspaceController({
     showError,
     completeSetup,
     get snapshot() {
-      return state;
+      return published;
     },
     get items() {
-      return items();
+      return publishedItems;
     },
     get blocked() {
       return blocked();
@@ -308,7 +323,7 @@ export function createWorkspaceController({
     },
     dismissError() {
       dismissedError = clientError || state.error;
-      onChange();
+      publish();
     },
     dispose() {
       pollGeneration++;

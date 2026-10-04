@@ -73,7 +73,7 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		return err
 	}
 	defer lock.Close()
-	raw, err := git(ctx, common, "worktree", "list", "--porcelain", "-z")
+	raw, err := gitCommon(ctx, common, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return err
 	}
@@ -111,18 +111,18 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	if current.Detached && discardLocal {
 		// Most detached tool sessions point at an existing branch commit. Avoid
 		// creating a permanent recovery ref for each of those disposable checkouts.
-		refs, err := git(ctx, common, "for-each-ref", "--contains", expectedHead, "--format=%(refname)", "refs/heads/", "refs/remotes/")
+		refs, err := gitCommon(ctx, common, "for-each-ref", "--contains", expectedHead, "--format=%(refname)", "refs/heads/", "refs/remotes/")
 		if err != nil {
 			return fmt.Errorf("could not check detached commit retention: %w", err)
 		}
 		if strings.TrimSpace(string(refs)) == "" {
 			branch := RecoveryBranch(*current)
-			if _, err := git(ctx, common, "branch", "--", branch, expectedHead); err != nil {
+			if _, err := gitCommon(ctx, common, "branch", "--", branch, expectedHead); err != nil {
 				return fmt.Errorf("could not preserve detached commit: %w", err)
 			}
 			result.RetainedBranch = branch
 		}
-	} else if current.Branch == "" || gitText(ctx, common, "rev-parse", "--verify", "refs/heads/"+current.Branch) != expectedHead {
+	} else if current.Branch == "" || gitCommonText(ctx, common, "rev-parse", "--verify", "refs/heads/"+current.Branch) != expectedHead {
 		return errors.New("branch no longer preserves this commit")
 	}
 	if current.Empty {
@@ -153,6 +153,6 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		}
 	}
 	args = append(args, "--", current.Path)
-	_, err = git(ctx, common, args...)
+	_, err = gitCommon(ctx, common, args...)
 	return err
 }

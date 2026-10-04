@@ -4,7 +4,10 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 const { randomUUID } = require("node:crypto");
-const { isValidReport: validReport } = require("./protocol.cjs");
+const {
+  isValidReport: validReport,
+  normalizeReport,
+} = require("./protocol.cjs");
 
 const MAX_ENTRIES = 20;
 const MAX_BYTES = 32 * 1024 * 1024;
@@ -35,7 +38,7 @@ function persistentReport(report) {
   // snapshot. Never restore older permissive flags or an indefinitely blocked
   // failure row. A later successful inspection can cache this workspace again.
   if (report.worktrees.some((row) => row.retryInspection === true)) return null;
-  const snapshot = structuredClone(report);
+  const snapshot = normalizeReport(report);
   for (const row of snapshot.worktrees) {
     delete row.lastRemovalError;
     delete row.retryInspection;

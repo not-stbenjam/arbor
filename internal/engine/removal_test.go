@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -104,6 +105,47 @@ func TestRemoteRemovalPreservesMissingAndEmptyConsent(t *testing.T) {
 				if !strings.Contains(sent, expected) {
 					t.Fatalf("existing removal contract changed (%s): %s", expected, sent)
 				}
+			}
+		})
+	}
+}
+
+func TestRemoteRemovalUsesOnlyBoundStructuredRefusals(t *testing.T) {
+	w := worktree.Worktree{ID: "fixture", Path: "/remote/session", Head: strings.Repeat("a", 40), Branch: "topic", CanRemove: true}
+	const actionable = "close older Arbor processes, then move aside /remote/repo/.git/arbor-cleanup.lock before retrying"
+	for _, tc := range []struct {
+		name, output string
+		status       int
+		transport    bool
+		accepted     bool
+	}{
+		{name: "exact refusal", output: `{"path":"/remote/session","removed":false,"error":"` + actionable + `"}`, status: 1, accepted: true},
+		{name: "wrong path", output: `{"path":"/remote/other","removed":false,"error":"untrusted detail"}`, status: 1},
+		{name: "malformed", output: `{`, status: 1},
+		{name: "claimed success", output: `{"path":"/remote/session","removed":true,"error":"untrusted detail"}`, status: 1},
+		{name: "missing removed field", output: `{"path":"/remote/session","error":"untrusted detail"}`, status: 1},
+		{name: "null removed field", output: `{"path":"/remote/session","removed":null,"error":"untrusted detail"}`, status: 1},
+		{name: "empty error", output: `{"path":"/remote/session","removed":false,"error":"  "}`, status: 1},
+		{name: "SSH transport status", output: `{"path":"/remote/session","removed":false,"error":"untrusted detail"}`, status: 255},
+		{name: "untyped transport failure", output: `{"path":"/remote/session","removed":false,"error":"untrusted detail"}`, transport: true},
+		{name: "oversized", output: `{"path":"/remote/session","removed":false,"error":"` + strings.Repeat("x", maxProgressLine) + `"}`, status: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			failure := error(&sshExitError{host: "stats-fixture-vps", detail: "generic exit diagnostic", status: tc.status, cause: errors.New("fixture exit")})
+			if tc.transport {
+				failure = errors.New("SSH stats-fixture-vps: connection interrupted")
+			}
+			statsRemoteFixture(t, func(string) ([]byte, error) { return []byte(tc.output), failure })
+			result, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "stats-fixture-vps", Worktree: w, Options: worktree.RemovalOptions{ExpectedHead: w.Head}})
+			if err == nil || result.Removed || result.Path != w.Path || result.Error != err.Error() {
+				t.Fatalf("nonzero remote removal became success or changed identity: %+v %v", result, err)
+			}
+			if tc.accepted {
+				if err.Error() != "SSH stats-fixture-vps: "+actionable {
+					t.Fatalf("actionable error lost: %v", err)
+				}
+			} else if !errors.Is(err, failure) {
+				t.Fatalf("unvalidated output replaced transport diagnostic: %v", err)
 			}
 		})
 	}

@@ -34,6 +34,7 @@ fs.mkdirSync(home);
 const env = {
   ...process.env,
   HOME: home,
+  TMPDIR: fixture,
   XDG_CONFIG_HOME: path.join(home, ".config"),
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
@@ -101,6 +102,27 @@ try {
       .filter((line) => line.startsWith("worktree ")).length,
     1,
   );
+  const profiles = fs
+    .readdirSync(fixture)
+    .filter((name) => name.startsWith("arbor-smoke-profile-"));
+  assert.equal(profiles.length, 1, "one isolated application profile");
+  const profile = path.join(fixture, profiles[0]);
+  const cache = JSON.parse(
+    fs.readFileSync(path.join(profile, "workspace-cache.json"), "utf8"),
+  );
+  const cached = cache.entries.find((entry) => entry.report.root === projects);
+  assert.ok(cached, "completed cleanup snapshot persisted to disk");
+  assert.deepEqual(
+    cached.report.worktrees,
+    [],
+    "removed worktrees must not return on restart",
+  );
+  assert.ok(Number.isFinite(Date.parse(cached.report.scannedAt)));
+  const statistics = JSON.parse(
+    fs.readFileSync(path.join(profile, "statistics.json"), "utf8"),
+  );
+  assert.equal(statistics.removedWorktrees, targets.length);
+  assert.equal(statistics.cleanupSessions, 1);
   console.log(
     "Packaged application passed: real CLI cleanup, retained branches, primary checkout and unrelated files intact, statistics and cached report verified",
   );

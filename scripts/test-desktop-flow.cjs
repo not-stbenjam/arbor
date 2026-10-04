@@ -560,7 +560,7 @@ app.once("browser-window-created", (_event, win) => {
           await js("document.querySelector('#setup-dialog').dataset.step"),
           "1",
         );
-        const defaults = require("../desktop/backend.cjs").validatePreferences(
+        const defaults = require("../desktop/protocol.cjs").validatePreferences(
           {},
         );
         assert.deepEqual(

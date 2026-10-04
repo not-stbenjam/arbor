@@ -61,10 +61,13 @@ test("CLI, progress, and cache share worktree metadata validation", () => {
   }
 });
 
-test("complete snapshots reject duplicate IDs and paths; partial rows cannot authorize deletion", () => {
-  for (const duplicate of [{ ...row }, { ...row, id: "other" }]) {
-    assert.equal(isValidReport(report([row, duplicate])), false);
-  }
+test("complete snapshots reject duplicate IDs but permit distinct registrations at one path; partial rows cannot authorize deletion", () => {
+  assert.equal(isValidReport(report([row, { ...row }])), false);
+  assert.equal(
+    isValidReport(report([row, { ...row, path: "/another/path" }])),
+    false,
+  );
+  assert.equal(isValidReport(report([row, { ...row, id: "other" }])), true);
   const event = progressEvent({
     stage: "inspect",
     path: "/repo",
@@ -91,5 +94,37 @@ test("desktop consumes authoritative scan defaults and exclusion limit without m
   assert.throws(
     () => scanOptions({ excludes: Array(129).fill("build") }),
     /128/,
+  );
+});
+
+test("long display copy is normalized without changing identity or removal flags", () => {
+  const long = "x".repeat(4100);
+  const source = report([
+    {
+      ...row,
+      subject: long,
+      author: long,
+      lockReason: long,
+      mergeReason: long,
+      problems: [long],
+      pr: { number: 1, merged: true, title: long },
+    },
+  ]);
+  source.warnings = [long];
+  const normalized = parseReport(JSON.stringify(source));
+  assert.equal(normalized.worktrees[0].subject.length, 4096);
+  assert.equal(normalized.worktrees[0].pr.title.length, 4096);
+  assert.equal(normalized.worktrees[0].problems[0].length, 4096);
+  assert.equal(normalized.warnings[0].length, 4096);
+  assert.equal(normalized.worktrees[0].path, row.path);
+  assert.equal(normalized.worktrees[0].canRemove, row.canRemove);
+  const cache = new WorkspaceCache();
+  const options = scanOptions({ root: "/repo" });
+  cache.put(options, source);
+  assert.deepEqual(cache.get(options), normalized);
+  assert.equal(source.worktrees[0].subject.length, 4100);
+  assert.throws(
+    () => parseReport(JSON.stringify(report([{ ...row, path: long }]))),
+    /invalid worktree/,
   );
 });

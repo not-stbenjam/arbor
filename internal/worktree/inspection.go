@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,7 +64,7 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 			canonical, pathErr := resolveMissingRoot(w.Path)
 			if pathErr != nil || canonical != w.Path {
 				block(reasonUnverifiedPath)
-			} else if len(w.Head) < 40 || gitText(ctx, w.CommonDir, "rev-parse", "--verify", w.Head+"^{commit}") != w.Head {
+			} else if len(w.Head) < 40 || gitCommonText(ctx, w.CommonDir, "rev-parse", "--verify", w.Head+"^{commit}") != w.Head {
 				block(reasonNoCommit)
 			} else {
 				verified = true
@@ -71,18 +72,27 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 		}
 		return
 	}
-	actual := gitText(ctx, w.Path, "rev-parse", "--show-toplevel")
-	if actual != w.Path {
+	// Resolve both ownership properties in one Git process. A copied repository
+	// can retain a stale registration pointing at another repository's checkout.
+	// Matching the exact expected prefix also preserves newlines in path names.
+	identity, identityErr := git(ctx, w.Path, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
+	common, ownsPath := strings.CutPrefix(identity, w.Path+"\n")
+	if identityErr != nil || !ownsPath {
 		if emptyCheckoutDirectory(w.Path) {
 			w.Empty = true
 			block(reasonEmpty)
-			if len(w.Head) < 40 || gitText(ctx, w.CommonDir, "rev-parse", "--verify", w.Head+"^{commit}") != w.Head {
+			if len(w.Head) < 40 || gitCommonText(ctx, w.CommonDir, "rev-parse", "--verify", w.Head+"^{commit}") != w.Head {
 				block(reasonNoCommit)
 			} else {
 				verified = true
 			}
 			return
 		}
+		block(reasonUnverifiedPath)
+		return
+	}
+	actualCommon, commonErr := filepath.EvalSymlinks(strings.TrimSuffix(common, "\n"))
+	if commonErr != nil || actualCommon != w.CommonDir {
 		block(reasonUnverifiedPath)
 		return
 	}

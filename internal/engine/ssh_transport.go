@@ -1,18 +1,55 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/not-stbenjam/arbor/internal/worktree"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/not-stbenjam/arbor/internal/worktree"
 )
 
 type sshRunner func(context.Context, string, string, io.Reader) ([]byte, error)
+
+const maxSSHOutput = 64 * 1024 * 1024
+
+type sshExitError struct {
+	host, detail string
+	status       int
+	cause        error
+}
+
+func (e *sshExitError) Error() string {
+	return fmt.Sprintf("SSH %s: %s. Check SSH keys, known_hosts, and the host configuration", e.host, e.detail)
+}
+
+func (e *sshExitError) Unwrap() error { return e.cause }
+
+// Keep stdout bounded even for a broken remote executable. Oversized output is
+// never passed to a protocol decoder, including a seemingly valid JSON prefix.
+type sshOutput struct {
+	buffer   bytes.Buffer
+	overflow bool
+}
+
+func (w *sshOutput) Len() int      { return w.buffer.Len() }
+func (w *sshOutput) Bytes() []byte { return w.buffer.Bytes() }
+
+func (w *sshOutput) Write(data []byte) (int, error) {
+	count := len(data)
+	remaining := maxSSHOutput - w.Len()
+	if count > remaining {
+		w.overflow = true
+		data = data[:remaining]
+	}
+	w.buffer.Write(data)
+	return count, nil
+}
 
 func runSSH(ctx context.Context, host, command string, input io.Reader) ([]byte, error) {
 	return runSSHProgress(ctx, host, command, input, nil)
@@ -43,8 +80,13 @@ func runSSHProgress(ctx context.Context, host, command string, input io.Reader, 
 	}
 	stderr := &progressWriter{callback: progress}
 	cmd.Stderr = stderr
-	data, err := cmd.Output()
+	stdout := &sshOutput{}
+	cmd.Stdout = stdout
+	err := cmd.Run()
 	stderr.flush()
+	if stdout.overflow {
+		return nil, fmt.Errorf("SSH %s: remote output exceeded %d bytes", host, maxSSHOutput)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -53,7 +95,11 @@ func runSSHProgress(ctx context.Context, host, command string, input io.Reader, 
 		if detail == "" {
 			detail = err.Error()
 		}
+		var exited *exec.ExitError
+		if errors.As(err, &exited) {
+			return stdout.Bytes(), &sshExitError{host: host, detail: detail, status: exited.ExitCode(), cause: err}
+		}
 		return nil, fmt.Errorf("SSH %s: %s. Check SSH keys, known_hosts, and the host configuration", host, detail)
 	}
-	return data, nil
+	return stdout.Bytes(), nil
 }

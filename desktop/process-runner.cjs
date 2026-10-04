@@ -8,6 +8,17 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
 const PROGRESS_PREFIX = "@arbor-progress ";
 const MAX_PROGRESS_LINE = 65536;
 
+class CommandError extends Error {
+  constructor(message, { code, signal, stdout }) {
+    super(message);
+    this.name = "CommandError";
+    this.code = code;
+    this.signal = signal;
+    // Only complete, bounded output is eligible for structured diagnostics.
+    this.stdout = Buffer.byteLength(stdout) <= 65536 ? stdout : "";
+  }
+}
+
 function childEnvironment(platform = process.platform) {
   const env = { ...process.env };
   if (platform === "darwin")
@@ -21,8 +32,6 @@ function execute(
   {
     env = childEnvironment(),
     timeout = 20 * 60 * 1000,
-    onChild = () => {},
-    onDone = () => {},
     onProgress,
     signal,
   } = {},
@@ -35,7 +44,6 @@ function execute(
       windowsHide: true,
       detached: process.platform !== "win32",
     });
-    onChild(child);
     let stdout = [],
       stderr = [],
       size = 0,
@@ -127,7 +135,6 @@ function execute(
       clearTimeout(timer);
       clearTimeout(forceTimer);
       signal?.removeEventListener("abort", abort);
-      onDone(child);
       error ? reject(error) : resolve(output);
     };
     child.once("error", (error) =>
@@ -139,7 +146,11 @@ function execute(
       if (failure) return finish(failure);
       if (code !== 0)
         return finish(
-          new Error(detail || `Arbor CLI exited ${signal || code}`),
+          new CommandError(detail || `Arbor CLI exited ${signal || code}`, {
+            code,
+            signal,
+            stdout: Buffer.concat(stdout).toString("utf8"),
+          }),
         );
       finish(null, Buffer.concat(stdout).toString("utf8"));
     });
@@ -149,4 +160,4 @@ function execute(
   });
 }
 
-module.exports = { execute, childEnvironment };
+module.exports = { execute, childEnvironment, CommandError };

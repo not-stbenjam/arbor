@@ -2,7 +2,7 @@
 
 // Real Electron lifecycle tests. Every CLI invocation is a synthetic fixture:
 // no repositories are opened, scanned, or deleted.
-const { app, dialog, Menu, clipboard } = require("electron");
+const { app, BrowserWindow, dialog, Menu, clipboard } = require("electron");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -33,6 +33,7 @@ if (!phase) {
       "scan-quit",
       "cleanup",
       "confirmations",
+      "reopen",
     ]) {
       const directory = path.join(root, current);
       fs.mkdirSync(directory);
@@ -60,6 +61,12 @@ if (!phase) {
         result.elapsed < 8000,
         `${current} quit took ${result.elapsed}ms`,
       );
+      if (current === "reopen")
+        assert.equal(
+          result.reopened,
+          true,
+          "cached renderer was recreated after window close",
+        );
       if (current.startsWith("scan")) {
         const pid = Number(
           fs.readFileSync(path.join(directory, "cli.pid"), "utf8"),
@@ -132,6 +139,7 @@ if (args[0] === 'remove') {
   process.env.ARBOR_CLI_PATH = binary;
   delete process.env.ARBOR_SMOKE_TEST;
   let closingAt = null;
+  let reopenVerified = false;
   let contextMenu;
   let copiedPath;
   const originalCopy = clipboard.writeText;
@@ -199,10 +207,24 @@ if (args[0] === 'remove') {
           "cancelled confirmations must not invoke removal",
         );
         assert.equal(confirmations.length, 2);
+      } else if (phase === "reopen") {
+        assert.equal(
+          reopenVerified,
+          true,
+          "reopen checks completed before application quit",
+        );
+        assert.equal(
+          invocations.length,
+          1,
+          "reopening must not invoke another scan or deletion",
+        );
       }
       fs.writeFileSync(
         path.join(directory, "result.json"),
-        JSON.stringify({ elapsed: Date.now() - closingAt }),
+        JSON.stringify({
+          elapsed: Date.now() - closingAt,
+          reopened: reopenVerified,
+        }),
       );
     } catch (error) {
       console.error(error);
@@ -240,7 +262,7 @@ if (args[0] === 'remove') {
             !state.busy,
           );
         };
-        if (phase === "cleanup" || phase === "confirmations") {
+        if (["cleanup", "confirmations", "reopen"].includes(phase)) {
           const state = await until(async () => {
             const state = await js("window.arbor.getState()");
             return !state.busy && state.report ? state : null;
@@ -273,7 +295,7 @@ if (args[0] === 'remove') {
               ),
               "force-removal consent must cover files added since the cached scan",
             );
-          } else {
+          } else if (phase === "cleanup") {
             const selection = {
               revision: state.revision,
               recommendedOnly: true,
@@ -289,6 +311,72 @@ if (args[0] === 'remove') {
               () => fs.existsSync(path.join(directory, "removing")),
               "first synthetic removal",
             );
+          } else {
+            await until(
+              () =>
+                js(
+                  "document.querySelectorAll('#worktree-list [data-id]').length === 2",
+                ),
+              "original renderer shows cached worktrees",
+            );
+            const originalWindowID = win.id;
+            const closed = new Promise((resolve) =>
+              win.once("closed", resolve),
+            );
+            win.close();
+            await closed;
+            await pause(50);
+            assert.equal(
+              BrowserWindow.getAllWindows().length,
+              0,
+              "the original window really closed while Electron remained alive",
+            );
+            const created = new Promise((resolve) =>
+              app.once("browser-window-created", (_event, next) =>
+                resolve(next),
+              ),
+            );
+            app.emit("activate", {}, false);
+            const reopened = await created;
+            assert.notEqual(reopened.id, originalWindowID);
+            await new Promise((resolve) =>
+              reopened.webContents.once("did-finish-load", resolve),
+            );
+            const reopenedJS = (source) =>
+              reopened.webContents.executeJavaScript(source);
+            const restored = await until(async () => {
+              const current = await reopenedJS("window.arbor.getState()");
+              return !current.busy &&
+                current.report &&
+                current.revision !== state.revision
+                ? current
+                : null;
+            }, "reopened workspace receives a fresh snapshot revision");
+            assert.equal(restored.cached, true);
+            assert.equal(restored.root, state.root);
+            assert.equal(
+              restored.report.scannedAt,
+              state.report.scannedAt,
+              "reopening preserves the completed scan timestamp",
+            );
+            assert.deepEqual(
+              restored.report.worktrees.map((row) => row.path),
+              state.report.worktrees.map((row) => row.path),
+            );
+            await until(
+              () =>
+                reopenedJS(
+                  "document.querySelectorAll('#worktree-list [data-id]').length === 2 && document.querySelector('#all-count')?.textContent === '2'",
+                ),
+              "recreated renderer displays both cached worktrees",
+            );
+            assert.equal(
+              await reopenedJS(
+                "document.querySelector('#error-banner').hidden",
+              ),
+              true,
+            );
+            reopenVerified = true;
           }
         } else {
           await until(
@@ -309,5 +397,14 @@ if (args[0] === 'remove') {
       }
     });
   });
+  const previousCloseListeners = new Set(app.listeners("window-all-closed"));
   require("../desktop/main.cjs");
+  if (phase === "reopen" && process.platform !== "darwin") {
+    // Exercise the same native activate path on Linux by suppressing only the
+    // composition root's Linux auto-quit handler. macOS keeps its real policy.
+    for (const listener of app.listeners("window-all-closed"))
+      if (!previousCloseListeners.has(listener))
+        app.removeListener("window-all-closed", listener);
+    app.on("window-all-closed", () => {});
+  }
 }

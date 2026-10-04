@@ -33,9 +33,13 @@ func measure(ctx context.Context, w *Worktree, block func(reasonCode)) {
 			if readErr != nil {
 				return readErr
 			}
-			if confirmedBareRepository(ctx, parent, entries) {
+			kind, probeErr := recognizeRepository(ctx, parent, entries)
+			if probeErr != nil {
+				return probeErr
+			}
+			if kind != repositoryNone {
 				nested = true
-				// HEAD is a file in a valid bare repository. Skip its remaining
+				// HEAD is a file in valid Git metadata. Skip its remaining
 				// siblings, including the independent objects/refs database.
 				return filepath.SkipDir
 			}

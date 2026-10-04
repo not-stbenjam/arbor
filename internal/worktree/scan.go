@@ -83,7 +83,7 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		if registeredPaths[path] {
 			continue
 		}
-		common := gitText(ctx, path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+		common, explicitGitDir := resolveCommonDirectory(ctx, path)
 		if common == "" {
 			report.Warnings = append(report.Warnings, "Could not inspect repository: "+path)
 			continue
@@ -98,13 +98,22 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		if options.Fetch {
 			notify("fetch", path, len(seen)-1, 0)
 			// Fetch only on explicit request; never prune or change a local branch.
-			_, err := run(ctx, 2*time.Minute, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "fetch", "--all", "--no-recurse-submodules")
+			args := []string{"-c", "core.hooksPath=/dev/null", "-C", path}
+			if explicitGitDir != "" {
+				args = append(args, "--bare", "--git-dir="+explicitGitDir)
+			}
+			args = append(args, "fetch", "--all", "--no-recurse-submodules")
+			_, err := run(ctx, 2*time.Minute, "git", args...)
 			if err != nil {
 				report.Fetched = false
 				report.Warnings = append(report.Warnings, "Fetch failed for "+path+": "+err.Error())
 			}
 		}
-		raw, err := git(ctx, path, "worktree", "list", "--porcelain", "-z")
+		listArgs := []string{"worktree", "list", "--porcelain", "-z"}
+		if explicitGitDir != "" {
+			listArgs = append([]string{"--bare"}, listArgs...)
+		}
+		raw, err := gitCommon(ctx, common, listArgs...)
 		if err != nil {
 			report.Warnings = append(report.Warnings, err.Error())
 			continue

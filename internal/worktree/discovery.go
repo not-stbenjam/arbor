@@ -54,7 +54,11 @@ func discover(ctx context.Context, root string, excluded func(string) bool, prog
 			continue
 		}
 		marker, _, _ := repositoryMarkers(path, entries)
-		if confirmedBareRepository(ctx, path, entries) {
+		kind, probeErr := recognizeRepository(ctx, path, entries)
+		if probeErr != nil && len(warnings) < 100 {
+			warnings = append(warnings, probeErr.Error())
+		}
+		if kind == repositoryBare {
 			found(path)
 			continue
 		}

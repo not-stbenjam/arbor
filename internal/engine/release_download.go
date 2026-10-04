@@ -30,9 +30,10 @@ func defaultReleaseClient() *http.Client {
 }
 
 type releaseDownload struct {
-	done   chan struct{}
-	binary []byte
-	err    error
+	done           chan struct{}
+	binary         []byte
+	err            error
+	leaderCanceled bool
 }
 
 // download deduplicates only the same release/platform. Network and archive
@@ -57,9 +58,10 @@ func (p *provisioner) download(ctx context.Context, version, system, architectur
 			p.inflight[key] = pending
 			p.mu.Unlock()
 			binary, err := p.downloadRelease(ctx, version, system, architecture)
-			if ctx.Err() != nil {
+			leaderError := ctx.Err()
+			if leaderError != nil {
 				binary = nil
-				err = ctx.Err()
+				err = leaderError
 			}
 			p.mu.Lock()
 			if err == nil {
@@ -69,6 +71,7 @@ func (p *provisioner) download(ctx context.Context, version, system, architectur
 				p.binaries[key] = binary
 			}
 			pending.binary, pending.err = binary, err
+			pending.leaderCanceled = leaderError != nil
 			delete(p.inflight, key)
 			close(pending.done)
 			p.mu.Unlock()
@@ -84,7 +87,9 @@ func (p *provisioner) download(ctx context.Context, version, system, architectur
 			}
 			// Cancellation belongs to the initiating caller. A still-interested
 			// waiter retries under its own context instead of inheriting that cancel.
-			if errors.Is(pending.err, context.Canceled) || errors.Is(pending.err, context.DeadlineExceeded) {
+			// A transport timeout belongs to the shared request, not the caller.
+			// Share it rather than turning every waiter into another download.
+			if pending.leaderCanceled {
 				continue
 			}
 			return pending.binary, pending.err

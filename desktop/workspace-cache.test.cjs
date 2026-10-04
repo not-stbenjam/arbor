@@ -6,7 +6,8 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 const { WorkspaceCache, cacheKey } = require("./workspace-cache.cjs");
-const { Backend, scanOptions } = require("./backend.cjs");
+const { Backend } = require("./backend.cjs");
+const { scanOptions } = require("./protocol.cjs");
 
 const row = {
   id: "one",
@@ -284,7 +285,10 @@ test("cleanup updates all cached snapshots, uses one stats session, and refuses 
     cache.get(options({ root: "/", github: true })).worktrees.length,
     0,
   );
-  backend.reset();
+  await backend.resetPreferences(
+    async () => true,
+    async () => {},
+  );
   assert.equal(cache.entries.size, 0);
   assert.equal(backend.getState().setupRequired, true);
 });

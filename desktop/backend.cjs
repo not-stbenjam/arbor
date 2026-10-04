@@ -3,14 +3,12 @@
 const { randomUUID } = require("node:crypto");
 const os = require("node:os");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
-const { usesDiscardLocal } = require("./worktree-menu.cjs");
 const {
-  scanOptions,
-  parseReport,
-  progressEvent,
-  validatePreferences,
-  loadPreferences,
-} = require("./protocol.cjs");
+  planRemoval,
+  removalArguments,
+  removalFailure,
+} = require("./removal-policy.cjs");
+const { scanOptions, parseReport, progressEvent } = require("./protocol.cjs");
 const { execute, childEnvironment } = require("./process-runner.cjs");
 const MAX_PARTIAL_WORKTREES = 20000;
 
@@ -81,14 +79,6 @@ class Backend {
     return structuredClone(this.#state);
   }
 
-  getLifecycle() {
-    return Object.freeze({
-      closing: this.#disposed,
-      busy: this.#state.busy || !!this.#transition,
-      operation: this.#transition || this.#operation,
-    });
-  }
-
   assertInteractive() {
     if (this.#disposed) throw new Error("Arbor is closing");
     if (this.#transition === "setup") throw new Error("Setup is being saved");
@@ -125,6 +115,32 @@ class Backend {
     return refresh
       ? this.scan(this.#options)
       : this.activateWorkspace(this.#options);
+  }
+
+  configureWorkspace(value, persist, { restore = false } = {}) {
+    this.assertInteractive();
+    if (this.#state.setupRequired)
+      throw new Error("Complete setup before scanning");
+    if (this.#state.busy && (!restore || this.#operation !== "scan"))
+      throw new Error("An operation is already running");
+    const options = scanOptions(value);
+    this.#transition = "workspace";
+    this.#transitionPending = (async () => {
+      try {
+        if (this.#state.busy) {
+          this.#cancelScan();
+          await this.#pending;
+        }
+        if (this.#disposed) throw new Error("Arbor is closing");
+        await persist(structuredClone(options));
+        this.#options = options;
+      } finally {
+        this.#transition = null;
+      }
+      if (this.#disposed) return this.getState();
+      return restore ? this.activateWorkspace(options) : this.scan(options);
+    })();
+    return this.#transitionPending;
   }
 
   completeSetup(value, persist) {
@@ -391,15 +407,6 @@ class Backend {
     return this.getState();
   }
 
-  reset() {
-    this.assertInteractive();
-    if (this.#state.busy || this.#operation)
-      throw new Error(
-        "Wait for the current operation to stop before resetting",
-      );
-    return this.#resetState();
-  }
-
   #resetState() {
     this.#options = scanOptions();
     this.#cache.clear();
@@ -442,21 +449,23 @@ class Backend {
       const report = parseReport(
         await this.#run(args, { timeout: 30000, signal: controller.signal }),
       );
-      if (this.#disposed) return;
-      const current = report.worktrees.find((entry) => entry.path === row.path);
+      if (this.#disposed) throw new Error("Inspection skipped while closing");
+      const current = report.worktrees.find((entry) => entry.id === row.id);
       const index = this.#state.report.worktrees.findIndex(
-        (entry) => entry.path === row.path,
+        (entry) => entry.id === row.id,
       );
       if (index < 0) return;
-      if (!current) this.#state.report.worktrees.splice(index, 1);
-      else
-        this.#state.report.worktrees[index] = {
-          ...current,
-          retryInspection: false,
-          ...(row.lastRemovalError
-            ? { lastRemovalError: row.lastRemovalError }
-            : {}),
-        };
+      if (!current || current.path !== row.path)
+        throw new Error(
+          "Worktree registration changed; targeted inspection returned a different identity",
+        );
+      this.#state.report.worktrees[index] = {
+        ...current,
+        retryInspection: false,
+        ...(row.lastRemovalError
+          ? { lastRemovalError: row.lastRemovalError }
+          : {}),
+      };
     } finally {
       if (this.#targetInspectionController === controller)
         this.#targetInspectionController = null;
@@ -518,51 +527,8 @@ class Backend {
   async remove(value, confirm) {
     this.assertInteractive();
     if (this.#state.busy) throw new Error("An operation is already running");
-    if (
-      !value ||
-      typeof value !== "object" ||
-      !this.#state.revision ||
-      value.revision !== this.#state.revision
-    )
-      throw new Error(
-        "The scan changed; review the current worktrees and try again",
-      );
-    if (
-      !Array.isArray(value.items) ||
-      !value.items.length ||
-      value.items.length > 1000
-    )
-      throw new Error("Choose between 1 and 1000 worktrees");
-    const discardLocal = value.discardLocal === true;
-    if (discardLocal && value.recommendedOnly === true)
-      throw new Error(
-        "Discarding local data cannot be a recommended-only cleanup",
-      );
-    const selected = [],
-      seen = new Set();
-    for (const item of value.items) {
-      if (
-        !item ||
-        typeof item.id !== "string" ||
-        typeof item.head !== "string" ||
-        seen.has(item.id)
-      )
-        throw new Error("Invalid worktree selection");
-      const w = this.#state.report.worktrees.find(
-        (entry) => entry.id === item.id,
-      );
-      if (
-        !w ||
-        w.head !== item.head ||
-        !(w.canRemove || (discardLocal && w.canDiscard)) ||
-        w.outsideRoot
-      )
-        throw new Error("Worktree changed or is protected; scan again");
-      if (value.recommendedOnly === true && !w.recommended)
-        throw new Error("Worktree is not a cleanup recommendation");
-      selected.push(structuredClone(w));
-      seen.add(item.id);
-    }
+    const { selected, discardLocal, recommendedOnly, confirmation } =
+      planRemoval(this.#state, value);
     this.#state.busy = true;
     this.#state.error = "";
     this.#operation = "remove";
@@ -574,13 +540,9 @@ class Backend {
       statsSession = randomUUID();
     const perform = async () => {
       try {
-        const manual =
-          discardLocal || value.forceConfirm === true
-            ? selected
-            : selected.filter((w) => !w.recommended);
         if (
-          manual.length &&
-          (!confirm || !(await confirm(manual, { discardLocal })))
+          confirmation.length &&
+          (!confirm || !(await confirm(confirmation, { discardLocal })))
         )
           return {
             cancelled: true,
@@ -592,31 +554,12 @@ class Backend {
         for (const w of selected) {
           if (this.#stopAfterCurrent) break;
           this.#state.progress.path = w.path;
-          const args = [
-            "remove",
-            "--yes",
-            "--json",
-            "--stats-session",
+          const args = removalArguments(w, {
+            host: options.host,
             statsSession,
-            "--head",
-            w.head,
-            "--id",
-            w.id,
-            "--branch",
-            w.branch,
-          ];
-          if (w.commonDir) args.push("--repo", w.commonDir);
-          if (w.missing) args.push("--expect-missing");
-          if (w.empty) args.push("--expect-empty");
-          if (options.host) args.push("--host", options.host);
-          if (w.pr?.merged) args.push("--github");
-          args.push(
-            usesDiscardLocal(w, discardLocal)
-              ? "--discard-local"
-              : "--keep-local",
-          );
-          if (value.recommendedOnly === true) args.push("--recommended-only");
-          args.push("--", w.path);
+            discardLocal,
+            recommendedOnly,
+          });
           try {
             const result = JSON.parse(await this.#run(args));
             if (!result || result.path !== w.path || result.removed !== true)
@@ -630,21 +573,33 @@ class Backend {
                 : {}),
             });
             this.#state.report.worktrees = this.#state.report.worktrees.filter(
-              (entry) => entry.path !== w.path,
+              (entry) => entry.id !== w.id,
             );
             this.#cache.removePaths(options.host, [w.path]);
+            for (const sibling of this.#state.report.worktrees.filter(
+              (entry) => entry.path === w.path,
+            )) {
+              try {
+                if (this.#stopAfterCurrent || this.#disposed)
+                  throw new Error("Inspection skipped while closing");
+                await this.#refreshTarget(sibling);
+              } catch (error) {
+                this.#markInspectionFailure(sibling, error);
+              }
+            }
           } catch (error) {
+            const message = removalFailure(error, w.path);
             const outcome = {
               path: w.path,
               removed: false,
-              error: error.message,
+              error: message,
             };
             results.push(outcome);
             const entry = this.#state.report.worktrees.find(
-              (item) => item.path === w.path,
+              (item) => item.id === w.id,
             );
             if (entry) {
-              entry.lastRemovalError = error.message;
+              entry.lastRemovalError = message;
               try {
                 if (this.#stopAfterCurrent)
                   throw new Error("Inspection skipped while closing");
@@ -686,18 +641,6 @@ class Backend {
     this.#stopAfterCurrent = true;
     this.#targetInspectionController?.abort();
   }
-
-  dispose() {
-    return this.requestClose().action !== "confirm-cleanup";
-  }
 }
 
-module.exports = {
-  Backend,
-  execute,
-  parseReport,
-  scanOptions,
-  validatePreferences,
-  loadPreferences,
-  childEnvironment,
-};
+module.exports = { Backend };

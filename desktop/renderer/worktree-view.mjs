@@ -1,5 +1,9 @@
-import { projectTree, renderTreeRows } from "./worktree-presentation.mjs";
-import { icon, esc, repoID, ago } from "./presentation.mjs";
+import {
+  projectTree,
+  renderTreeRows,
+  renderRepositoryList,
+} from "./worktree-presentation.mjs";
+import { icon, repoID, ago } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
 
 // Owns tree-only interaction state: filters, sorting, expansion and selection.
@@ -28,6 +32,11 @@ export function createWorktreeView({
   const blocked = () => workspace.blocked;
   const machineName = () => workspace.snapshot.host || "This computer";
   function renderControls() {
+    $("#worktree-list")
+      .querySelectorAll("[data-delete], [data-folder-delete]")
+      .forEach((button) => {
+        button.disabled = blocked() || !workspace.snapshot.revision;
+      });
     $("#selection-bar").hidden = selection.ids.size < 2;
     $("#selection-label").textContent =
       `${selection.ids.size} worktrees selected`;
@@ -68,14 +77,7 @@ export function createWorktreeView({
     $("#path-button").title = `Scan folder: ${path}`;
     const signature = JSON.stringify([repos, repo]);
     if (signature !== repoSignature) {
-      $("#repo-list").innerHTML = repos.length
-        ? repos
-            .map(
-              (r) =>
-                `<button class="repo-item${r.id === repo ? " active" : ""}" data-repo="${esc(r.id)}" title="${esc(r.id)}">${icon("folder")}<span>${esc(r.name)}</span><span class="count">${r.count}</span></button>`,
-            )
-            .join("")
-        : '<p class="repo-empty">No repositories found.</p>';
+      $("#repo-list").innerHTML = renderRepositoryList(repos, repo);
       repoSignature = signature;
     }
     document.querySelectorAll("[data-view]").forEach((b) => {
@@ -191,7 +193,7 @@ export function createWorktreeView({
     renderControls();
     $("#worktree-list").focus({ preventScroll: true });
   }
-  document.addEventListener("click", (event) => {
+  function handleTreeClick(event) {
     const button = event.target.closest("button");
     if (button) {
       if (button.disabled) return;
@@ -238,7 +240,10 @@ export function createWorktreeView({
     }
     const row = event.target.closest("[data-id]");
     if (row) selectRow(row.dataset.id, event);
-  });
+  }
+  [".views", "#repo-list", "#table-scroll"].forEach((selector) =>
+    $(selector).addEventListener("click", handleTreeClick),
+  );
   $("#worktree-list").addEventListener("contextmenu", (event) => {
     const row = event.target.closest("[data-id]");
     if (!row) return;

@@ -10,6 +10,17 @@ import {
 } from "./presentation.mjs";
 
 // Pure tree projection and markup. No DOM, IPC, timers, or mutable view state.
+export function renderRepositoryList(repositories, selectedRepo) {
+  return repositories.length
+    ? repositories
+        .map(
+          (repo) =>
+            `<button class="repo-item${repo.id === selectedRepo ? " active" : ""}" data-repo="${esc(repo.id)}" title="${esc(repo.id)}">${icon("folder")}<span>${esc(repo.name)}</span><span class="count">${repo.count}</span></button>`,
+        )
+        .join("")
+    : '<p class="repo-empty">No repositories found.</p>';
+}
+
 export function projectTree(
   list,
   { root, repo, view, search, sort, descending, collapsedDirectories },

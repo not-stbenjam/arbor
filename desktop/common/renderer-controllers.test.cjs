@@ -79,13 +79,13 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
   const row = {
     kind: "worktree",
     label: "<topic>",
-    pathPrefix: "/work",
+    pathPrefix: "/work/<parent>",
     depth: 1,
     worktree: {
       id: 'id"unsafe',
       path: "/work/<topic>",
       branch: '<script>alert("no")</script>',
-      repo: "repo",
+      repo: '<repo>&"',
       sizeBytes: 0,
       missing: true,
     },
@@ -97,12 +97,29 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
     cancelled: false,
   };
   const markup = renderTreeRows([row], options);
+  const escapedContext =
+    "Missing checkout · &lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt; · &lt;repo&gt;&amp;&quot;";
+  assert.ok(markup.includes(`title="${escapedContext}"`));
+  assert.ok(markup.includes(`>${escapedContext}</span>`));
   assert.doesNotMatch(markup, /<script>|data-id="id"unsafe/);
   assert.match(markup, /Missing checkout/);
   assert.match(markup, /class="size-cell">—</);
   assert.match(markup, /aria-selected="true"/);
   assert.match(markup, /data-delete="id&amp;|data-delete="id&quot;unsafe"/);
   assert.match(markup, /disabled>Delete/);
+  for (const expected of [
+    'data-path="/work/&lt;topic&gt;"',
+    'title="/work/&lt;topic&gt;"',
+    'aria-label="/work/&lt;topic&gt;"',
+    '<span class="path-parent">/work/&lt;parent&gt;/</span>',
+    '<span class="path-basename">&lt;topic&gt;</span>',
+    'data-id="id&quot;unsafe"',
+    'data-worktree-menu="id&quot;unsafe"',
+    'aria-label="Actions for /work/&lt;topic&gt;"',
+    'aria-label="Delete /work/&lt;topic&gt;"',
+    "&lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt; · &lt;repo&gt;&amp;&quot;",
+  ])
+    assert.ok(markup.includes(expected), `missing escaped markup: ${expected}`);
   assert.match(
     renderTreeRows([{ ...row, worktree: { ...row.worktree, pending: true } }], {
       ...options,
@@ -112,10 +129,52 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
   );
 });
 
+test("repository sidebar and directory group escape names and every path attribute", async () => {
+  const { renderRepositoryList, renderTreeRows } = await import(
+    "../renderer/worktree-presentation.mjs"
+  );
+  const sidebar = renderRepositoryList(
+    [{ id: 'repo"identifier', name: '<repo>&"', count: 1 }],
+    'repo"identifier',
+  );
+  for (const expected of [
+    'data-repo="repo&quot;identifier"',
+    'title="repo&quot;identifier"',
+    "<span>&lt;repo&gt;&amp;&quot;</span>",
+  ])
+    assert.ok(
+      sidebar.includes(expected),
+      `missing escaped sidebar: ${expected}`,
+    );
+  const group = renderTreeRows(
+    [
+      {
+        kind: "directory",
+        depth: 1,
+        label: '<folder>&"',
+        node: { path: '/work/<folder>"', descendants: [{}] },
+      },
+    ],
+    { selected: new Set(), collapsed: new Set(), disabled: false },
+  );
+  for (const expected of [
+    'data-directory-path="/work/&lt;folder&gt;&quot;"',
+    'data-toggle-directory="/work/&lt;folder&gt;&quot;"',
+    'data-folder-delete="/work/&lt;folder&gt;&quot;"',
+    'title="/work/&lt;folder&gt;&quot;"',
+    'aria-label="Collapse /work/&lt;folder&gt;&quot;"',
+    "&lt;folder&gt;&amp;&quot;</span>",
+  ])
+    assert.ok(
+      group.includes(expected),
+      `missing escaped directory: ${expected}`,
+    );
+});
+
 test("selection reconciles provisional IDs by path and clears vanished anchors", async () => {
   const { reconcileSelection } = await import("../renderer/selection.mjs");
   const previous = [
-    { id: "pending", path: "/one" },
+    { id: "pending", path: "/one", pending: true },
     { id: "gone", path: "/two" },
   ];
   const next = [{ id: "registered", path: "/one" }];
@@ -152,12 +211,52 @@ test("selection shift ranges and additive toggles use visible tree order", async
   assert.equal(value.anchor, "c");
   value = selectRow(value, rows, "b", { shiftKey: true, ctrlKey: true });
   assert.deepEqual([...value.ids], ["a", "b", "c"]);
+  const backward = selectRow(
+    { ids: new Set(["b"]), anchor: "b", cursor: "b" },
+    rows,
+    "a",
+    { shiftKey: true },
+  );
+  assert.deepEqual([...backward.ids], ["a", "c", "b"]);
+  assert.equal(backward.anchor, "b");
+});
+
+test("selection preserves exact registration IDs and never expands duplicate paths", async () => {
+  const { reconcileSelection } = await import("../renderer/selection.mjs");
+  const rows = [
+    { id: "repo-a", path: "/shared" },
+    { id: "repo-b", path: "/shared" },
+  ];
+  const selection = {
+    ids: new Set(["repo-b"]),
+    anchor: "repo-b",
+    cursor: "repo-b",
+  };
+  const kept = reconcileSelection(rows, [...rows].reverse(), selection);
+  assert.deepEqual([...kept.ids], ["repo-b"]);
+  assert.equal(kept.anchor, "repo-b");
+  assert.equal(kept.cursor, "repo-b");
+  const removed = reconcileSelection(rows, [rows[0]], selection);
+  assert.deepEqual([...removed.ids], []);
+  assert.equal(removed.anchor, "");
+  assert.equal(removed.cursor, "");
+  const provisional = [{ id: "pending", path: "/shared", pending: true }];
+  const ambiguous = reconcileSelection(provisional, rows, {
+    ids: new Set(["pending"]),
+    anchor: "pending",
+    cursor: "pending",
+  });
+  assert.deepEqual([...ambiguous.ids], []);
+  const replacement = reconcileSelection([rows[1]], [rows[0]], selection);
+  assert.deepEqual(
+    [...replacement.ids],
+    [],
+    "a new registration at an old path is not a provisional-ID replacement",
+  );
 });
 
 test("exclusion editor preserves literal commas and patterns", async () => {
-  const { readExcludes } = await import(
-    "../renderer/preferences-controller.mjs"
-  );
+  const { readExcludes } = await import("../renderer/input-values.mjs");
   assert.deepEqual(
     readExcludes({
       value: "  name,with,commas\r\n\n ~/.codex*/.tmp \n **/build ",
@@ -196,30 +295,22 @@ test("setup owns draft machine roots, steps, and duplicate submission guard", as
   const document = { querySelector: element, querySelectorAll: () => [] };
   const request = deferred(),
     calls = [];
-  const workspace = {
-    snapshot: { setupRequired: true, root: "/local" },
-    resetting: false,
-    async completeSetup(options) {
-      calls.push(options);
-      await request.promise;
-      workspace.snapshot.setupRequired = false;
-    },
-  };
-  const preferences = {
-    theme: "system",
-    options: { excludes: ["cache"] },
-    setTheme() {},
-    recordScan() {},
-    async save() {},
-    completeSetup() {},
-    syncOptions() {},
-  };
   const controller = createSetupController({
     document,
     api: {},
     defaults: { excludes: ["cache"] },
-    preferences,
-    getWorkspace: () => workspace,
+    onThemeChange() {},
+    async onSubmit(options) {
+      calls.push(options);
+      await request.promise;
+    },
+  });
+  controller.setContext({
+    required: true,
+    root: "/local",
+    resetting: false,
+    theme: "system",
+    excludes: ["cache"],
   });
   controller.open();
   assert.equal(element("#setup-root").value, "/local");
@@ -348,20 +439,7 @@ async function workspaceFixture(overrides = {}) {
     revision: "initial",
     report: { worktrees: [], warnings: [] },
   };
-  const preferences = {
-    options: { github: false, fetch: false, excludes: [] },
-    initialize() {},
-    syncOptions() {},
-    recordScan(options) {
-      savedScans.push(options);
-    },
-    async save() {},
-    reset() {},
-  };
   const api = {
-    async getPreferences() {
-      return {};
-    },
     async getState() {
       return initial;
     },
@@ -369,7 +447,9 @@ async function workspaceFixture(overrides = {}) {
   };
   const workspace = createWorkspaceController({
     api,
-    preferences,
+    onScanAccepted(options) {
+      savedScans.push(options);
+    },
     linked: (rows) => rows,
     notify: (...args) => notifications.push(args),
     onChange() {},
@@ -389,6 +469,281 @@ async function workspaceFixture(overrides = {}) {
   await workspace.initialize();
   return { workspace, api, savedScans, pendingTimers, initial, notifications };
 }
+
+test("workspace publishes cached immutable snapshots with nested mutation isolation", async () => {
+  const row = {
+    id: "tree",
+    path: "/local/tree",
+    branch: "topic",
+    head: "abc",
+    blockers: ["keep"],
+    pr: { title: "original", merged: false },
+  };
+  const incoming = {
+    host: "",
+    root: "/local",
+    busy: false,
+    revision: "first",
+    report: { worktrees: [row], warnings: [] },
+    options: { excludes: ["cache"] },
+    progress: { worktree: row },
+  };
+  const scan = deferred();
+  const fixture = await workspaceFixture({
+    getState: async () => incoming,
+    scan: () => scan.promise,
+  });
+  const snapshot = fixture.workspace.snapshot,
+    items = fixture.workspace.items;
+  assert.equal(
+    snapshot,
+    fixture.workspace.snapshot,
+    "reading a snapshot does not clone repeatedly",
+  );
+  assert.equal(items, fixture.workspace.items);
+  assert.equal(items[0], snapshot.report.worktrees[0]);
+  for (const mutate of [
+    () => {
+      snapshot.root = "/changed";
+    },
+    () => {
+      snapshot.report.worktrees[0].canRemove = true;
+    },
+    () => {
+      snapshot.report.worktrees[0].pr.title = "changed";
+    },
+    () => snapshot.report.worktrees[0].blockers.push("changed"),
+    () => snapshot.options.excludes.push("changed"),
+    () => {
+      snapshot.progress.worktree.branch = "changed";
+    },
+    () => items.push(row),
+  ])
+    assert.throws(mutate, TypeError);
+  row.pr.title = "source changed";
+  incoming.options.excludes.push("external");
+  assert.equal(snapshot.report.worktrees[0].pr.title, "original");
+  assert.deepEqual(snapshot.options.excludes, ["cache"]);
+  fixture.workspace.showError("display-only update");
+  assert.equal(
+    fixture.workspace.items,
+    items,
+    "unchanged report rows reuse their immutable publication",
+  );
+  const pending = fixture.workspace.scan({ host: "", root: "/next" });
+  assert.equal(
+    snapshot.busy,
+    false,
+    "previous publication cannot change later",
+  );
+  assert.equal(fixture.workspace.snapshot.busy, true);
+  scan.resolve({
+    host: "",
+    root: "/next",
+    busy: false,
+    report: { worktrees: [{ ...row, branch: "next" }], warnings: [] },
+  });
+  await pending;
+  assert.equal(snapshot.report.worktrees[0].branch, "topic");
+  assert.equal(fixture.workspace.items[0].branch, "next");
+  assert.ok(Object.isFrozen(fixture.workspace.items[0].pr));
+  fixture.workspace.dispose();
+});
+
+function preferenceDocument() {
+  const elements = new Map();
+  const element = (selector) => {
+    if (!elements.has(selector))
+      elements.set(selector, {
+        value: "",
+        checked: false,
+        hidden: false,
+        disabled: false,
+        open: false,
+        dataset: {},
+        selectedOptions: [{ textContent: "System" }],
+        addEventListener() {},
+        focus() {},
+        reportValidity() {},
+        reset() {},
+        showModal() {
+          this.open = true;
+        },
+        close() {
+          this.open = false;
+        },
+      });
+    return elements.get(selector);
+  };
+  return {
+    element,
+    document: {
+      querySelector: element,
+      querySelectorAll: () => [],
+      documentElement: { dataset: {} },
+    },
+  };
+}
+
+test("Add Host, setup and protocol share SSH alias, IPv6 and length validation", async () => {
+  const { isValidSSHHost, MAX_HOST_LENGTH, MAX_HOST_LABEL_LENGTH } =
+    await import("./ssh-host.mjs");
+  const { createPreferencesController } = await import(
+    "../renderer/preferences-controller.mjs"
+  );
+  const { createSetupController } = await import(
+    "../renderer/setup-controller.mjs"
+  );
+  const { scanOptions, validatePreferences } = require("../protocol.cjs");
+  for (const host of [
+    "_build",
+    "user@[2001:db8::1]",
+    "host.example",
+    "a".repeat(255),
+    "a".repeat(256),
+    "",
+    "-oOption",
+    "host extra",
+    "host\nother",
+    "host\0other",
+  ]) {
+    const expected =
+      host !== "" &&
+      (() => {
+        try {
+          scanOptions({ host });
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+    assert.equal(
+      isValidSSHHost(host),
+      expected,
+      `shared predicate for ${JSON.stringify(host)}`,
+    );
+    const { element, document } = preferenceDocument();
+    const commands = [],
+      writes = [],
+      notices = [];
+    const preferences = createPreferencesController({
+      document,
+      defaults: { excludes: [] },
+      notify: (...args) => notices.push(args),
+      onScan() {},
+      onSetup() {},
+      onReset() {},
+      onHostChange: (options) => commands.push(options),
+      api: {
+        async savePreferences(value) {
+          validatePreferences(value);
+          writes.push(value);
+        },
+      },
+    });
+    preferences.renderStatus({
+      host: "",
+      root: "/local",
+      connected: true,
+      blocked: false,
+      options: { excludes: [] },
+    });
+    element("#host-input").value = host;
+    await element("#host-form").onsubmit({ preventDefault() {} });
+    assert.equal(
+      commands.length,
+      expected ? 1 : 0,
+      `Add Host parity for ${JSON.stringify(host)}`,
+    );
+    assert.equal(writes.length, expected ? 1 : 0);
+    assert.equal(element("#host-input").maxLength, MAX_HOST_LENGTH);
+    if (expected) {
+      assert.equal(writes[0].hosts[0].host, host);
+      assert.ok(writes[0].hosts[0].name.length <= MAX_HOST_LABEL_LENGTH);
+    }
+    const setup = createSetupController({
+      document,
+      defaults: { excludes: [] },
+      api: {},
+      onSubmit() {},
+      onThemeChange() {},
+    });
+    setup.setContext({
+      required: true,
+      root: "/local",
+      theme: "system",
+      excludes: [],
+    });
+    setup.open();
+    element("#setup-remote").checked = true;
+    element("#setup-host").value = host;
+    element("#setup-next").onclick();
+    assert.equal(
+      element("#setup-dialog").dataset.step,
+      expected ? "2" : "1",
+      `setup parity for ${JSON.stringify(host)}`,
+    );
+    assert.equal(element("#setup-host").maxLength, MAX_HOST_LENGTH);
+  }
+  assert.equal(isValidSSHHost("", { allowLocal: true }), true);
+  assert.equal(isValidSSHHost(null, { allowLocal: true }), false);
+  for (const ending of ["\n", "\r", "\u2028", "\u2029"]) {
+    assert.equal(isValidSSHHost(`host${ending}`), false);
+    assert.throws(() => scanOptions({ host: `host${ending}` }));
+  }
+});
+
+test("settings emit one scan command and never persist scan options themselves", async () => {
+  const { createPreferencesController } = await import(
+    "../renderer/preferences-controller.mjs"
+  );
+  const { document, element } = preferenceDocument(),
+    commands = [],
+    writes = [];
+  const preferences = createPreferencesController({
+    document,
+    defaults: { excludes: ["cache"] },
+    api: {
+      async savePreferences(value) {
+        writes.push(value);
+      },
+    },
+    notify() {},
+    onScan: (options) => commands.push(options),
+    onHostChange() {},
+    onSetup() {},
+    onReset() {},
+  });
+  preferences.initialize({ theme: "system", scan: { excludes: ["cache"] } });
+  preferences.renderStatus({
+    host: "_build",
+    root: "/work",
+    connected: true,
+    blocked: false,
+    options: { excludes: ["cache"] },
+  });
+  preferences.openSettings();
+  element("#theme-select").value = "dark";
+  element("#scan-root").value = "/new";
+  element("#scan-excludes").value = "**/build";
+  await element("#settings-form").onsubmit({ preventDefault() {} });
+  assert.equal(writes.length, 0);
+  assert.deepEqual(commands, [
+    {
+      root: "/new",
+      host: "_build",
+      github: false,
+      fetch: false,
+      excludes: ["**/build"],
+      theme: "dark",
+    },
+  ]);
+  assert.deepEqual(
+    preferences.options.excludes,
+    ["cache"],
+    "active options remain backend-owned until its next snapshot",
+  );
+});
 
 test("workspace ignores a poll from before an explicit scan", async () => {
   const oldPoll = deferred(),

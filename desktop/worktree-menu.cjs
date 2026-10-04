@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("node:path");
+const { usesDiscardLocal } = require("./removal-policy.cjs");
 
 // Renderer requests identify a displayed worktree, never an arbitrary path.
 function menuTarget(state, value) {
@@ -86,10 +87,6 @@ function terminalCommand(platform, directory, findExecutable) {
     if (binary) return { binary, args, cwd: directory };
   }
   return null;
-}
-
-function usesDiscardLocal(row, discardLocal) {
-  return discardLocal === true && !row.canRemove;
 }
 
 function removalConfirmationOptions(trees, discardLocal) {

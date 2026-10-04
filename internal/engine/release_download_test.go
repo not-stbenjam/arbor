@@ -210,3 +210,45 @@ func TestDownloadCanceledLeaderDoesNotCancelInterestedWaiter(t *testing.T) {
 		t.Fatal("canceled caller performed network I/O")
 	}
 }
+
+func TestDownloadSharesTransportTimeoutWithoutRetryingEveryWaiter(t *testing.T) {
+	blocked, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	p, requests := fixtureDownloads(t, func(req *http.Request) error {
+		if strings.HasSuffix(req.URL.Path, ".tar.gz") {
+			select {
+			case <-blocked:
+			default:
+				close(blocked)
+			}
+			<-release
+			return context.DeadlineExceeded
+		}
+		return nil
+	})
+	results := []<-chan downloadResult{startDownload(p, context.Background(), "arm64")}
+	select {
+	case <-blocked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("download did not start")
+	}
+	for i := 0; i < 4; i++ {
+		ctx := &downloadWaitContext{Context: context.Background(), ready: make(chan struct{})}
+		results = append(results, startDownload(p, ctx, "arm64"))
+		select {
+		case <-ctx.ready:
+		case <-time.After(3 * time.Second):
+			t.Fatal("waiter not attached")
+		}
+	}
+	once.Do(func() { close(release) })
+	for _, result := range results {
+		if got := awaitDownload(t, result); !errors.Is(got.err, context.DeadlineExceeded) {
+			t.Fatalf("transport timeout was not shared: %+v", got)
+		}
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("waiters retried shared transport timeout: got %d requests, want one manifest/archive pair", got)
+	}
+}

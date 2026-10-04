@@ -108,7 +108,7 @@ func repositoryForTarget(ctx context.Context, root, hint string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("cannot locate repository: %w", err)
 	}
-	common := gitText(ctx, resolved, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	common, _ := resolveCommonDirectory(ctx, resolved)
 	if common == "" {
 		return "", errors.New("cannot find the missing worktree's repository; supply --repo with its repository or Git directory")
 	}

@@ -6,7 +6,11 @@ const DEFAULTS = Object.freeze({
   excludes: Object.freeze([...defaults.excludes]),
 });
 const DEFAULT_EXCLUDES = DEFAULTS.excludes;
-const HOST = /^[A-Za-z0-9_][A-Za-z0-9_.@:\[\]-]*$/;
+const {
+  isValidSSHHost,
+  MAX_HOST_LENGTH,
+  MAX_HOST_LABEL_LENGTH,
+} = require("./common/ssh-host.mjs");
 
 const textFields = [
   "id",
@@ -43,8 +47,17 @@ const flagFields = [
   "recommended",
 ];
 const listFields = ["publishedRefs", "blockers", "problems", "discardWarnings"];
+const displayFields = new Set([
+  "subject",
+  "author",
+  "lockReason",
+  "mergeReason",
+]);
+const displayLists = new Set(["blockers", "problems", "discardWarnings"]);
+const displayText = (value) => typeof value === "string";
 const boundedText = (value) =>
   typeof value === "string" && value.length <= 4096 && !value.includes("\0");
+const clipDisplay = (value) => value.replaceAll("\0", "").slice(0, 4096);
 
 function validWorktree(value, partial = false) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -54,7 +67,11 @@ function validWorktree(value, partial = false) {
     return false;
   if (
     !textFields.every(
-      (key) => value[key] === undefined || boundedText(value[key]),
+      (key) =>
+        value[key] === undefined ||
+        (displayFields.has(key)
+          ? displayText(value[key])
+          : boundedText(value[key])),
     )
   )
     return false;
@@ -78,7 +95,7 @@ function validWorktree(value, partial = false) {
         value[key] == null ||
         (Array.isArray(value[key]) &&
           value[key].length <= 10000 &&
-          value[key].every(boundedText)),
+          value[key].every(displayLists.has(key) ? displayText : boundedText)),
     )
   )
     return false;
@@ -90,7 +107,11 @@ function validWorktree(value, partial = false) {
         !Number.isSafeInteger(value.pr.number)) ||
       typeof value.pr.merged !== "boolean" ||
       !["url", "title", "state"].every(
-        (key) => value.pr[key] === undefined || boundedText(value.pr[key]),
+        (key) =>
+          value.pr[key] === undefined ||
+          (key === "title"
+            ? displayText(value.pr[key])
+            : boundedText(value.pr[key])),
       ))
   )
     return false;
@@ -102,99 +123,62 @@ function isValidReport(report) {
     !report ||
     !boundedText(report.root) ||
     !Array.isArray(report.warnings) ||
-    !report.warnings.every(boundedText) ||
+    !report.warnings.every(displayText) ||
     !Array.isArray(report.worktrees) ||
     report.worktrees.length > 20000
   )
     return false;
-  const ids = new Set(),
-    paths = new Set();
+  const ids = new Set();
   return report.worktrees.every((row) => {
-    if (!validWorktree(row) || ids.has(row.id) || paths.has(row.path))
-      return false;
+    if (!validWorktree(row) || ids.has(row.id)) return false;
     ids.add(row.id);
-    paths.add(row.path);
     return true;
   });
 }
 
+// Display copy is bounded independently from checkout identity. Long valid Git
+// subjects or diagnostic messages must not make a whole workspace disappear.
+function normalizeReport(report) {
+  if (!isValidReport(report)) return null;
+  const result = structuredClone(report);
+  result.warnings = result.warnings.map(clipDisplay);
+  for (const row of result.worktrees) {
+    for (const key of displayFields)
+      if (row[key] !== undefined) row[key] = clipDisplay(row[key]);
+    for (const key of displayLists)
+      if (row[key]) row[key] = row[key].map(clipDisplay);
+    if (row.pr?.title !== undefined) row.pr.title = clipDisplay(row.pr.title);
+  }
+  return result;
+}
+
 function partialWorktree(value, pending) {
   if (!validWorktree(value, true)) return null;
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    typeof value.path !== "string" ||
-    !value.path ||
-    value.path.length > 4096 ||
-    typeof value.id !== "string" ||
-    !value.id ||
-    value.id.length > 4096
-  )
-    return null;
   const result = {
     canRemove: false,
     recommended: false,
     canDiscard: false,
     pending: pending !== false,
   };
-  for (const key of [
-    "id",
-    "path",
-    "repo",
-    "commonDir",
-    "branch",
-    "head",
-    "subject",
-    "author",
-    "commitAt",
-    "activityAt",
-    "lockReason",
-    "upstream",
-    "defaultRef",
-    "mergeReason",
-    "githubState",
-  ])
-    result[key] =
-      typeof value[key] === "string" ? value[key].slice(0, 4096) : "";
-  for (const key of ["sizeBytes", "changedFiles", "ahead", "behind"])
-    result[key] =
-      Number.isSafeInteger(value[key]) && value[key] >= 0 ? value[key] : 0;
-  for (const key of [
-    "main",
-    "bare",
-    "detached",
-    "locked",
-    "missing",
-    "empty",
-    "outsideRoot",
-    "dirty",
-    "ignored",
-    "published",
-    "merged",
-  ])
-    result[key] = value[key] === true;
-  for (const key of [
-    "publishedRefs",
-    "blockers",
-    "problems",
-    "discardWarnings",
-  ])
-    result[key] = Array.isArray(value[key])
-      ? value[key]
-          .slice(0, 100)
-          .filter((item) => typeof item === "string")
-          .map((item) => item.slice(0, 4096))
-      : [];
-  if (
-    value.pr &&
-    typeof value.pr === "object" &&
-    Number.isSafeInteger(value.pr.number)
-  ) {
+  for (const key of textFields)
+    result[key] = displayFields.has(key)
+      ? clipDisplay(value[key] ?? "")
+      : (value[key] ?? "");
+  for (const key of countFields) result[key] = value[key] ?? 0;
+  for (const key of flagFields)
+    if (!["canRemove", "canDiscard", "recommended"].includes(key))
+      result[key] = value[key] === true;
+  for (const key of listFields)
+    result[key] = (value[key] ?? [])
+      .slice(0, 100)
+      .map((item) => (displayLists.has(key) ? clipDisplay(item) : item));
+  if (value.pr && Number.isSafeInteger(value.pr.number)) {
     result.pr = { number: value.pr.number, merged: value.pr.merged === true };
     for (const key of ["url", "title", "state"])
       result.pr[key] =
-        typeof value.pr[key] === "string" ? value.pr[key].slice(0, 4096) : "";
+        key === "title"
+          ? clipDisplay(value.pr[key] ?? "")
+          : (value.pr[key] ?? "");
   }
   return result;
 }
@@ -234,8 +218,8 @@ function text(value, name, limit = 4096) {
 function scanOptions(value = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid scan options");
-  const host = text(value.host ?? "", "SSH host", 255);
-  if (host && !HOST.test(host))
+  const host = text(value.host ?? "", "SSH host", MAX_HOST_LENGTH);
+  if (!isValidSSHHost(host, { allowLocal: true }))
     throw new Error("Use an SSH host alias or user@hostname");
   const excludes =
     value.excludes === undefined ? DEFAULT_EXCLUDES : value.excludes;
@@ -268,9 +252,10 @@ function parseReport(raw) {
     !Array.isArray(report.warnings)
   )
     throw new Error("Arbor CLI returned an incomplete scan");
-  if (!isValidReport(report))
+  const normalized = normalizeReport(report);
+  if (!normalized)
     throw new Error("Arbor CLI returned invalid worktree metadata");
-  return report;
+  return normalized;
 }
 
 function validatePreferences(value) {
@@ -287,7 +272,11 @@ function validatePreferences(value) {
     const host = scanOptions({ host: item.host }).host;
     if (!host) throw new Error("Saved SSH host cannot be empty");
     return {
-      name: text(item.name || host, "host name", 100),
+      name: text(
+        item.name || host.slice(0, MAX_HOST_LABEL_LENGTH),
+        "host name",
+        MAX_HOST_LABEL_LENGTH,
+      ),
       host,
       root: text(item.root ?? "~", "remote folder"),
     };
@@ -333,4 +322,5 @@ module.exports = {
   parseReport,
   progressEvent,
   isValidReport,
+  normalizeReport,
 };

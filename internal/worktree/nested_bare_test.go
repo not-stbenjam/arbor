@@ -3,10 +3,141 @@ package worktree
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func restrictiveBareGlobalConfig(t *testing.T) {
+	t.Helper()
+	gitBinary, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := canonicalFixtureDir(t)
+	config := filepath.Join(fixture, "global.gitconfig")
+	testWrite(t, config, "[safe]\n\tbareRepository = explicit\n")
+	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
+	// Arbor strips inherited GIT_* selectors. This fixture shim supplies an
+	// isolated global config at Git's own boundary without changing HOME or
+	// touching the user's real configuration.
+	shim := filepath.Join(fixture, "git")
+	testWrite(t, shim, "#!/bin/sh\nGIT_CONFIG_GLOBAL="+quote(config)+" GIT_CONFIG_NOSYSTEM=1 exec "+quote(gitBinary)+" \"$@\"\n")
+	if err := os.Chmod(shim, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fixture+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestRestrictiveGlobalConfigStillProtectsNestedBareRepositories(t *testing.T) {
+	for _, kind := range []string{"untracked", "ignored"} {
+		t.Run(kind, func(t *testing.T) {
+			root := canonicalFixtureDir(t)
+			repo := testRepo(t, filepath.Join(root, "repo"))
+			checkout := testLinked(t, repo, filepath.Join(root, "session"), "session")
+			before := testTree(t, testScan(t, root), checkout)
+			parent := checkout
+			if kind == "ignored" {
+				parent = filepath.Join(checkout, "ignored")
+			}
+			if err := os.MkdirAll(parent, 0700); err != nil {
+				t.Fatal(err)
+			}
+			nested := filepath.Join(parent, "independent.git")
+			testGit(t, parent, "clone", "--bare", repo, nested)
+			heldCommit := testGit(t, nested, "rev-parse", "HEAD")
+			restrictiveBareGlobalConfig(t)
+			// Confirm the fixture really forbids implicit bare discovery.
+			if _, err := git(context.Background(), nested, "rev-parse", "--is-bare-repository"); err == nil {
+				t.Fatal("global explicit-only bare configuration was not applied")
+			}
+			targeted, err := Scan(context.Background(), Options{Root: checkout, TargetOnly: true, LinkedOnly: true})
+			if err != nil || len(targeted.Worktrees) != 1 {
+				t.Fatalf("target scan: %+v %v", targeted, err)
+			}
+			w := targeted.Worktrees[0]
+			if w.CanDiscard || !strings.Contains(strings.Join(w.Blockers, " "), "nested") {
+				t.Fatalf("explicit-only Git config hid nested bare repository: %+v", w)
+			}
+			full := testScan(t, root)
+			if !testTree(t, full, nested).Bare {
+				t.Fatal("full scan failed to discover the explicit bare repository")
+			}
+			if testTree(t, full, checkout).CanDiscard {
+				t.Fatal("full scan offered parent checkout for deletion")
+			}
+			if _, err := RemoveWorktree(context.Background(), before, RemovalOptions{ExpectedHead: before.Head, DiscardLocal: true}); err == nil || !strings.Contains(err.Error(), "nested") {
+				t.Fatalf("fresh validation failed to protect newly added nested bare repository: %v", err)
+			}
+			if got := testGit(t, repo, "--git-dir="+nested, "rev-parse", "HEAD"); got != heldCommit {
+				t.Fatal("nested bare commit lost")
+			}
+		})
+	}
+}
+
+func TestRestrictiveGlobalConfigSupportsBareBackedCheckoutCleanup(t *testing.T) {
+	for _, kind := range []string{"present", "missing", "empty", "detached"} {
+		t.Run(kind, func(t *testing.T) {
+			root := canonicalFixtureDir(t)
+			source := testRepo(t, filepath.Join(root, "source"))
+			bare := filepath.Join(root, "backing.git")
+			testGit(t, root, "clone", "--bare", source, bare)
+			checkout := testLinked(t, bare, filepath.Join(root, "session"), "session")
+			if kind == "detached" {
+				testGit(t, checkout, "config", "user.name", "Arbor Test")
+				testGit(t, checkout, "config", "user.email", "arbor@example.invalid")
+				testGit(t, checkout, "checkout", "--detach")
+				testWrite(t, filepath.Join(checkout, "tracked.txt"), "unique detached work\n")
+				testGit(t, checkout, "commit", "-am", "Retain detached work")
+			}
+			if kind == "missing" || kind == "empty" {
+				moveFixtureCheckout(t, checkout)
+				if kind == "empty" {
+					if err := os.Mkdir(checkout, 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			restrictiveBareGlobalConfig(t)
+			// Fetch is local fixture-to-fixture only. Bare discovery and fetch
+			// must honor Git's explicit selector rather than disabling its policy.
+			full, err := Scan(context.Background(), Options{Root: root, Fetch: true})
+			if err != nil || len(full.Warnings) != 0 || !full.Fetched {
+				t.Fatalf("bare discovery/fetch under restrictive global config: %+v, %v", full, err)
+			}
+			if !testTree(t, full, bare).Bare {
+				t.Fatal("bare backing repository omitted")
+			}
+			report, err := Scan(context.Background(), Options{Root: checkout, Repository: bare, TargetOnly: true, LinkedOnly: true})
+			if err != nil || len(report.Worktrees) != 1 {
+				t.Fatalf("target with explicit repository hint: %+v, %v", report, err)
+			}
+			w := report.Worktrees[0]
+			if !w.CanDiscard {
+				t.Fatalf("verified bare-backed checkout blocked: %+v", w)
+			}
+			result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
+			if err != nil || !result.Removed {
+				t.Fatalf("bare-backed cleanup: %+v, %v", result, err)
+			}
+			if _, err := os.Stat(checkout); !os.IsNotExist(err) {
+				t.Fatalf("checkout still exists: %v", err)
+			}
+			branch := w.Branch
+			if kind == "detached" {
+				branch = result.RetainedBranch
+				if branch == "" {
+					t.Fatal("unique detached commit was not retained")
+				}
+			}
+			if got := testGit(t, root, "--git-dir="+bare, "rev-parse", "refs/heads/"+branch); got != w.Head {
+				t.Fatal("retained commit differs")
+			}
+		})
+	}
+}
 
 func TestNestedBareRepositoryBlocksExplicitAndRecommendedDeletion(t *testing.T) {
 	for _, kind := range []string{"untracked", "ignored", "newline"} {
@@ -65,11 +196,74 @@ func TestBareMarkerLookalikesDoNotBlockManualCleanup(t *testing.T) {
 	}
 	testWrite(t, filepath.Join(lookalike, "HEAD"), "not a Git reference\n")
 	testWrite(t, filepath.Join(lookalike, "objects", "payload"), "ordinary disposable output\n")
+	restrictiveBareGlobalConfig(t)
 	w := testTree(t, testScan(t, root), checkout)
 	if !w.CanDiscard || strings.Contains(strings.Join(w.Blockers, " "), "nested") {
 		t.Fatalf("lookalikes classified as repository: %+v", w)
 	}
 	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNestedSeparateGitDirectoryIsProtected(t *testing.T) {
+	for _, restrictive := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "explicit-only"}[restrictive], func(t *testing.T) {
+			root := canonicalFixtureDir(t)
+			repo := testRepo(t, filepath.Join(root, "repo"))
+			checkout := testLinked(t, repo, filepath.Join(root, "session"), "session")
+			store := filepath.Join(checkout, "ignored", "store")
+			if err := os.MkdirAll(filepath.Dir(store), 0700); err != nil {
+				t.Fatal(err)
+			}
+			independent := testRepo(t, filepath.Join(root, "independent"))
+			testWrite(t, filepath.Join(independent, "tracked.txt"), "independent committed data\n")
+			testGit(t, independent, "commit", "-am", "Independent work")
+			held := testGit(t, independent, "rev-parse", "HEAD")
+			testGit(t, independent, "init", "--separate-git-dir="+store)
+			if restrictive {
+				restrictiveBareGlobalConfig(t)
+			}
+			full := testScan(t, root)
+			for _, options := range []Options{{Root: checkout, TargetOnly: true, LinkedOnly: true}, {Root: root}} {
+				report, err := Scan(context.Background(), options)
+				if err != nil {
+					t.Fatal(err)
+				}
+				w := testTree(t, report, checkout)
+				if w.CanRemove || w.CanDiscard || w.Recommended || !strings.Contains(strings.Join(w.Blockers, " "), "nested") {
+					t.Fatalf("separate metadata was offered for deletion: %+v", w)
+				}
+			}
+			for _, w := range full.Worktrees {
+				if w.Path == store && w.Bare {
+					t.Fatal("non-bare metadata misclassified as a bare repository")
+				}
+			}
+			if got := testGit(t, independent, "rev-parse", "HEAD"); got != held {
+				t.Fatal("inspection changed independent committed data")
+			}
+		})
+	}
+}
+
+func TestFailedCredibleRepositoryProbeBlocksCleanup(t *testing.T) {
+	root := canonicalFixtureDir(t)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	checkout := testLinked(t, repo, filepath.Join(root, "session"), "session")
+	nested := filepath.Join(checkout, "ignored", "store")
+	if err := os.MkdirAll(filepath.Dir(nested), 0700); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, root, "clone", "--bare", repo, nested)
+	testWrite(t, filepath.Join(nested, "config"), "[invalid configuration\n")
+	restrictiveBareGlobalConfig(t)
+	report, err := Scan(context.Background(), Options{Root: checkout, TargetOnly: true, LinkedOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := testTree(t, report, checkout)
+	if w.CanRemove || w.CanDiscard || w.Recommended || !strings.Contains(strings.Join(w.Problems, " "), "cannot verify nested Git metadata") {
+		t.Fatalf("uncertain Git metadata was treated as ordinary disposable data: %+v", w)
 	}
 }

@@ -1,5 +1,5 @@
-// Selection belongs to a tree view, not to backend revisions. Paths preserve
-// identity as provisional rows receive their final Git worktree IDs.
+// IDs identify registrations. A path only bridges a provisional ID when both
+// snapshots contain exactly one row there; copied repositories may share paths.
 export function reconcileSelection(
   previous,
   next,
@@ -7,25 +7,29 @@ export function reconcileSelection(
   sameWorkspace = true,
 ) {
   if (!sameWorkspace) return { ids: new Set(), anchor: "", cursor: "" };
-  const selectedPaths = new Set(
-    previous.filter((row) => selection.ids.has(row.id)).map((row) => row.path),
-  );
   const existing = new Set(next.map((row) => row.id));
+  const previousByID = new Map(previous.map((row) => [row.id, row]));
+  const oldPaths = new Map(),
+    newPaths = new Map();
+  for (const row of previous)
+    oldPaths.set(row.path, (oldPaths.get(row.path) || 0) + 1);
+  for (const row of next) {
+    const rows = newPaths.get(row.path) || [];
+    rows.push(row);
+    newPaths.set(row.path, rows);
+  }
   const remap = (id) => {
-    const old = previous.find((row) => row.id === id);
-    return (
-      next.find((row) => old && row.path === old.path)?.id ||
-      (existing.has(id) ? id : "")
-    );
+    if (existing.has(id)) return id;
+    const old = previousByID.get(id),
+      candidates = old && newPaths.get(old.path);
+    return old?.pending === true &&
+      oldPaths.get(old.path) === 1 &&
+      candidates?.length === 1
+      ? candidates[0].id
+      : "";
   };
   return {
-    ids: new Set(
-      next
-        .filter(
-          (row) => selection.ids.has(row.id) || selectedPaths.has(row.path),
-        )
-        .map((row) => row.id),
-    ),
+    ids: new Set([...selection.ids].map(remap).filter(Boolean)),
     anchor: remap(selection.anchor),
     cursor: remap(selection.cursor),
   };

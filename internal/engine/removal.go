@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/not-stbenjam/arbor/internal/worktree"
 )
@@ -62,6 +63,20 @@ func RemoveWorktree(ctx context.Context, request RemovalRequest) (result worktre
 	args = append(args, "--", w.Path)
 	data, err := ssh(ctx, host, args...)
 	if err != nil {
+		// Only a completed remote command may supply a structured refusal.
+		// SSH's transport status 255, cancellation, and malformed/mismatched
+		// responses retain their original diagnostic. A claimed success never
+		// overrides a nonzero exit, and the requested path remains authoritative.
+		var exited *sshExitError
+		var refusal struct {
+			Path    string `json:"path"`
+			Removed *bool  `json:"removed"`
+			Error   string `json:"error"`
+		}
+		if errors.As(err, &exited) && exited.status > 0 && exited.status != 255 && len(data) <= maxProgressLine &&
+			json.Unmarshal(data, &refusal) == nil && refusal.Path == w.Path && refusal.Removed != nil && !*refusal.Removed && strings.TrimSpace(refusal.Error) != "" {
+			return result, fmt.Errorf("SSH %s: %s", host, refusal.Error)
+		}
 		return result, err
 	}
 	if err := json.Unmarshal(data, &result); err != nil {

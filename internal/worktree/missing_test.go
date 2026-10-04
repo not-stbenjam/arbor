@@ -92,6 +92,47 @@ func TestMissingTargetFindsOnlyNearestAncestorRepository(t *testing.T) {
 	}
 }
 
+func TestMissingSnapshotRejectsRestoredCheckout(t *testing.T) {
+	root := canonicalFixtureDir(t)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	target := testLinked(t, repo, filepath.Join(root, "session"), "session")
+	saved := moveFixtureCheckout(t, target)
+	w := testTree(t, testScan(t, root), target)
+	if !w.Missing || !w.CanDiscard {
+		t.Fatalf("missing fixture: %+v", w)
+	}
+	if err := os.Rename(saved, target); err != nil {
+		t.Fatal(err)
+	}
+	const content = "restored checkout contains uncommitted work\n"
+	testWrite(t, filepath.Join(target, "keep.txt"), content)
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err == nil {
+		t.Fatal("missing-only consent deleted restored checkout")
+	}
+	if data, err := os.ReadFile(filepath.Join(target, "keep.txt")); err != nil || string(data) != content {
+		t.Fatalf("restored content changed: %q %v", data, err)
+	}
+	if entries := parseList(testGit(t, repo, "worktree", "list", "--porcelain", "-z")); len(entries) != 2 {
+		t.Fatalf("restored registration deleted: %+v", entries)
+	}
+}
+
+func TestInspectionRejectsRegistrationFromDifferentRepository(t *testing.T) {
+	root := canonicalFixtureDir(t)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	target := testLinked(t, repo, filepath.Join(root, "session"), "session")
+	w := testTree(t, testScan(t, root), target)
+	other := testRepo(t, filepath.Join(root, "other"))
+	w.CommonDir = filepath.Join(other, ".git")
+	inspect(context.Background(), &w, Options{})
+	if w.CanRemove || w.CanDiscard || w.Recommended || !strings.Contains(strings.Join(w.Blockers, " "), reasonMessage(reasonUnverifiedPath)) {
+		t.Fatalf("different repository's registration offered for cleanup: %+v", w)
+	}
+	if _, err := os.Stat(filepath.Join(target, "tracked.txt")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMissingDetachedRegistrationPreservesUniqueCommit(t *testing.T) {
 	root := canonicalFixtureDir(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))

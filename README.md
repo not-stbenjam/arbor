@@ -230,11 +230,12 @@ Each layer owns its state and exposes commands or snapshots to its callers:
 | `cmd/arbor` | Cobra input, pure request normalization and target selection, batch execution, result presentation, and per-machine statistics recording. |
 | `internal/stats`, `desktop/workspace-cache.cjs` | Aggregate cleanup history and reusable scan snapshots, respectively. Neither owns deletion policy. |
 | `desktop/backend.cjs` | Operation lifecycle and snapshots. Electron calls explicit setup, reset, close, and reopen methods; it cannot mutate Backend state. |
-| `desktop/main.cjs` | Electron composition and IPC. Native window lifecycle and subprocess execution have separate adapters. |
+| `desktop/main.cjs` | Electron composition. IPC, application/context menus, native window lifecycle, and subprocess execution have separate adapters. |
+| `desktop/preferences-store.cjs`, `desktop/removal-policy.cjs` | Serialized preference persistence with one scan-settings writer; pure removal selection, consent planning, and CLI argument contracts. |
 | `desktop/renderer` | Workspace, preferences, setup, and statistics controllers; tree interaction and presentation are separate. `app.js` only connects them. |
 | `desktop/protocol.cjs`, `internal/config` | Shared desktop report validation and one authoritative exclusion defaults/limits document embedded by Go and loaded by Electron. |
 
-Tests exercise the named interfaces rather than reaching into operation state. Pure selection, policy, and presentation tests complement real Git fixtures and Electron workflows.
+Tests exercise the named interfaces rather than reaching into operation state. Pure selection, policy, and presentation tests complement real Git fixtures, Go-to-desktop wire contract checks, and Electron workflows. Renderer snapshots are immutable; checkout identity stays intact when long display metadata is shortened.
 
 ## CI and releases
 

@@ -6,14 +6,13 @@ const { WorkspaceCache } = require("./workspace-cache.cjs");
 const { removalConfirmationOptions } = require("./worktree-menu.cjs");
 const { DEFAULTS } = require("./protocol.cjs");
 const {
-  Backend,
-  execute,
   parseReport,
   scanOptions,
   validatePreferences,
   loadPreferences,
-  childEnvironment,
-} = require("./backend.cjs");
+} = require("./protocol.cjs");
+const { Backend } = require("./backend.cjs");
+const { execute, childEnvironment } = require("./process-runner.cjs");
 
 const tree = {
   id: "tree-1",
@@ -203,8 +202,8 @@ test("manual removal requires confirmation and prevents concurrent scans while d
         answer = resolve;
       }),
   );
-  assert.equal(backend.getLifecycle().operation, "remove");
-  assert.equal(backend.dispose(), false);
+  assert.equal(backend.getState().busy, true);
+  assert.deepEqual(backend.requestClose(), { action: "confirm-cleanup" });
   assert.throws(() => backend.scan({ host: "another" }), /already running/);
   answer(false);
   const result = await pending;
@@ -697,7 +696,10 @@ test("reset returns to first launch defaults without scanning or deleting worktr
     excludes: [],
   });
   await backend.waitUntilIdle();
-  const reset = backend.reset();
+  const { state: reset } = await backend.resetPreferences(
+    async () => true,
+    async () => {},
+  );
   assert.equal(reset.setupRequired, true);
   assert.equal(reset.busy, false);
   assert.equal(reset.report, null);
@@ -721,7 +723,7 @@ test("reset returns to first launch defaults without scanning or deleting worktr
   assert.deepEqual(backend.getState().options, scanOptions());
 });
 
-test("reset refuses an active scan and clears stopped partial state only after completion", async () => {
+test("confirmed reset cancels an active scan and waits before clearing partial state", async () => {
   let finish, callbacks;
   const backend = new Backend({
     run: (_args, options) => {
@@ -741,13 +743,24 @@ test("reset refuses an active scan and clears stopped partial state only after c
     worktree: tree,
     pending: false,
   });
-  assert.throws(() => backend.reset(), /current operation/);
-  backend.cancelScan();
-  assert.throws(() => backend.reset(), /current operation/);
-  finish(report());
-  await backend.waitUntilIdle();
+  let persisted = false;
+  const resetting = backend.resetPreferences(
+    async () => true,
+    async () => {
+      persisted = true;
+    },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(callbacks.signal.aborted, true);
+  assert.equal(
+    persisted,
+    false,
+    "reset must await scan completion before persisting",
+  );
   assert.equal(backend.getState().partialWorktrees.length, 1);
-  const reset = backend.reset();
+  finish(report());
+  const { state: reset } = await resetting;
+  assert.equal(persisted, true);
   assert.equal(reset.cancelled, false);
   assert.deepEqual(reset.partialWorktrees, []);
   assert.equal(reset.progress, null);
@@ -772,12 +785,35 @@ test("reset refuses cleanup and closing state", async () => {
         confirm = resolve;
       }),
   );
-  assert.throws(() => backend.reset(), /current operation/);
+  let resetConfirmed = false;
+  assert.throws(
+    () =>
+      backend.resetPreferences(
+        async () => {
+          resetConfirmed = true;
+          return true;
+        },
+        async () => {},
+      ),
+    /cleanup to finish/,
+  );
+  assert.equal(
+    resetConfirmed,
+    false,
+    "cleanup blocks reset before confirmation or persistence",
+  );
   confirm(false);
   await pending;
   assert.equal(calls.length, 1);
-  backend.dispose();
-  assert.throws(() => backend.reset(), /closing/);
+  backend.requestClose();
+  assert.throws(
+    () =>
+      backend.resetPreferences(
+        async () => true,
+        async () => {},
+      ),
+    /closing/,
+  );
 });
 
 test("glob exclusions persist and cross the subprocess boundary as literal argument data", async () => {
@@ -851,9 +887,9 @@ test("cleanup stops after its current worktree without rescanning or touching re
   assert.equal(backend.getState().progress.total, 2);
   assert.equal(backend.getState().progress.path, tree.path);
   backend.stopCleanupAfterCurrent();
-  assert.equal(
-    backend.dispose(),
-    false,
+  assert.deepEqual(
+    backend.requestClose(),
+    { action: "confirm-cleanup" },
     "current removal must never be killed",
   );
   finish(JSON.stringify({ path: tree.path, removed: true }));
@@ -878,7 +914,7 @@ test("disposing an ordinary scan aborts it without waiting for the child in the 
       }),
   });
   backend.scan({});
-  assert.equal(backend.dispose(), true);
+  assert.deepEqual(backend.requestClose(), { action: "wait" });
   assert.equal(signal.aborted, true);
   await backend.waitUntilIdle();
   assert.equal(backend.getState().busy, false);

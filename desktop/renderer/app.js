@@ -33,16 +33,38 @@ async function bootstrap() {
     api,
     defaults,
     notify,
-    getWorkspace: () => workspace,
+    onScan: (options) => workspace.scan(options),
+    onHostChange: (options) => workspace.scan(options, true),
     onSetup: () => setup.open(),
     onReset: () => workspace.reset(),
   });
   workspace = createWorkspaceController({
     api,
-    preferences,
     linked: window.ArborTree.linked,
     notify,
     onChange: () => {
+      const state = workspace.snapshot;
+      preferences.renderStatus({
+        root: state.root,
+        host: state.host,
+        options: state.options,
+        setupRequired: state.setupRequired,
+        busy: state.busy,
+        progress: state.progress,
+        canCancelScan: state.canCancelScan,
+        cancelRequested: state.cancelRequested,
+        connected: workspace.connected,
+        resetting: workspace.resetting,
+        removing: workspace.removing,
+        blocked: workspace.blocked,
+      });
+      setup?.setContext({
+        required: state.setupRequired,
+        root: state.root || preferences.savedRoot,
+        resetting: workspace.resetting,
+        theme: preferences.theme,
+        excludes: preferences.options.excludes,
+      });
       trees?.render();
       chrome?.render();
     },
@@ -51,22 +73,30 @@ async function bootstrap() {
       trees.reset();
       statistics.invalidate();
     },
-    onReset: () => {
+    onReset: (result) => {
       document
         .querySelectorAll("dialog[open]")
         .forEach((dialog) => dialog.close());
       trees.reset(true);
       setup.reset();
+      preferences.reset(result.preferences, result.state);
       statistics.invalidate();
       $("#toast-region").replaceChildren();
+    },
+    onScanAccepted: async () => {
+      try {
+        await preferences.load();
+      } catch (error) {
+        notify(`Could not reload settings: ${error.message}`, true);
+      }
     },
   });
   setup = createSetupController({
     document,
     api,
     defaults,
-    preferences,
-    getWorkspace: () => workspace,
+    onSubmit: (options) => workspace.completeSetup(options),
+    onThemeChange: (theme) => preferences.setTheme(theme),
   });
   statistics = createStatisticsController({
     document,
@@ -98,10 +128,10 @@ async function bootstrap() {
       .join("");
     $("#notes-dialog").showModal();
   };
-  document.addEventListener("click", (event) => {
-    const button = event.target.closest("button");
-    if (button && !button.disabled && button.dataset.close)
-      $(`#${button.dataset.close}`).close();
+  document.querySelectorAll("[data-close]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!button.disabled) $(`#${button.dataset.close}`).close();
+    });
   });
   function menu(action) {
     if (workspace.resetting) return;
@@ -158,6 +188,7 @@ async function bootstrap() {
   );
   trees.render();
   chrome.render();
+  await preferences.load();
   await workspace.initialize();
 }
 bootstrap().catch((error) => {
