@@ -11,13 +11,18 @@ import (
 
 func restrictiveBareGlobalConfig(t *testing.T) {
 	t.Helper()
+	isolatedBareGlobalConfig(t, "explicit")
+}
+
+func isolatedBareGlobalConfig(t *testing.T, policy string) {
+	t.Helper()
 	gitBinary, err := exec.LookPath("git")
 	if err != nil {
 		t.Fatal(err)
 	}
 	fixture := canonicalFixtureDir(t)
 	config := filepath.Join(fixture, "global.gitconfig")
-	testWrite(t, config, "[safe]\n\tbareRepository = explicit\n")
+	testWrite(t, config, "[safe]\n\tbareRepository = "+policy+"\n")
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
 	// Arbor strips inherited GIT_* selectors. This fixture shim supplies an
 	// isolated global config at Git's own boundary without changing HOME or
@@ -161,6 +166,8 @@ func TestFetchHonorsOrdinaryRepositorySafetyPolicy(t *testing.T) {
 			restricted := kind == "bare-explicit-only"
 			if restricted {
 				restrictiveBareGlobalConfig(t)
+			} else {
+				isolatedBareGlobalConfig(t, "all")
 			}
 			// Both sides are disposable local fixtures; no network is involved.
 			report, err := Scan(context.Background(), Options{Root: target, Fetch: true})
