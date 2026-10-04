@@ -5,11 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/not-stbenjam/arbor/internal/config"
 )
 
 // DefaultExcludes returns a fresh list so callers can edit their preferences.
 func DefaultExcludes() []string {
-	return []string{".cache", ".Trash", "node_modules", "tmp", "temp", "~/Library/Caches", "~/Library/Logs", "~/.local/share/Trash", "~/.codex/.tmp"}
+	return config.Excludes()
 }
 
 // compileExcludes matches directories only, never files inside an inspected
@@ -21,8 +23,8 @@ func compileExcludes(root string, rules []string) (func(string) bool, error) {
 	if rules == nil {
 		rules = DefaultExcludes()
 	}
-	if len(rules) > 128 {
-		return nil, fmt.Errorf("at most 128 scan exclusions are supported")
+	if len(rules) > config.MaxExcludes() {
+		return nil, fmt.Errorf("at most %d scan exclusions are supported", config.MaxExcludes())
 	}
 	var names []excludeComponent
 	var paths [][]excludeComponent

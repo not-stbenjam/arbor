@@ -219,9 +219,26 @@ CLI packaging needs Go and `tar`, can cross-compile all four targets from either
 
 The release tag is embedded in the backend (for example `v0.1.0`) and the corresponding numeric version in the desktop app (`0.1.0`). Set `ARBOR_VERSION=v0.1.0` for direct npm packaging commands; otherwise the version comes from `package.json`.
 
+## Code organization
+
+Each layer owns its state and exposes commands or snapshots to its callers:
+
+| Layer | Responsibility |
+| --- | --- |
+| `internal/worktree` | Repository discovery, per-checkout inspection, typed removal decisions, and process-owned cleanup locks. Removal takes named options and rechecks its target. |
+| `internal/engine` | The same scan/removal contract locally or over SSH, with separate transport, provisioning, download coordination, and archive verification. |
+| `cmd/arbor` | Cobra input, pure request normalization and target selection, batch execution, result presentation, and per-machine statistics recording. |
+| `internal/stats`, `desktop/workspace-cache.cjs` | Aggregate cleanup history and reusable scan snapshots, respectively. Neither owns deletion policy. |
+| `desktop/backend.cjs` | Operation lifecycle and snapshots. Electron calls explicit setup, reset, close, and reopen methods; it cannot mutate Backend state. |
+| `desktop/main.cjs` | Electron composition and IPC. Native window lifecycle and subprocess execution have separate adapters. |
+| `desktop/renderer` | Workspace, preferences, setup, and statistics controllers; tree interaction and presentation are separate. `app.js` only connects them. |
+| `desktop/protocol.cjs`, `internal/config` | Shared desktop report validation and one authoritative exclusion defaults/limits document embedded by Go and loaded by Electron. |
+
+Tests exercise the named interfaces rather than reaching into operation state. Pure selection, policy, and presentation tests complement real Git fixtures and Electron workflows.
+
 ## CI and releases
 
-[CI](.github/workflows/ci.yml) tests Go on native macOS and Linux, including the minimum supported Go version. It builds desktop packages on ARM64 and x86-64 runners for both platforms, runs desktop bridge tests, and smoke-tests the real Linux app with a virtual display. Builds are available as workflow artifacts.
+[CI](.github/workflows/ci.yml) tests Go on native macOS and Linux, including the minimum supported Go version. It builds desktop packages on ARM64 and x86-64 runners for both platforms. Packaged-app tests use the real companion CLI to remove marked disposable worktrees, checking retained branches, untouched primary checkouts, statistics, and cache updates without rescanning. Linux uses a virtual display; macOS also runs native close-lifecycle checks. Builds are available as workflow artifacts.
 
 Publishing a GitHub Release triggers [Release](.github/workflows/release.yml): tests run first, native desktop jobs and standalone CLI builds run in parallel, and a final job combines all assets, generates one checksum manifest, and uploads them to the release. GitHub's built-in token handles publication; no Apple signing secrets are required. **Run workflow** produces the same downloadable artifacts without publishing a release.
 

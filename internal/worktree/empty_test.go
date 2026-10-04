@@ -35,13 +35,13 @@ func TestEmptyStaleCheckoutRequiresExplicitRemovalAndKeepsOtherRegistrations(t *
 			if !w.Empty || w.Missing || !w.CanDiscard || w.CanRemove || w.Recommended || w.SizeBytes != 0 {
 				t.Fatalf("empty registration classification: %+v", w)
 			}
-			if err := Remove(context.Background(), w, w.Head, false); err == nil {
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
 				t.Fatal("empty stale checkout accepted without explicit consent")
 			}
 			if !emptyCheckoutDirectory(target) {
 				t.Fatal("refused removal changed empty directory")
 			}
-			result, err := RemoveWithResult(context.Background(), w, w.Head, false, true)
+			result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
 			if err != nil || !result.Removed {
 				t.Fatalf("explicit empty removal failed: %+v %v", result, err)
 			}
@@ -71,7 +71,7 @@ func TestEmptyStaleDetachedCheckoutRetainsUniqueCommit(t *testing.T) {
 	testGit(t, target, "commit", "-am", "Unique detached work")
 	replaceFixtureWithEmptyDirectory(t, target)
 	w := testTree(t, testScan(t, root), target)
-	result, err := RemoveWithResult(context.Background(), w, w.Head, false, true)
+	result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
 	if err != nil || !result.Removed || result.RetainedBranch == "" {
 		t.Fatalf("empty detached retention failed: %+v %v", result, err)
 	}
@@ -105,7 +105,7 @@ func TestEmptyStaleCheckoutRejectsNewFilesAndReplacementPaths(t *testing.T) {
 					testWrite(t, target, "keep this file")
 				}
 			}
-			if _, err := RemoveWithResult(context.Background(), w, w.Head, false, true); err == nil {
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err == nil {
 				t.Fatal("changed empty directory accepted for deletion")
 			}
 			if _, err := os.Lstat(target); err != nil {

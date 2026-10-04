@@ -12,7 +12,7 @@ func TestRemoveMergedTreeRetainsBranch(t *testing.T) {
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "finished-topic")
 	w := testTree(t, testScan(t, root), wt)
-	if err := Remove(context.Background(), w, w.Head, true); err != nil {
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
@@ -57,7 +57,7 @@ func TestRemoveRejectsChangesAfterScan(t *testing.T) {
 				t.Fatalf("expected clean recommended snapshot: %+v", w)
 			}
 			tc.change(t, repo, wt)
-			if err := Remove(context.Background(), w, w.Head, true); err == nil {
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
 				t.Fatal("removal accepted stale snapshot")
 			}
 			if _, err := os.Stat(wt); err != nil {
@@ -80,7 +80,7 @@ func TestRemoveRechecksMergeDestination(t *testing.T) {
 	testGit(t, repo, "checkout", "--orphan", "new-history")
 	testGit(t, repo, "commit", "-m", "Independent history")
 	testGit(t, repo, "update-ref", "refs/heads/main", "HEAD")
-	if err := Remove(context.Background(), w, w.Head, true); err == nil {
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
 		t.Fatal("cleanup trusted stale merge status")
 	}
 	if _, err := os.Stat(wt); err != nil {
@@ -94,7 +94,7 @@ func TestRemoveRejectsWrongOrEmptyExpectedHead(t *testing.T) {
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 	w := testTree(t, testScan(t, root), wt)
 	for _, head := range []string{"", "0000000000000000000000000000000000000000"} {
-		if err := Remove(context.Background(), w, head, false); err == nil {
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: head}); err == nil {
 			t.Fatalf("expected head %q accepted", head)
 		}
 	}
@@ -110,13 +110,13 @@ func TestRemoveRecommendedOnlyRejectsUnmergedTree(t *testing.T) {
 	testWrite(t, filepath.Join(wt, "tracked.txt"), "unmerged\n")
 	testGit(t, wt, "commit", "-am", "Unmerged commit")
 	w := testTree(t, testScan(t, root), wt)
-	if err := Remove(context.Background(), w, w.Head, true); err == nil {
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
 		t.Fatal("cleanup removed an unmerged tree")
 	}
 	if _, err := os.Stat(wt); err != nil {
 		t.Fatal(err)
 	}
-	if err := Remove(context.Background(), w, w.Head, false); err != nil {
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err != nil {
 		t.Fatalf("explicit clean removal failed: %v", err)
 	}
 	if got := testGit(t, repo, "rev-parse", "refs/heads/topic"); got != w.Head {
@@ -131,7 +131,7 @@ func TestRemoveRefusesPrimaryAndOutsideRoot(t *testing.T) {
 	report := testScan(t, root)
 	for _, p := range []string{repo, outside} {
 		w := testTree(t, report, p)
-		if err := Remove(context.Background(), w, w.Head, false); err == nil {
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
 			t.Fatalf("protected tree %s was removed", p)
 		}
 		if _, err := os.Stat(p); err != nil {

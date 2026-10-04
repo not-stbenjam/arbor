@@ -1,0 +1,74 @@
+package engine
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/not-stbenjam/arbor/internal/worktree"
+)
+
+// RemovalRequest binds an inspected target and explicit cleanup policy to its host.
+type RemovalRequest struct {
+	Host      string
+	Worktree  worktree.Worktree
+	Options   worktree.RemovalOptions
+	SessionID string
+}
+
+// RemoveWorktree applies the same named removal contract locally or through the managed SSH CLI.
+func RemoveWorktree(ctx context.Context, request RemovalRequest) (result worktree.RemovalResult, err error) {
+	host, w, head := request.Host, request.Worktree, request.Options.ExpectedHead
+	recommendedOnly, discardLocal, sessionID := request.Options.RecommendedOnly, request.Options.DiscardLocal, request.SessionID
+	result.Path = w.Path
+	defer func() {
+		if err != nil {
+			result.Error = err.Error()
+		}
+	}()
+	if recommendedOnly && discardLocal {
+		return result, errors.New("discarding local files cannot be used for recommended cleanup")
+	}
+	if host == "" {
+		return worktree.RemoveWorktree(ctx, w, request.Options)
+	}
+	if (!w.CanRemove && !(discardLocal && w.CanDiscard)) || w.OutsideRoot {
+		return result, errors.New("worktree is protected; scan again to see why")
+	}
+	args := []string{"remove", "--json", "--yes", "--head", head, "--id", w.ID, "--branch", w.Branch}
+	if w.Missing {
+		args = append(args, "--expect-missing")
+	} else if w.Empty {
+		args = append(args, "--expect-empty")
+	}
+	if sessionID != "" {
+		args = append(args, "--stats-session", sessionID)
+	}
+	if w.CommonDir != "" {
+		args = append(args, "--repo", w.CommonDir)
+	}
+	if w.PR != nil && w.PR.Merged {
+		args = append(args, "--github")
+	}
+	if recommendedOnly {
+		args = append(args, "--recommended-only")
+	}
+	if discardLocal {
+		args = append(args, "--discard-local")
+	} else {
+		args = append(args, "--keep-local")
+	}
+	args = append(args, "--", w.Path)
+	data, err := ssh(ctx, host, args...)
+	if err != nil {
+		return result, err
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return worktree.RemovalResult{Path: w.Path}, fmt.Errorf("could not confirm remote removal: %w; scan again", err)
+	}
+	if !result.Removed || result.Path != w.Path {
+		return worktree.RemovalResult{Path: w.Path}, errors.New("remote did not confirm removal; scan again")
+	}
+	return result, nil
+}

@@ -38,27 +38,55 @@ function loadMain(t, smoke) {
   };
   const filename = path.join(__dirname, "main.cjs");
   const realRequire = createRequire(filename);
+  const testProcess = {
+    env,
+    argv: ["electron", "."],
+    platform: process.platform,
+  };
   const context = {
     require(name) {
       if (name === "electron") return { app };
-      if (name === "node:os") return { ...os, tmpdir: () => fixture };
+      if (name === "./smoke-runner.cjs") {
+        const { registerSmokeTest } = realRequire(name);
+        return {
+          registerSmokeTest: (options) =>
+            registerSmokeTest({
+              ...options,
+              env,
+              argv: testProcess.argv,
+              tmpdir: () => fixture,
+            }),
+        };
+      }
       return realRequire(name);
     },
-    process: { env, argv: ["electron", "."], platform: process.platform },
+    process: testProcess,
     module: { exports: {} },
     __dirname,
     console,
   };
   vm.runInNewContext(fs.readFileSync(filename, "utf8"), context, { filename });
-  return { fixture, normal, paths, env, sentinel, files, ready };
+  return {
+    fixture,
+    normal,
+    paths,
+    env,
+    sentinel,
+    files,
+    ready,
+    argv: testProcess.argv,
+  };
 }
 
 test("smoke mode isolates app, session, and CLI statistics before readiness", (t) => {
-  const { fixture, normal, paths, env, sentinel, files, ready } = loadMain(
-    t,
-    true,
-  );
+  const originalStats = process.env.ARBOR_STATS_PATH;
+  const originalArgv = [...process.argv];
+  const { fixture, normal, paths, env, sentinel, files, ready, argv } =
+    loadMain(t, true);
   assert.equal(ready, true);
+  assert.deepEqual(argv, ["electron", ".", "--path", fixture]);
+  assert.equal(process.env.ARBOR_STATS_PATH, originalStats);
+  assert.deepEqual(process.argv, originalArgv);
   assert.notEqual(paths.userData, normal);
   assert.equal(path.dirname(paths.userData), fixture);
   assert.match(path.basename(paths.userData), /^arbor-smoke-profile-/);

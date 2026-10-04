@@ -81,6 +81,7 @@ if (!process.argv.includes("--prepare")) {
         "desktop/renderer/**/*",
         "desktop/common/**/*",
         "package.json",
+        "internal/config/defaults.json",
         "!desktop/**/*.test.cjs",
         "!desktop/common/**/*.test.cjs",
         "!desktop/smoke-test.cjs",

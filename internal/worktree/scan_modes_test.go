@@ -97,7 +97,7 @@ func TestTargetOnlyInspectsExactRegisteredCheckout(t *testing.T) {
 		t.Fatalf("nested target: %+v, %v", report, err)
 	}
 	assertProtected(t, report.Worktrees[0], "nested")
-	if err := Remove(context.Background(), report.Worktrees[0], report.Worktrees[0].Head, false); err == nil {
+	if _, err := RemoveWorktree(context.Background(), report.Worktrees[0], RemovalOptions{ExpectedHead: report.Worktrees[0].Head}); err == nil {
 		t.Fatal("target-only scan weakened nested-repository deletion protection")
 	}
 }
@@ -118,7 +118,7 @@ func TestTargetOnlyRejectsSubdirectoryAndProtectsPrimary(t *testing.T) {
 		t.Fatalf("targeted primary: %+v, %v", report, err)
 	}
 	assertProtected(t, report.Worktrees[0], "Primary")
-	if err := Remove(context.Background(), report.Worktrees[0], report.Worktrees[0].Head, false); err == nil {
+	if _, err := RemoveWorktree(context.Background(), report.Worktrees[0], RemovalOptions{ExpectedHead: report.Worktrees[0].Head}); err == nil {
 		t.Fatal("target-only scan allowed primary repository deletion")
 	}
 }

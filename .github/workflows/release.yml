@@ -97,13 +97,15 @@ jobs:
       - name: Test closing during scans and cleanup
         if: runner.os == 'Linux'
         run: xvfb-run -a timeout 60s node_modules/.bin/electron scripts/test-desktop-close.cjs --no-sandbox
-      - name: Smoke-test desktop
+      - name: Test packaged app and real CLI cleanup (Linux)
         if: runner.os == 'Linux'
-        env:
-          ARBOR_SMOKE_TEST: '1'
-        run: |
-          export ARBOR_SMOKE_ROOT="$(mktemp -d "$RUNNER_TEMP/arbor-smoke.XXXXXX")"
-          xvfb-run -a timeout 30s "dist/linux${{ matrix.arch == 'arm64' && '-arm64' || '' }}-unpacked/arbor-desktop" --no-sandbox
+        run: xvfb-run -a node scripts/test-packaged.cjs
+      - name: Test packaged app and real CLI cleanup (macOS)
+        if: runner.os == 'macOS'
+        run: node scripts/test-packaged.cjs
+      - name: Test native macOS close lifecycle
+        if: runner.os == 'macOS'
+        run: node_modules/.bin/electron scripts/test-desktop-close.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: release-desktop-${{ matrix.platform }}-${{ matrix.arch }}

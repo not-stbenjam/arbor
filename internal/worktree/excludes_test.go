@@ -88,7 +88,7 @@ func TestExcludedDirectoriesStillBlockUnsafeRemoval(t *testing.T) {
 		if !w.Ignored || w.CanRemove || w.Recommended || w.SizeBytes < int64(len("retain this file")) {
 			t.Fatalf("excluded files were hidden from safety/measurement: %+v", w)
 		}
-		if err := Remove(context.Background(), w, w.Head, false); err == nil {
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
 			t.Fatal("removed ignored files inside excluded folder")
 		}
 	}

@@ -35,16 +35,16 @@ func TestExplicitDiscardRemovesLinkedLocalFilesButKeepsBranch(t *testing.T) {
 			if w.CanRemove || w.Recommended || !w.CanDiscard {
 				t.Fatalf("wrong policy: %+v", w)
 			}
-			if err := Remove(context.Background(), w, w.Head, false); err == nil {
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
 				t.Fatal("normal removal discarded local state")
 			}
 			if _, err := os.Stat(wt); err != nil {
 				t.Fatal(err)
 			}
-			if err := RemoveWithOptions(context.Background(), w, w.Head, true, true); err == nil {
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true, DiscardLocal: true}); err == nil {
 				t.Fatal("automatic cleanup allowed discard")
 			}
-			result, err := RemoveWithResult(context.Background(), w, w.Head, false, true)
+			result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -74,7 +74,7 @@ func TestDetachedRemovalDoesNotCreateRedundantRecoveryBranch(t *testing.T) {
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 	testGit(t, wt, "checkout", "--detach")
 	w := testTree(t, testScan(t, root), wt)
-	result, err := RemoveWithResult(context.Background(), w, w.Head, false, true)
+	result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
 	if err != nil || !result.Removed || result.RetainedBranch != "" {
 		t.Fatalf("unexpected result: %+v, %v", result, err)
 	}
@@ -107,7 +107,7 @@ func TestExplicitDiscardStillChecksIdentityAndStructuralProblems(t *testing.T) {
 			case "changed-branch":
 				testGit(t, wt, "checkout", "-b", "other")
 			}
-			if err := RemoveWithOptions(context.Background(), w, w.Head, false, true); err == nil {
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err == nil {
 				t.Fatal("discard bypassed target validation")
 			}
 			if _, err := os.Stat(wt); err != nil {

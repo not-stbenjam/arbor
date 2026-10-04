@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 const { randomUUID } = require("node:crypto");
+const { isValidReport: validReport } = require("./protocol.cjs");
 
 const MAX_ENTRIES = 20;
 const MAX_BYTES = 32 * 1024 * 1024;
@@ -27,23 +28,6 @@ function identity(options) {
 
 function cacheKey(options) {
   return JSON.stringify(identity(options));
-}
-
-function validReport(report) {
-  return (
-    report &&
-    typeof report.root === "string" &&
-    Array.isArray(report.warnings) &&
-    Array.isArray(report.worktrees) &&
-    report.worktrees.length <= 20000 &&
-    report.worktrees.every(
-      (row) =>
-        row &&
-        ["id", "path", "head", "branch"].every(
-          (key) => typeof row[key] === "string",
-        ),
-    )
-  );
 }
 
 function persistentReport(report) {

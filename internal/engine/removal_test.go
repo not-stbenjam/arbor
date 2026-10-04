@@ -56,7 +56,7 @@ func TestRemoteTargetAndRemovalPolicyArguments(t *testing.T) {
 		if discard {
 			retainedBranch = "arbor/retained/fixture"
 		}
-		result, err := RemoveWithResult(context.Background(), "fixture-vps", w, w.Head, false, discard)
+		result, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "fixture-vps", Worktree: w, Options: worktree.RemovalOptions{ExpectedHead: w.Head, DiscardLocal: discard}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,7 +77,7 @@ func TestRemoteTargetAndRemovalPolicyArguments(t *testing.T) {
 
 func TestRemovalResultFailureKeepsTargetAndError(t *testing.T) {
 	w := worktree.Worktree{Path: "/protected/checkout", Head: strings.Repeat("a", 40)}
-	result, err := RemoveWithResult(context.Background(), "fixture-vps", w, w.Head, false, false)
+	result, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "fixture-vps", Worktree: w, Options: worktree.RemovalOptions{ExpectedHead: w.Head}})
 	if err == nil || result.Removed || result.Path != w.Path || result.Error != err.Error() {
 		t.Fatalf("protected removal result: %+v, %v", result, err)
 	}
@@ -94,7 +94,7 @@ func TestRemoteRemovalPreservesMissingAndEmptyConsent(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			w.Missing = kind == "missing"
 			w.Empty = kind == "empty"
-			if _, err := RemoveWithSession(context.Background(), "stats-fixture-vps", w, w.Head, false, true, "shared-session"); err != nil {
+			if _, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "stats-fixture-vps", Worktree: w, SessionID: "shared-session", Options: worktree.RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}}); err != nil {
 				t.Fatal(err)
 			}
 			if strings.Contains(sent, "'--expect-missing'") != w.Missing || strings.Contains(sent, "'--expect-empty'") != w.Empty {

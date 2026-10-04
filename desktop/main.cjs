@@ -13,7 +13,6 @@ const {
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
-const os = require("node:os");
 const { spawn } = require("node:child_process");
 const {
   menuTarget,
@@ -22,40 +21,30 @@ const {
 } = require("./worktree-menu.cjs");
 const { pathToFileURL } = require("node:url");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
+const { registerSmokeTest } = require("./smoke-runner.cjs");
+const { createWindowLifecycle } = require("./window-lifecycle.cjs");
+const { execute, childEnvironment } = require("./process-runner.cjs");
+const { Backend } = require("./backend.cjs");
 const {
-  Backend,
-  execute,
+  DEFAULTS,
   validatePreferences,
   loadPreferences,
-  childEnvironment,
   scanOptions,
-} = require("./backend.cjs");
+} = require("./protocol.cjs");
 
-// Smoke tests must never inherit the user's preferences, cached scans, session
-// files, or CLI statistics, even when invoked without a dedicated test harness.
-// Keep this before app readiness and all app profile reads. Retain the private
-// profile for diagnosis; never delete or migrate the user's normal profile.
-if (process.env.ARBOR_SMOKE_TEST === "1") {
-  const profile = fs.mkdtempSync(
-    path.join(os.tmpdir(), "arbor-smoke-profile-"),
-  );
-  const session = path.join(profile, "session");
-  fs.mkdirSync(session, { mode: 0o700 });
-  app.setPath("userData", profile);
-  app.setPath("sessionData", session);
-  process.env.ARBOR_STATS_PATH = path.join(profile, "statistics.json");
-}
+registerSmokeTest({ app });
 
 let window,
   backend,
-  preferences = validatePreferences({}),
-  setupCompleting = false,
-  resetPending = false,
-  quitAfterRemoval = false,
-  quitDialog = false;
+  preferences = validatePreferences({});
 let removalConfirmation;
-let closingScan = false,
-  quitAfterScan = false;
+const { guardClose } = createWindowLifecycle({
+  app,
+  dialog,
+  getWindow: () => window,
+  getBackend: () => backend,
+  getRemovalConfirmation: () => removalConfirmation,
+});
 let preferenceWrite = Promise.resolve();
 const rendererPath = path.join(__dirname, "renderer", "index.html");
 const rendererURL = pathToFileURL(rendererPath).href;
@@ -200,31 +189,23 @@ function handle(channel, handler) {
 }
 
 function registerIPC() {
+  handle("arbor:get-defaults", () => DEFAULTS);
   handle("arbor:get-state", () => backend.getState());
-  handle("arbor:get-stats", async () => {
-    const host = backend.state.host || "";
-    const args = ["stats", "--json"];
-    if (host) args.push("--host", host);
-    const report = JSON.parse(await backend.run(args, { timeout: 30000 }));
-    if (!report || report.version !== 1 || !Array.isArray(report.daily))
-      throw new Error("Arbor returned invalid statistics");
-    return { host, report };
-  });
+  handle("arbor:get-stats", () => backend.readStats());
   handle("arbor:activate-workspace", (options) => {
-    guardReset();
-    if (setupCompleting) throw new Error("Setup is being saved");
+    guardInteraction();
     return backend.activateWorkspace(options);
   });
   handle("arbor:inspect-worktree", (value) => {
-    guardReset();
+    guardInteraction();
     return backend.inspectWorktree(value);
   });
   handle("arbor:worktree-menu", (value) => {
-    guardReset();
-    const target = menuTarget(backend.state, value);
+    guardInteraction();
+    const target = menuTarget(backend.getState(), value);
     const current = () => {
-      guardReset();
-      const next = menuTarget(backend.state, value);
+      guardInteraction();
+      const next = menuTarget(backend.getState(), value);
       if (next.path !== target.path || next.host !== target.host)
         throw new Error("The worktree list changed; try the menu again");
       return next;
@@ -316,34 +297,24 @@ function registerIPC() {
     return true;
   });
   handle("arbor:cancel-scan", () => {
-    guardReset();
+    guardInteraction();
     return backend.cancelScan();
   });
   handle("arbor:scan", (options) => {
-    guardReset();
-    if (setupCompleting) throw new Error("Setup is being saved");
+    guardInteraction();
     return backend.scan(options);
   });
   handle("arbor:complete-setup", async (value) => {
-    guardReset();
-    const options = scanOptions(value);
-    if (setupCompleting || backend.state.busy)
-      throw new Error("An operation is already running");
-    setupCompleting = true;
-    try {
-      await savePreferences(() => ({
+    return backend.completeSetup(value, (options) =>
+      savePreferences(() => ({
         ...preferences,
         setupCompleted: true,
         scan: options,
-      }));
-      backend.state.setupRequired = false;
-      return backend.scan(options);
-    } finally {
-      setupCompleting = false;
-    }
+      })),
+    );
   });
   handle("arbor:remove", async (selection) => {
-    guardReset();
+    guardInteraction();
     const result = await backend.remove(
       selection,
       async (trees, { discardLocal }) => {
@@ -363,22 +334,20 @@ function registerIPC() {
         }
       },
     );
-    if (quitAfterRemoval) setImmediate(() => app.quit());
     return result;
   });
   handle("arbor:choose-folder", async () => {
+    const state = backend.getState();
     const result = await dialog.showOpenDialog(window, {
       title: "Choose a scan folder",
       properties: ["openDirectory"],
-      defaultPath: backend.state.host
-        ? undefined
-        : backend.state.root || app.getPath("home"),
+      defaultPath: state.host ? undefined : state.root || app.getPath("home"),
     });
     return result.canceled ? null : result.filePaths[0] || null;
   });
   handle("arbor:get-preferences", () => structuredClone(preferences));
   handle("arbor:save-preferences", async (value) => {
-    guardReset();
+    guardInteraction();
     const next = validatePreferences(value);
     return savePreferences(() => ({
       ...next,
@@ -387,47 +356,25 @@ function registerIPC() {
     }));
   });
   handle("arbor:reset-preferences", async () => {
-    guardReset();
-    if (setupCompleting) throw new Error("Setup is being saved");
-    if (backend.operation === "remove")
-      throw new Error("Wait for cleanup to finish before resetting Arbor");
-    if (backend.state.busy && backend.operation !== "scan")
-      throw new Error("Wait for inspection to finish before resetting Arbor");
-    if (backend.disposed) throw new Error("Arbor is closing");
-    resetPending = true;
-    try {
-      const response = await dialog.showMessageBox(window, {
-        type: "warning",
-        title: "Reset Arbor?",
-        message: "Reset Arbor to its defaults?",
-        detail:
-          "Saved SSH hosts, scan folders, exclusion rules, and appearance settings will be reset. The setup wizard will reopen without starting a scan. Repositories and worktrees will not be changed or deleted. Statistics are kept. Any running scan will be stopped.",
-        buttons: ["Cancel", "Reset Arbor"],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
-      });
-      if (response.response !== 1)
-        return {
-          cancelled: true,
-          state: backend.getState(),
-          preferences: structuredClone(preferences),
-        };
-      if (backend.operation === "scan") {
-        backend.cancelScan();
-        await backend.pending;
-      }
-      const defaults = await savePreferences(() => validatePreferences({}));
-      const state = backend.reset();
-      await backend.cache.pending;
-      return {
-        cancelled: false,
-        state,
-        preferences: defaults,
-      };
-    } finally {
-      resetPending = false;
-    }
+    const result = await backend.resetPreferences(
+      async (signal) => {
+        const response = await dialog.showMessageBox(window, {
+          signal,
+          type: "warning",
+          title: "Reset Arbor?",
+          message: "Reset Arbor to its defaults?",
+          detail:
+            "Saved SSH hosts, scan folders, exclusion rules, and appearance settings will be reset. The setup wizard will reopen without starting a scan. Repositories and worktrees will not be changed or deleted. Statistics are kept. Any running scan will be stopped.",
+          buttons: ["Cancel", "Reset Arbor"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+        return response.response === 1;
+      },
+      () => savePreferences(() => validatePreferences({})),
+    );
+    return { ...result, preferences: structuredClone(preferences) };
   });
   handle("arbor:open-external", async (value) => {
     if (typeof value !== "string" || value.length > 4096)
@@ -457,8 +404,8 @@ function registerIPC() {
   });
 }
 
-function guardReset() {
-  if (resetPending) throw new Error("Arbor reset is in progress");
+function guardInteraction() {
+  backend.assertInteractive();
 }
 
 async function localDirectory(target) {
@@ -520,60 +467,6 @@ function savePreferences(nextValue) {
   return preferenceWrite;
 }
 
-function guardQuit(event, applicationQuit = false) {
-  if (backend?.operation === "scan" || backend?.operation === "inspect") {
-    event.preventDefault();
-    quitAfterScan ||= applicationQuit;
-    if (!closingScan) {
-      closingScan = true;
-      backend.dispose();
-      const finishClose = () => {
-        closingScan = false;
-        if (quitAfterScan) app.quit();
-        else if (window && !window.isDestroyed()) window.close();
-      };
-      backend.pending.then(finishClose, finishClose);
-    }
-    return;
-  }
-  if (backend?.operation !== "remove") {
-    backend?.dispose();
-    return;
-  }
-  event.preventDefault();
-  if (removalConfirmation) {
-    quitAfterRemoval = true;
-    backend.stopCleanupAfterCurrent();
-    removalConfirmation.abort();
-    backend.pending.finally(() => app.quit());
-    return;
-  }
-  if (quitDialog || quitAfterRemoval) return;
-  quitDialog = true;
-  dialog
-    .showMessageBox(window, {
-      type: "info",
-      title: "Cleanup is running",
-      message: "Finish the current worktree, then quit?",
-      detail:
-        "Arbor will finish the one worktree currently being removed, leave the remaining worktrees untouched, and quit without rescanning.",
-      buttons: ["Keep Arbor Open", "Finish Current & Quit"],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-    })
-    .then(({ response }) => {
-      quitAfterRemoval = response === 1;
-      if (quitAfterRemoval) {
-        if (backend.operation === "remove") backend.stopCleanupAfterCurrent();
-        backend.pending.finally(() => app.quit());
-      }
-    })
-    .finally(() => {
-      quitDialog = false;
-    });
-}
-
 function createWindow() {
   const icon = app.isPackaged
     ? path.join(process.resourcesPath, "icon.png")
@@ -618,7 +511,7 @@ function createWindow() {
     }),
   );
   window.once("ready-to-show", () => window.show());
-  window.on("close", guardQuit);
+  window.on("close", guardClose);
   window.on("closed", () => {
     window = null;
   });
@@ -630,141 +523,8 @@ function argument(name) {
   return index >= 0 ? process.argv[index + 1] || "" : "";
 }
 
-// Exercise the installed renderer, preload, IPC, and CLI together under Xvfb.
-// The opt-in smoke mode always requires an explicit, isolated scan folder.
-if (process.env.ARBOR_SMOKE_TEST === "1") {
-  const root = process.env.ARBOR_SMOKE_ROOT;
-  if (!root) {
-    console.error("ARBOR_SMOKE_ROOT is required");
-    app.exit(1);
-  } else process.argv.push("--path", root);
-  app.on("browser-window-created", (_event, win) => {
-    const consoleErrors = [];
-    win.webContents.on("console-message", (...args) => {
-      const details = args.find(
-        (value) => value && typeof value === "object" && "message" in value,
-      );
-      const level = details?.level ?? args[1],
-        message = details?.message ?? args[2];
-      if (level === 3 || level === "error") consoleErrors.push(String(message));
-    });
-    win.webContents.once("did-fail-load", (_event, code, description) => {
-      console.error(`Arbor renderer failed to load: ${code} ${description}`);
-      app.exit(1);
-    });
-    win.webContents.once("did-finish-load", async () => {
-      try {
-        const deadline = Date.now() + 25000;
-        let state;
-        do {
-          state = await win.webContents.executeJavaScript(
-            "window.arbor.getState()",
-          );
-          if (!state.busy) break;
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        } while (Date.now() < deadline);
-        if (
-          state.busy ||
-          state.error ||
-          !state.report ||
-          !Array.isArray(state.report.worktrees)
-        )
-          throw new Error(state.error || "Smoke scan did not complete");
-        if (process.env.ARBOR_SMOKE_CLEANUP === "1") {
-          const canonical = fs.realpathSync(root),
-            temporaryRoot = fs.realpathSync(os.tmpdir());
-          const relative = path.relative(temporaryRoot, canonical);
-          if (
-            !relative ||
-            relative.startsWith("..") ||
-            path.isAbsolute(relative) ||
-            !fs.existsSync(path.join(canonical, ".arbor-smoke-fixture"))
-          )
-            throw new Error(
-              "Cleanup smoke requires a marked, disposable fixture beneath the temporary directory",
-            );
-          const candidates = state.report.worktrees.filter(
-            (w) => w.recommended,
-          );
-          if (!candidates.length)
-            throw new Error("Cleanup smoke fixture has no recommendations");
-          const before = state.report.worktrees.length;
-          const selection = {
-            items: candidates.map((w) => ({ id: w.id, head: w.head })),
-            revision: state.revision,
-            recommendedOnly: true,
-          };
-          const removed = await win.webContents.executeJavaScript(
-            `window.arbor.remove(${JSON.stringify(selection)})`,
-          );
-          if (
-            removed.results?.length !== candidates.length ||
-            removed.results.some((result) => !result.removed)
-          )
-            throw new Error(
-              "Cleanup smoke could not remove every recommendation",
-            );
-          state = await win.webContents.executeJavaScript(
-            "window.arbor.getState()",
-          );
-          if (
-            state.error ||
-            state.report.worktrees.length !== before - candidates.length
-          )
-            throw new Error(
-              "Cleanup smoke did not refresh the worktree report",
-            );
-          console.log(
-            `Arbor cleanup smoke passed: removed ${candidates.length} fixture worktrees through Electron IPC`,
-          );
-        }
-        let rendered;
-        for (let attempt = 0; attempt < 50; attempt++) {
-          rendered = await win.webContents.executeJavaScript(
-            `({ text: document.body.innerText, rows: document.querySelectorAll('#worktree-list tr[data-id]').length, count: document.querySelector('#all-count')?.textContent, status: document.querySelector('#status-message')?.textContent, error: document.querySelector('#error-banner')?.hidden === false })`,
-          );
-          if (
-            Number(rendered.count) === state.report.worktrees.length &&
-            rendered.rows === state.report.worktrees.length &&
-            rendered.status?.includes("repositories")
-          )
-            break;
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        if (
-          rendered.text.trim().length < 20 ||
-          Number(rendered.count) !== state.report.worktrees.length ||
-          rendered.rows !== state.report.worktrees.length ||
-          !rendered.status?.includes("repositories")
-        )
-          throw new Error("Renderer did not display the completed scan");
-        if (rendered.error || consoleErrors.length)
-          throw new Error(
-            `Renderer reported an error: ${consoleErrors.join("; ") || "error banner visible"}`,
-          );
-        if (process.env.ARBOR_SMOKE_SCREENSHOT) {
-          win.setContentSize(1240, 800);
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          const image = await win.webContents.capturePage();
-          await fsp.writeFile(
-            process.env.ARBOR_SMOKE_SCREENSHOT,
-            image.toPNG(),
-          );
-        }
-        console.log(
-          `Arbor Electron smoke passed: ${state.report.worktrees.length} worktrees; preload, IPC, CLI, and renderer ready`,
-        );
-        app.exit(0);
-      } catch (error) {
-        console.error("Arbor Electron smoke failed:", error);
-        app.exit(1);
-      }
-    });
-  });
-}
-
 app.setName("Arbor");
-app.on("before-quit", (event) => guardQuit(event, true));
+app.on("before-quit", (event) => guardClose(event, true));
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
@@ -826,26 +586,14 @@ app
     createWindow();
     execute("gh", ["--version"], { timeout: 3000, env: childEnvironment() })
       .then(() => {
-        backend.state.githubAvailable = true;
+        backend.setGitHubAvailable(true);
       })
       .catch(() => {});
-    if (!backend.state.setupRequired) {
-      if (explicitLaunch) backend.scan(options);
-      else await backend.activateWorkspace(options);
-    }
+    await backend.start({ refresh: explicitLaunch });
     app.on("activate", () => {
       if (!window) {
         createWindow();
-        backend.pending.finally(() => {
-          backend.disposed = false;
-          if (
-            window &&
-            !resetPending &&
-            !backend.state.setupRequired &&
-            !backend.state.busy
-          )
-            backend.activateWorkspace(backend.options).catch(() => {});
-        });
+        backend.reopen().catch(() => {});
       }
     });
   })

@@ -126,7 +126,7 @@ func TestRemoteRemovalForwardsOpaqueStatsSessionWithoutLocalRecording(t *testing
 		}
 		return json.Marshal(worktree.RemovalResult{Path: w.Path, Removed: true})
 	})
-	result, err := RemoveWithSession(context.Background(), "stats-fixture-vps", w, w.Head, false, false, session)
+	result, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "stats-fixture-vps", Worktree: w, SessionID: session, Options: worktree.RemovalOptions{ExpectedHead: w.Head}})
 	if err != nil || !result.Removed || result.Path != w.Path {
 		t.Fatalf("remote removal failed: %+v, %v", result, err)
 	}

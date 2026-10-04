@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld(
   "arbor",
   Object.freeze({
+    getDefaults: () => ipcRenderer.invoke("arbor:get-defaults"),
     getState: () => ipcRenderer.invoke("arbor:get-state"),
     getStats: () => ipcRenderer.invoke("arbor:get-stats"),
     activateWorkspace: (options) =>

@@ -56,7 +56,7 @@ func TestRemovalDoesNotReuseScanDefaultRefCache(t *testing.T) {
 	tree := testGit(t, repo, "rev-parse", "HEAD^{tree}")
 	newDefault := testGit(t, repo, "commit-tree", tree, "-m", "Unrelated history")
 	testGit(t, repo, "update-ref", "refs/remotes/origin/main", newDefault)
-	if err := Remove(context.Background(), w, w.Head, true); err == nil {
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
 		t.Fatal("cleanup reused old default-ref cache after refs changed")
 	}
 	if _, err := os.Stat(linked); err != nil {

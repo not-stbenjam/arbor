@@ -45,7 +45,7 @@ func TestRemoveOneMissingRegistrationKeepsOtherEntriesAndBranches(t *testing.T) 
 			if !w.Missing || !w.CanDiscard || w.CanRemove || w.Recommended || w.SizeBytes != 0 {
 				t.Fatalf("wrong missing registration policy: %+v", w)
 			}
-			if err := Remove(context.Background(), w, w.Head, false); err == nil {
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
 				t.Fatal("missing registration accepted without explicit force")
 			}
 			targeted, err := Scan(context.Background(), Options{Root: target, Repository: w.CommonDir, TargetOnly: true, LinkedOnly: true})
@@ -55,7 +55,7 @@ func TestRemoveOneMissingRegistrationKeepsOtherEntriesAndBranches(t *testing.T) 
 			if len(targeted.Worktrees) != 1 || targeted.Worktrees[0].ID != w.ID {
 				t.Fatalf("target lookup changed identity: %+v", targeted)
 			}
-			result, err := RemoveWithResult(context.Background(), targeted.Worktrees[0], w.Head, false, true)
+			result, err := RemoveWorktree(context.Background(), targeted.Worktrees[0], RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
 			if err != nil || !result.Removed {
 				t.Fatalf("target removal: %+v %v", result, err)
 			}
@@ -104,7 +104,7 @@ func TestMissingDetachedRegistrationPreservesUniqueCommit(t *testing.T) {
 	if !w.CanDiscard || !w.Missing || !w.Detached {
 		t.Fatalf("policy: %+v", w)
 	}
-	result, err := RemoveWithResult(context.Background(), w, w.Head, false, true)
+	result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
 	if err != nil || result.RetainedBranch == "" {
 		t.Fatalf("retention: %+v %v", result, err)
 	}
@@ -149,7 +149,7 @@ func TestMissingRegistrationRejectsReplacedPathsAndStaleHeads(t *testing.T) {
 				testGit(t, repo, "commit", "-am", "Move branch")
 				testGit(t, repo, "update-ref", "refs/heads/topic", "HEAD")
 			}
-			if err := RemoveWithOptions(context.Background(), w, w.Head, false, true); err == nil {
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err == nil {
 				t.Fatal("changed target accepted")
 			}
 			if entries := parseList(testGit(t, repo, "worktree", "list", "--porcelain", "-z")); len(entries) != 2 {
@@ -169,7 +169,7 @@ func TestEmptyLinkedCheckoutIsRemovable(t *testing.T) {
 	if w.SizeBytes != 0 || w.Missing || !w.CanRemove {
 		t.Fatalf("empty checkout misclassified: %+v", w)
 	}
-	if err := Remove(context.Background(), w, w.Head, false); err != nil {
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err != nil {
 		t.Fatal(err)
 	}
 	if got := testGit(t, repo, "rev-parse", "refs/heads/empty-topic"); got != w.Head {
@@ -192,7 +192,7 @@ func TestMissingTargetCanonicalizesAnExistingParentAlias(t *testing.T) {
 		t.Fatalf("parent alias was not canonicalized: %+v %v", report, err)
 	}
 	w := report.Worktrees[0]
-	if err := RemoveWithOptions(context.Background(), w, w.Head, false, true); err != nil {
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err != nil {
 		t.Fatal(err)
 	}
 }

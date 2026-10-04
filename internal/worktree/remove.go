@@ -9,23 +9,17 @@ import (
 	"strings"
 )
 
-// Remove never removes branches, uses no force flags, and distrusts the scan's
-// potentially stale status. expectedHead binds the user's action to its commit.
-func Remove(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly bool) error {
-	return RemoveWithOptions(ctx, snapshot, expectedHead, recommendedOnly, false)
+// RemovalOptions binds a requested cleanup to the confirmed commit and policy.
+type RemovalOptions struct {
+	ExpectedHead    string
+	RecommendedOnly bool
+	DiscardLocal    bool
 }
 
-// RemoveWithOptions permits explicit local-file disposal, but never bypasses
-// identity checks or turns a primary repository into a removable worktree.
-func RemoveWithOptions(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly, discardLocal bool) error {
-	_, err := RemoveWithResult(ctx, snapshot, expectedHead, recommendedOnly, discardLocal)
-	return err
-}
-
-// RemoveWithResult also reports a recovery branch created for a detached commit.
-func RemoveWithResult(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly, discardLocal bool) (RemovalResult, error) {
+// RemoveWorktree freshly validates and removes one registered linked checkout.
+func RemoveWorktree(ctx context.Context, snapshot Worktree, options RemovalOptions) (RemovalResult, error) {
 	result := RemovalResult{Path: snapshot.Path}
-	err := remove(ctx, snapshot, expectedHead, recommendedOnly, discardLocal, &result)
+	err := remove(ctx, snapshot, options, &result)
 	result.Removed = err == nil
 	if err != nil {
 		result.Error = err.Error()
@@ -33,7 +27,8 @@ func RemoveWithResult(ctx context.Context, snapshot Worktree, expectedHead strin
 	return result, err
 }
 
-func remove(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly, discardLocal bool, result *RemovalResult) error {
+func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, result *RemovalResult) error {
+	expectedHead, recommendedOnly, discardLocal := options.ExpectedHead, options.RecommendedOnly, options.DiscardLocal
 	if recommendedOnly && discardLocal {
 		return errors.New("discarding local files cannot be used for recommended cleanup")
 	}
@@ -73,13 +68,11 @@ func remove(ctx context.Context, snapshot Worktree, expectedHead string, recomme
 	if common == "" || common != snapshot.CommonDir {
 		return errors.New("repository changed; scan again")
 	}
-	lockPath := filepath.Join(common, "arbor-cleanup.lock")
-	lock, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	lock, err := acquireCleanupLock(common)
 	if err != nil {
-		return fmt.Errorf("cannot acquire cleanup lock (another cleanup may be running): %w", err)
+		return err
 	}
-	lock.Close()
-	defer os.Remove(lockPath)
+	defer lock.Close()
 	raw, err := git(ctx, common, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return err

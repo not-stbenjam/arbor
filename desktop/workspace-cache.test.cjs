@@ -195,10 +195,10 @@ test("workspace activation restores immediately with fresh revision; explicit re
     },
   });
   await backend.activateWorkspace(options());
-  await backend.pending;
-  const first = backend.state.revision;
+  await backend.waitUntilIdle();
+  const first = backend.getState().revision;
   await backend.activateWorkspace(options({ host: "remote" }));
-  await backend.pending;
+  await backend.waitUntilIdle();
   const restored = await backend.activateWorkspace(options());
   assert.equal(restored.busy, false);
   assert.equal(restored.cached, true);
@@ -213,9 +213,9 @@ test("workspace activation restores immediately with fresh revision; explicit re
     /scan changed/,
   );
   backend.scan(options());
-  await backend.pending;
+  await backend.waitUntilIdle();
   assert.equal(calls.length, 3);
-  assert.equal(backend.state.cached, false);
+  assert.equal(backend.getState().cached, false);
 });
 
 test("switching cancels a read-only scan and waits for settlement before restoring", async () => {
@@ -258,7 +258,7 @@ test("cleanup updates all cached snapshots, uses one stats session, and refuses 
   let approve;
   const cleanup = backend.remove(
     {
-      revision: backend.state.revision,
+      revision: backend.getState().revision,
       items: [row, second].map(({ id, head }) => ({ id, head })),
       forceConfirm: true,
     },
@@ -286,5 +286,5 @@ test("cleanup updates all cached snapshots, uses one stats session, and refuses 
   );
   backend.reset();
   assert.equal(cache.entries.size, 0);
-  assert.equal(backend.state.setupRequired, true);
+  assert.equal(backend.getState().setupRequired, true);
 });
