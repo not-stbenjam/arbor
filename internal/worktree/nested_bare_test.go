@@ -101,11 +101,10 @@ func TestRestrictiveGlobalConfigSupportsBareBackedCheckoutCleanup(t *testing.T) 
 				}
 			}
 			restrictiveBareGlobalConfig(t)
-			// Fetch is local fixture-to-fixture only. Bare discovery and fetch
-			// must honor Git's explicit selector rather than disabling its policy.
-			full, err := Scan(context.Background(), Options{Root: root, Fetch: true})
-			if err != nil || len(full.Warnings) != 0 || !full.Fetched {
-				t.Fatalf("bare discovery/fetch under restrictive global config: %+v, %v", full, err)
+			// Read-only discovery remains available under the restrictive policy.
+			full, err := Scan(context.Background(), Options{Root: root})
+			if err != nil || len(full.Warnings) != 0 {
+				t.Fatalf("bare discovery under restrictive global config: %+v, %v", full, err)
 			}
 			if !testTree(t, full, bare).Bare {
 				t.Fatal("bare backing repository omitted")
@@ -134,6 +133,58 @@ func TestRestrictiveGlobalConfigSupportsBareBackedCheckoutCleanup(t *testing.T) 
 			}
 			if got := testGit(t, root, "--git-dir="+bare, "rev-parse", "refs/heads/"+branch); got != w.Head {
 				t.Fatal("retained commit differs")
+			}
+		})
+	}
+}
+
+func TestFetchHonorsOrdinaryRepositorySafetyPolicy(t *testing.T) {
+	for _, kind := range []string{"bare-allowed", "checkout-allowed", "bare-explicit-only"} {
+		t.Run(kind, func(t *testing.T) {
+			root := canonicalFixtureDir(t)
+			source := testRepo(t, filepath.Join(root, "source"))
+			target := filepath.Join(root, "target")
+			args := []string{"clone"}
+			bare := kind != "checkout-allowed"
+			if bare {
+				args = append(args, "--bare")
+			}
+			testGit(t, root, append(args, source, target)...)
+			common := target
+			if !bare {
+				common = filepath.Join(target, ".git")
+			}
+			fetchHead := filepath.Join(common, "FETCH_HEAD")
+			if _, err := os.Stat(fetchHead); !os.IsNotExist(err) {
+				t.Fatalf("fixture unexpectedly fetched already: %v", err)
+			}
+			restricted := kind == "bare-explicit-only"
+			if restricted {
+				restrictiveBareGlobalConfig(t)
+			}
+			// Both sides are disposable local fixtures; no network is involved.
+			report, err := Scan(context.Background(), Options{Root: target, Fetch: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := testTree(t, report, target)
+			if w.Bare != bare {
+				t.Fatalf("read-only repository discovery changed: %+v", w)
+			}
+			if restricted {
+				if report.Fetched || !strings.Contains(strings.Join(report.Warnings, " "), "safe.bareRepository") {
+					t.Fatalf("fetch did not report the Git safety refusal: %+v", report)
+				}
+				if _, err := os.Stat(fetchHead); !os.IsNotExist(err) {
+					t.Fatalf("restricted repository was fetched: %v", err)
+				}
+			} else {
+				if !report.Fetched || len(report.Warnings) != 0 {
+					t.Fatalf("ordinary allowed fetch was blocked: %+v", report)
+				}
+				if info, err := os.Stat(fetchHead); err != nil || info.Size() == 0 {
+					t.Fatalf("ordinary fetch did not write FETCH_HEAD: %v", err)
+				}
 			}
 		})
 	}

@@ -728,6 +728,10 @@ td {
   margin-top: 2px;
   width: 15px;
 }
+.banner[data-kind="warning"] {
+  background: var(--orange-bg);
+  color: var(--orange);
+}
 .banner > span {
   flex: 1;
   white-space: pre-line;
@@ -736,7 +740,7 @@ td {
 .banner .icon-button {
   width: 23px;
   height: 23px;
-  color: var(--red);
+  color: inherit;
 }
 .recommendation-note {
   display: flex;

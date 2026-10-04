@@ -75,6 +75,12 @@ export function createPreferencesController({
   }
   function renderStatus(next) {
     context = next;
+    const machine = context.host || "This computer";
+    const path = `${context.host ? `${context.host}:` : ""}${context.root || "Home folder"}`;
+    $("#machine-label").textContent = machine;
+    $("#machine-label").title = machine;
+    $("#root-label").textContent = path;
+    $("#path-button").title = `Scan folder: ${path}`;
     $("#machine-button").disabled = context.blocked;
     $("#path-button").disabled = context.blocked;
     $("#settings-save").disabled = context.blocked;

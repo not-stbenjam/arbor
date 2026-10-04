@@ -71,7 +71,7 @@
       path,
       name: path.split("/").pop() || "/",
       children: [],
-      worktree: null,
+      worktrees: [],
       descendants: [],
     });
     const root = makeNode(rootPath);
@@ -89,14 +89,14 @@
         nodes.get(parent(childPath)).children.push(node);
         nodes.set(childPath, node);
       }
-      nodes.get(path).worktree = worktree;
+      nodes.get(path).worktrees.push(worktree);
     }
     function aggregate(node) {
       node.children.sort((a, b) =>
         a.name.localeCompare(b.name, undefined, { numeric: true }),
       );
       node.descendants = [
-        ...(node.worktree ? [node.worktree] : []),
+        ...node.worktrees,
         ...node.children.flatMap(aggregate),
       ];
       return node.descendants;
@@ -112,19 +112,22 @@
       let label = isRoot ? node.path : node.name;
       // Retain the scan root and actual worktree boundaries, but compress
       // intermediate folders that offer no branching choice.
-      while (!isRoot && !node.worktree && node.children.length === 1) {
+      while (!isRoot && !node.worktrees.length && node.children.length === 1) {
         node = node.children[0];
         label += "/" + node.name;
       }
-      const group = isRoot || node.children.length > 0 || !node.worktree;
+      const group =
+        isRoot || node.children.length > 0 || !node.worktrees.length;
       if (group) {
         result.push({ kind: "directory", node, depth, label });
         if (collapsed.has(node.path)) return;
       }
-      if (node.worktree)
+      const registrations = [...node.worktrees];
+      if (compare) registrations.sort((a, b) => compare([a], [b]));
+      for (const worktree of registrations)
         result.push({
           kind: "worktree",
-          worktree: node.worktree,
+          worktree,
           label: group ? node.name : label,
           pathPrefix: group ? parent(node.path) : pathPrefix,
           depth: depth + (group ? 1 : 0),

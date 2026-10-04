@@ -7,10 +7,23 @@ const { progressEvent } = require("./protocol.cjs");
 const MAX_OUTPUT = 64 * 1024 * 1024;
 const PROGRESS_PREFIX = "@arbor-progress ";
 const MAX_PROGRESS_LINE = 65536;
+const MAX_DIAGNOSTIC_BYTES = 4096;
+const DIAGNOSTIC_TRUNCATED = "\n… [diagnostic truncated]";
+
+function boundedDiagnostic(message) {
+  if (Buffer.byteLength(message) <= MAX_DIAGNOSTIC_BYTES) return message;
+  const prefix = Buffer.from(message.slice(0, MAX_DIAGNOSTIC_BYTES)).subarray(
+    0,
+    MAX_DIAGNOSTIC_BYTES - Buffer.byteLength(DIAGNOSTIC_TRUNCATED),
+  );
+  // Do not introduce a replacement character when truncation cuts a UTF-8
+  // sequence. Only the user-facing diagnostic is shortened, never JSON stdout.
+  return new StringDecoder("utf8").write(prefix) + DIAGNOSTIC_TRUNCATED;
+}
 
 class CommandError extends Error {
   constructor(message, { code, signal, stdout }) {
-    super(message);
+    super(boundedDiagnostic(message));
     this.name = "CommandError";
     this.code = code;
     this.signal = signal;

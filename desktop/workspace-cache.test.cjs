@@ -77,10 +77,11 @@ test("bounded LRU keeps recently visited workspaces and bounds serialized bytes"
   assert.ok(Buffer.byteLength(small.serialize()) <= 100);
 });
 
-test("confirmed deletions prune exact registrations across same-host snapshots, retaining nested registrations", () => {
+test("confirmed deletions prune exact IDs across same-host snapshots, retaining same-path and nested registrations", () => {
   const cache = new WorkspaceCache();
   const rows = [
     row,
+    { ...row, id: "same-path" },
     { ...row, id: "nested", path: "/work/topic/nested" },
     { ...row, id: "sibling", path: "/work/topic-other" },
   ];
@@ -90,16 +91,16 @@ test("confirmed deletions prune exact registrations across same-host snapshots, 
     options({ host: "remote" }),
   ])
     cache.put(setup, report(rows, setup.root));
-  cache.removePaths("", [row.path]);
+  cache.removeIDs("", [row.id]);
   assert.deepEqual(
     cache.get(options()).worktrees.map((w) => w.id),
-    ["nested", "sibling"],
+    ["same-path", "nested", "sibling"],
   );
   assert.deepEqual(
     cache.get(options({ root: "/", github: true })).worktrees.map((w) => w.id),
-    ["nested", "sibling"],
+    ["same-path", "nested", "sibling"],
   );
-  assert.equal(cache.get(options({ host: "remote" })).worktrees.length, 3);
+  assert.equal(cache.get(options({ host: "remote" })).worktrees.length, 4);
 });
 
 test("failed inspection evicts its workspace and aliases without replacing healthy snapshots", () => {
@@ -195,12 +196,20 @@ test("workspace activation restores immediately with fresh revision; explicit re
       return JSON.stringify(report());
     },
   });
-  await backend.activateWorkspace(options());
+  await backend.configureWorkspace(options(), async () => {}, {
+    restore: true,
+  });
   await backend.waitUntilIdle();
   const first = backend.getState().revision;
-  await backend.activateWorkspace(options({ host: "remote" }));
+  await backend.configureWorkspace(
+    options({ host: "remote" }),
+    async () => {},
+    { restore: true },
+  );
   await backend.waitUntilIdle();
-  const restored = await backend.activateWorkspace(options());
+  const restored = await backend.configureWorkspace(options(), async () => {}, {
+    restore: true,
+  });
   assert.equal(restored.busy, false);
   assert.equal(restored.cached, true);
   assert.equal(restored.report.scannedAt, report().scannedAt);
@@ -213,7 +222,7 @@ test("workspace activation restores immediately with fresh revision; explicit re
     }),
     /scan changed/,
   );
-  backend.scan(options());
+  await backend.configureWorkspace(options(), async () => {});
   await backend.waitUntilIdle();
   assert.equal(calls.length, 3);
   assert.equal(backend.getState().cached, false);
@@ -233,8 +242,10 @@ test("switching cancels a read-only scan and waits for settlement before restori
         });
       }),
   });
-  backend.scan(options({ host: "slow" }));
-  const restored = await backend.activateWorkspace(options());
+  await backend.configureWorkspace(options({ host: "slow" }), async () => {});
+  const restored = await backend.configureWorkspace(options(), async () => {}, {
+    restore: true,
+  });
   assert.equal(aborted, true);
   assert.equal(restored.busy, false);
   assert.equal(restored.host, "");
@@ -255,7 +266,9 @@ test("cleanup updates all cached snapshots, uses one stats session, and refuses 
       return JSON.stringify({ path: args.at(-1), removed: true });
     },
   });
-  await backend.activateWorkspace(options());
+  await backend.configureWorkspace(options(), async () => {}, {
+    restore: true,
+  });
   let approve;
   const cleanup = backend.remove(
     {
@@ -268,8 +281,11 @@ test("cleanup updates all cached snapshots, uses one stats session, and refuses 
         approve = resolve;
       }),
   );
-  await assert.rejects(
-    backend.activateWorkspace(options({ host: "remote" })),
+  assert.throws(
+    () =>
+      backend.configureWorkspace(options({ host: "remote" }), async () => {}, {
+        restore: true,
+      }),
     /already running/,
   );
   approve(true);
@@ -291,4 +307,78 @@ test("cleanup updates all cached snapshots, uses one stats session, and refuses 
   );
   assert.equal(cache.entries.size, 0);
   assert.equal(backend.getState().setupRequired, true);
+});
+
+test("failed cleanup caches refreshed metadata without reviving stale removable flags", async () => {
+  const cache = new WorkspaceCache();
+  const refreshed = {
+    ...row,
+    dirty: true,
+    canRemove: false,
+    recommended: false,
+    canDiscard: true,
+  };
+  let calls = 0;
+  const backend = new Backend({
+    cache,
+    run: async (args) => {
+      calls++;
+      if (args[0] === "remove") throw new Error("Files changed after scan");
+      return JSON.stringify(
+        report(args.includes("--target-only") ? [refreshed] : [row]),
+      );
+    },
+  });
+  await backend.configureWorkspace(options(), async () => {});
+  await backend.waitUntilIdle();
+  const result = await backend.remove({
+    revision: backend.getState().revision,
+    items: [{ id: row.id, head: row.head }],
+    recommendedOnly: true,
+  });
+  assert.equal(result.results[0].removed, false);
+  assert.equal(
+    result.report.worktrees[0].lastRemovalError,
+    "Files changed after scan",
+  );
+  const snapshot = cache.get(options());
+  assert.equal(snapshot.worktrees[0].canRemove, false);
+  assert.equal(snapshot.worktrees[0].dirty, true);
+  assert.equal(snapshot.worktrees[0].lastRemovalError, undefined);
+  await backend.configureWorkspace(options(), async () => {}, {
+    restore: true,
+  });
+  assert.equal(calls, 3);
+  assert.equal(backend.getState().report.worktrees[0].canRemove, false);
+});
+
+test("a cache disk-write failure never strands cleanup or resurrects removed rows in memory", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "arbor-cleanup-cache-"),
+  );
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filename = path.join(directory, "cache.json");
+  await fs.mkdir(filename);
+  const cache = new WorkspaceCache({ filename });
+  const backend = new Backend({
+    cache,
+    run: async (args) =>
+      JSON.stringify(
+        args[0] === "remove" ? { path: row.path, removed: true } : report(),
+      ),
+  });
+  await backend.configureWorkspace(options(), async () => {});
+  await backend.waitUntilIdle();
+  const result = await backend.remove({
+    revision: backend.getState().revision,
+    items: [{ id: row.id, head: row.head }],
+    recommendedOnly: true,
+  });
+  assert.equal(result.results[0].removed, true);
+  assert.ok(cache.lastError);
+  assert.equal(backend.getState().busy, false);
+  assert.equal(backend.getState().progress, null);
+  assert.ok(backend.getState().revision);
+  assert.deepEqual(cache.get(options()).worktrees, []);
+  await cache.pending;
 });

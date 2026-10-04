@@ -225,13 +225,14 @@ Each layer owns its state and exposes commands or snapshots to its callers:
 
 | Layer | Responsibility |
 | --- | --- |
-| `internal/worktree` | Repository discovery, per-checkout inspection, typed removal decisions, and process-owned cleanup locks. Removal takes named options and rechecks its target. |
+| `internal/worktree` | Scan preparation, repository registration collection, bounded inspection workers, checkout evidence, typed removal decisions, and process-owned cleanup locks. Removal takes named options and rechecks its target. |
 | `internal/engine` | The same scan/removal contract locally or over SSH, with separate transport, provisioning, download coordination, and archive verification. |
 | `cmd/arbor` | Cobra input, pure request normalization and target selection, batch execution, result presentation, and per-machine statistics recording. |
 | `internal/stats`, `desktop/workspace-cache.cjs` | Aggregate cleanup history and reusable scan snapshots, respectively. Neither owns deletion policy. |
 | `desktop/backend.cjs` | Operation lifecycle and snapshots. Electron calls explicit setup, reset, close, and reopen methods; it cannot mutate Backend state. |
 | `desktop/main.cjs` | Electron composition. IPC, application/context menus, native window lifecycle, and subprocess execution have separate adapters. |
-| `desktop/preferences-store.cjs`, `desktop/removal-policy.cjs` | Serialized preference persistence with one scan-settings writer; pure removal selection, consent planning, and CLI argument contracts. |
+| `desktop/preferences-store.cjs` | Serialized preference persistence with one scan-settings writer, including remembered host roots. |
+| `desktop/removal-policy.cjs`, `desktop/cleanup-batch.cjs` | Pure removal selection and consent planning; sequential execution of approved targets. Batch execution reports outcomes without owning application snapshots or caches. |
 | `desktop/renderer` | Workspace, preferences, setup, and statistics controllers; tree interaction and presentation are separate. `app.js` only connects them. |
 | `desktop/protocol.cjs`, `internal/config` | Shared desktop report validation and one authoritative exclusion defaults/limits document embedded by Go and loaded by Electron. |
 

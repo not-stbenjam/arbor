@@ -133,6 +133,24 @@ func TestInspectionRejectsRegistrationFromDifferentRepository(t *testing.T) {
 	}
 }
 
+func TestRemovalRequiresConfirmedCommonDirectory(t *testing.T) {
+	root := canonicalFixtureDir(t)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	target := testLinked(t, repo, filepath.Join(root, "session"), "session")
+	w := testTree(t, testScan(t, root), target)
+	other := testRepo(t, filepath.Join(root, "other"))
+	w.CommonDir = filepath.Join(other, ".git")
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err == nil || !strings.Contains(err.Error(), "repository changed") {
+		t.Fatalf("snapshot repository identity was not enforced: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "tracked.txt")); err != nil {
+		t.Fatal("checkout changed after mismatched repository request:", err)
+	}
+	if entries := parseList(testGit(t, repo, "worktree", "list", "--porcelain", "-z")); len(entries) != 2 {
+		t.Fatalf("registration changed after mismatched repository request: %+v", entries)
+	}
+}
+
 func TestMissingDetachedRegistrationPreservesUniqueCommit(t *testing.T) {
 	root := canonicalFixtureDir(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))

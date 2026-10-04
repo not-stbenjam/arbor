@@ -79,6 +79,13 @@ export function createWorkspaceView({ document, workspace }) {
     const state = workspace.snapshot,
       list = items(),
       repos = new Set(list.map(repoID));
+    $("#window-context").textContent = state.host
+      ? `${state.host} — Arbor`
+      : "Arbor";
+    $("#connection-label").textContent = state.host
+      ? "SSH workspace"
+      : "Local workspace";
+    $("#version").textContent = state.version || "";
     document.body.classList.toggle(
       "platform-darwin",
       state.platform === "darwin",
@@ -116,8 +123,14 @@ export function createWorkspaceView({ document, workspace }) {
       ? `${fullDate(state.report.scannedAt)} · ${state.report.durationMs} ms`
       : "";
 
-    $("#error-banner").hidden = !workspace.error;
-    $("#error-message").textContent = workspace.error;
+    const error = workspace.error,
+      message = error || workspace.warning || "",
+      kind = error ? "error" : "warning";
+    $("#error-banner").hidden = !message;
+    $("#error-banner").dataset.kind = kind;
+    $("#error-banner").setAttribute("role", error ? "alert" : "status");
+    $("#error-message").textContent = message;
+    $("#dismiss-error").setAttribute("aria-label", `Dismiss ${kind}`);
     renderProgress();
     renderControls();
   }

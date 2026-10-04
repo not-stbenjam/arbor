@@ -56,7 +56,9 @@ test("cached manual cleanup binds consent and missing/empty expectations without
         return JSON.stringify({ path: tree.path, removed: true });
       },
     });
-    await backend.activateWorkspace(options);
+    await backend.configureWorkspace(options, async () => {}, {
+      restore: true,
+    });
     assert.equal(backend.getState().cached, true);
     await backend.remove(
       selection(backend, { recommendedOnly: false, discardLocal: true }),
@@ -87,12 +89,15 @@ test("scan returns busy state immediately, invokes CLI with exact arguments, and
       });
     },
   });
-  const state = backend.scan({
-    root: "~/project's files",
-    host: "user@remote",
-    github: true,
-    fetch: true,
-  });
+  const state = await backend.configureWorkspace(
+    {
+      root: "~/project's files",
+      host: "user@remote",
+      github: true,
+      fetch: true,
+    },
+    async () => {},
+  );
   assert.equal(state.busy, true);
   assert.deepEqual(calls[0], [
     "list",
@@ -108,7 +113,10 @@ test("scan returns busy state immediately, invokes CLI with exact arguments, and
     "--no-default-excludes",
     ...scanOptions().excludes.flatMap((entry) => ["--exclude", entry]),
   ]);
-  assert.throws(() => backend.scan({}), /already running/);
+  assert.throws(
+    () => backend.configureWorkspace({}, async () => {}),
+    /already running/,
+  );
   finish(report());
   await backend.waitUntilIdle();
   const snapshot = backend.getState();
@@ -126,11 +134,14 @@ test("failed host change clears previous report and invalidates deletion revisio
       return report();
     },
   });
-  backend.scan({ root: "/work" });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
   await backend.waitUntilIdle();
   const old = selection(backend);
   fail = true;
-  const state = backend.scan({ host: "other-host", root: "~" });
+  const state = await backend.configureWorkspace(
+    { host: "other-host", root: "~" },
+    async () => {},
+  );
   assert.equal(state.report, null);
   assert.equal(state.revision, null);
   await backend.waitUntilIdle();
@@ -150,7 +161,10 @@ test("recommended removal binds identity, host and GitHub evidence, then updates
       return report(calls.length > 1 ? [] : [source]);
     },
   });
-  backend.scan({ root: "~", host: "vps", github: true, fetch: true });
+  await backend.configureWorkspace(
+    { root: "~", host: "vps", github: true, fetch: true },
+    async () => {},
+  );
   await backend.waitUntilIdle();
   const before = backend.getState().revision;
   const result = await backend.remove(selection(backend), () => {
@@ -192,7 +206,7 @@ test("manual removal requires confirmation and prevents concurrent scans while d
       return report([{ ...tree, recommended: false }]);
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   let answer;
   const pending = backend.remove(
@@ -204,7 +218,10 @@ test("manual removal requires confirmation and prevents concurrent scans while d
   );
   assert.equal(backend.getState().busy, true);
   assert.deepEqual(backend.requestClose(), { action: "confirm-cleanup" });
-  assert.throws(() => backend.scan({ host: "another" }), /already running/);
+  assert.throws(
+    () => backend.configureWorkspace({ host: "another" }, async () => {}),
+    /already running/,
+  );
   answer(false);
   const result = await pending;
   assert.equal(result.cancelled, true);
@@ -215,7 +232,7 @@ test("manual removal requires confirmation and prevents concurrent scans while d
 test("stale commits, duplicate selections, protected trees, and nonrecommendations are refused", async () => {
   const source = { ...tree };
   const backend = new Backend({ run: async () => report([source]) });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   await assert.rejects(
     backend.remove(
@@ -235,11 +252,11 @@ test("stale commits, duplicate selections, protected trees, and nonrecommendatio
     /Invalid worktree selection/,
   );
   source.recommended = false;
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   await assert.rejects(backend.remove(selection(backend)), /not a cleanup/);
   source.canRemove = false;
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   await assert.rejects(
     backend.remove(selection(backend, { recommendedOnly: false })),
@@ -257,7 +274,7 @@ test("failed target reinspection keeps a retry action without a full rescan", as
       return report();
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   const result = await backend.remove(selection(backend));
   assert.equal(result.results[0].removed, false);
@@ -348,7 +365,10 @@ test("first launch cannot scan until setup is completed", () => {
   });
   assert.equal(backend.getState().setupRequired, true);
   assert.equal(backend.getState().progress, null);
-  assert.throws(() => backend.scan({}), /Complete setup/);
+  assert.throws(
+    () => backend.configureWorkspace({}, async () => {}),
+    /Complete setup/,
+  );
   assert.equal(calls, 0);
 });
 
@@ -362,7 +382,10 @@ test("scan exposes actual progress with a stable start time and resets it on com
       });
     },
   });
-  const initial = backend.scan({ root: "/work", github: true });
+  const initial = await backend.configureWorkspace(
+    { root: "/work", github: true },
+    async () => {},
+  );
   assert.equal(initial.progress.stage, "starting");
   assert.equal(initial.options.github, true);
   progress({
@@ -440,7 +463,7 @@ test("progress lines do not hide real stderr errors or malformed protocol data",
   );
 });
 
-test("large stderr lines are preserved and cannot bypass the progress protocol bound", async () => {
+test("large stderr lines are bounded diagnostics and cannot bypass the progress protocol bound", async () => {
   const large = "x".repeat(70000);
   await assert.rejects(
     execute(
@@ -452,7 +475,8 @@ test("large stderr lines are preserved and cannot bypass the progress protocol b
       { onProgress: () => assert.fail("not a progress event") },
     ),
     (error) => {
-      assert.equal(error.message, large);
+      assert.ok(Buffer.byteLength(error.message) <= 4096);
+      assert.match(error.message, /^x+\n… \[diagnostic truncated\]$/);
       return true;
     },
   );
@@ -488,7 +512,10 @@ test("scan exclusions use defaults only when omitted and preserve an explicit em
       return report();
     },
   });
-  backend.scan({ excludes: ["build stuff", "~/Library/Caches"] });
+  await backend.configureWorkspace(
+    { excludes: ["build stuff", "~/Library/Caches"] },
+    async () => {},
+  );
   await backend.waitUntilIdle();
   assert.deepEqual(calls[0].slice(-5), [
     "--no-default-excludes",
@@ -497,7 +524,7 @@ test("scan exclusions use defaults only when omitted and preserve an explicit em
     "--exclude",
     "~/Library/Caches",
   ]);
-  backend.scan({ excludes: [] });
+  await backend.configureWorkspace({ excludes: [] }, async () => {});
   await backend.waitUntilIdle();
   assert.equal(calls[1].at(-1), "--no-default-excludes");
   assert.equal(calls[1].includes("--exclude"), false);
@@ -537,7 +564,7 @@ test("saved default exclusions upgrade without overriding custom or explicitly r
   assert.deepEqual(loadPreferences(optedOut).scan.excludes, previous);
 });
 
-test("live worktrees upsert by path, remain non-removable, and are cleared after failure", async () => {
+test("live worktrees replace provisional paths, retain registration IDs, and clear after failure", async () => {
   let progress, rejectScan;
   const backend = new Backend({
     run: (_args, callbacks) => {
@@ -547,7 +574,7 @@ test("live worktrees upsert by path, remain non-removable, and are cleared after
       });
     },
   });
-  backend.scan({ root: "/work" });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
   const event = {
     stage: "discovery",
     path: tree.path,
@@ -580,9 +607,74 @@ test("live worktrees upsert by path, remain non-removable, and are cleared after
   assert.equal(state.revision, null);
   state.partialWorktrees[0].branch = "edited";
   assert.equal(backend.getState().partialWorktrees[0].branch, tree.branch);
+  const copied = {
+    ...tree,
+    id: "copy",
+    commonDir: "/copied/.git",
+    branch: "copy-topic",
+  };
+  progress({ ...event, worktree: copied, pending: true });
+  progress({
+    ...event,
+    stage: "inspect",
+    worktree: { ...tree, branch: "updated" },
+    pending: false,
+  });
+  progress({ ...event, stage: "inspect", worktree: copied, pending: false });
+  assert.deepEqual(
+    backend.getState().partialWorktrees.map((row) => [row.id, row.branch]),
+    [
+      [tree.id, "updated"],
+      ["copy", "copy-topic"],
+    ],
+  );
   rejectScan(new Error("failed scan"));
   await backend.waitUntilIdle();
   assert.deepEqual(backend.getState().partialWorktrees, []);
+});
+
+test("registration discovery and inspection retain distinct same-path IDs", async () => {
+  let progress, finish;
+  const backend = new Backend({
+    run: (_args, callbacks) => {
+      progress = callbacks.onProgress;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
+  const rows = [
+    { ...tree, commonDir: "/original/.git" },
+    { ...tree, id: "copied-registration", commonDir: "/copied/.git" },
+  ];
+  const emit = (worktree, stage = "discovery") =>
+    progress({
+      stage,
+      path: tree.path,
+      worktree,
+      pending: stage === "discovery",
+      discovered: 2,
+      completed: 0,
+      total: 2,
+    });
+  emit({ ...tree, id: "provisional", commonDir: "", head: "", branch: "" });
+  for (const row of rows) emit(row);
+  assert.deepEqual(
+    backend.getState().partialWorktrees.map((row) => row.id),
+    rows.map((row) => row.id),
+  );
+  for (const row of rows.toReversed())
+    emit({ ...row, subject: row.id }, "inspect");
+  assert.deepEqual(
+    backend
+      .getState()
+      .partialWorktrees.map((row) => [row.id, row.subject, row.pending]),
+    rows.map((row) => [row.id, row.id, false]),
+  );
+  finish(report(rows));
+  await backend.waitUntilIdle();
+  assert.equal(backend.getState().report.worktrees.length, 2);
 });
 
 test("stopping a scan waits for completion, preserves incomplete rows, and discards a racing final report", async () => {
@@ -595,7 +687,7 @@ test("stopping a scan waits for completion, preserves incomplete rows, and disca
       });
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   callbacks.onProgress({
     stage: "inspect",
     path: tree.path,
@@ -621,7 +713,7 @@ test("stopping a scan waits for completion, preserves incomplete rows, and disca
   assert.equal(stopped.partialWorktrees.length, 1);
   assert.equal(stopped.partialWorktrees[0].canRemove, false);
   assert.throws(() => backend.cancelScan(), /No cancellable scan/);
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   assert.equal(backend.getState().cancelled, false);
   assert.deepEqual(backend.getState().partialWorktrees, []);
   finish(report());
@@ -639,7 +731,7 @@ test("explicit cancellation suppresses only the stopped scan's failure", async (
         );
       }),
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   backend.cancelScan();
   await backend.waitUntilIdle();
   assert.equal(backend.getState().error, "");
@@ -650,7 +742,7 @@ test("cleanup is not a cancellable scan", async () => {
   const backend = new Backend({
     run: async () => report([{ ...tree, recommended: false }]),
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   let decide;
   const remove = backend.remove(
@@ -685,17 +777,28 @@ test("reset returns to first launch defaults without scanning or deleting worktr
     githubAvailable: true,
     run: async (args) => {
       calls.push(args);
+      if (args.includes("--target-only"))
+        throw new Error("inspection unavailable");
       return report();
     },
   });
-  backend.scan({
-    root: "~/other",
-    host: "vps",
-    github: true,
-    fetch: true,
-    excludes: [],
+  await backend.configureWorkspace(
+    {
+      root: "~/other",
+      host: "vps",
+      github: true,
+      fetch: true,
+      excludes: [],
+    },
+    async () => {},
+  );
+  await backend.waitUntilIdle();
+  backend.inspectWorktree({
+    id: tree.id,
+    revision: backend.getState().revision,
   });
   await backend.waitUntilIdle();
+  assert.match(backend.getState().error, /inspection unavailable/);
   const { state: reset } = await backend.resetPreferences(
     async () => true,
     async () => {},
@@ -715,10 +818,14 @@ test("reset returns to first launch defaults without scanning or deleting worktr
   assert.equal(reset.githubAvailable, true);
   assert.deepEqual(reset.partialWorktrees, []);
   assert.deepEqual(reset.options, scanOptions());
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(calls[0][0], "list");
-  assert.throws(() => backend.scan({}), /Complete setup/);
-  assert.equal(calls.length, 1);
+  assert.ok(calls[1].includes("--target-only"));
+  assert.throws(
+    () => backend.configureWorkspace({}, async () => {}),
+    /Complete setup/,
+  );
+  assert.equal(calls.length, 2);
   reset.options.excludes.push("should not change state");
   assert.deepEqual(backend.getState().options, scanOptions());
 });
@@ -733,7 +840,7 @@ test("confirmed reset cancels an active scan and waits before clearing partial s
       });
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   callbacks.onProgress({
     stage: "inspect",
     path: tree.path,
@@ -775,7 +882,7 @@ test("reset refuses cleanup and closing state", async () => {
       return report([{ ...tree, recommended: false }]);
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   let confirm;
   const pending = backend.remove(
@@ -835,7 +942,7 @@ test("glob exclusions persist and cross the subprocess boundary as literal argum
       return report();
     },
   });
-  backend.scan(preferences.scan);
+  await backend.configureWorkspace(preferences.scan, async () => {});
   await backend.waitUntilIdle();
   assert.deepEqual(
     calls[0].slice(-excludes.length * 2),
@@ -875,7 +982,7 @@ test("cleanup stops after its current worktree without rescanning or touching re
       });
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   const before = backend.getState().revision;
   const pending = backend.remove(
@@ -886,10 +993,9 @@ test("cleanup stops after its current worktree without rescanning or touching re
   assert.equal(backend.getState().progress.stage, "removing");
   assert.equal(backend.getState().progress.total, 2);
   assert.equal(backend.getState().progress.path, tree.path);
-  backend.stopCleanupAfterCurrent();
   assert.deepEqual(
-    backend.requestClose(),
-    { action: "confirm-cleanup" },
+    backend.requestClose({ finishCleanup: true }),
+    { action: "wait" },
     "current removal must never be killed",
   );
   finish(JSON.stringify({ path: tree.path, removed: true }));
@@ -899,7 +1005,7 @@ test("cleanup stops after its current worktree without rescanning or touching re
   assert.deepEqual(result.results, [{ path: tree.path, removed: true }]);
   assert.deepEqual(result.report.worktrees, [second, untouched]);
   assert.notEqual(result.revision, before);
-  assert.throws(() => backend.stopCleanupAfterCurrent(), /No cleanup/);
+  assert.deepEqual(backend.requestClose(), { action: "close" });
 });
 
 test("disposing an ordinary scan aborts it without waiting for the child in the close handler", async () => {
@@ -913,7 +1019,7 @@ test("disposing an ordinary scan aborts it without waiting for the child in the 
         });
       }),
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   assert.deepEqual(backend.requestClose(), { action: "wait" });
   assert.equal(signal.aborted, true);
   await backend.waitUntilIdle();
@@ -940,7 +1046,7 @@ test("explicit discard requires confirmation and flags only worktrees needing it
         : JSON.stringify({ path: args.at(-1), removed: true });
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   const request = selection(backend, {
     items: [tree, dirty].map(({ id, head }) => ({ id, head })),
@@ -976,7 +1082,7 @@ test("discard cannot bypass confirmation, structural blockers, or recommendation
       return report([source]);
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   await assert.rejects(
     backend.remove(selection(backend, { discardLocal: true })),
@@ -992,7 +1098,7 @@ test("discard cannot bypass confirmation, structural blockers, or recommendation
   assert.equal(result.cancelled, true);
   assert.equal(calls.length, 1);
   source.canDiscard = false;
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   await assert.rejects(
     backend.remove(
@@ -1005,7 +1111,7 @@ test("discard cannot bypass confirmation, structural blockers, or recommendation
 
 test("folder deletion can explicitly request one confirmation even for recommended rows", async () => {
   const backend = new Backend({ run: async () => report() });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   let count = 0;
   const result = await backend.remove(
@@ -1030,7 +1136,7 @@ test("manual deletion of a recommended row does not silently require recommendat
         : JSON.stringify({ path: tree.path, removed: true, retainedBranch });
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   let confirmations = 0;
   const result = await backend.remove(
@@ -1068,7 +1174,10 @@ test("failed deletion re-inspects only its exact path and keeps the untouched sn
       return report([tree, other]);
     },
   });
-  backend.scan({ host: "vps", root: "/work", github: true, fetch: true });
+  await backend.configureWorkspace(
+    { host: "vps", root: "/work", github: true, fetch: true },
+    async () => {},
+  );
   await backend.waitUntilIdle();
   const oldRevision = backend.getState().revision;
   const result = await backend.remove(selection(backend));
@@ -1106,7 +1215,7 @@ test("inspection retry authenticates the current row and never retries deletion"
       return report();
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   await backend.remove(selection(backend));
   assert.equal(backend.getState().report.worktrees[0].retryInspection, true);
@@ -1152,11 +1261,11 @@ test("finish-current quit cancels read-only failure inspection without retrying 
       return report();
     },
   });
-  backend.scan({});
+  await backend.configureWorkspace({}, async () => {});
   await backend.waitUntilIdle();
   const pending = backend.remove(selection(backend));
   await started;
-  backend.stopCleanupAfterCurrent();
+  backend.requestClose({ finishCleanup: true });
   const result = await pending;
   assert.equal(result.stopped, true);
   assert.equal(result.report.worktrees[0].retryInspection, true);
@@ -1182,7 +1291,10 @@ test("missing worktree deletion and targeted retry forward the repository hint a
       return report([missing]);
     },
   });
-  backend.scan({ host: "vps", root: "/work" });
+  await backend.configureWorkspace(
+    { host: "vps", root: "/work" },
+    async () => {},
+  );
   await backend.waitUntilIdle();
   await backend.remove(
     selection(backend, { discardLocal: true, recommendedOnly: false }),

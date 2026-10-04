@@ -72,6 +72,65 @@ test("tree projection preserves hierarchy while filtering and sorting", async ()
   );
 });
 
+test("same-path rows sort independently and keep exact delete/selection identities", async () => {
+  const { projectTree, renderTreeRows } = await import(
+    "../renderer/worktree-presentation.mjs"
+  );
+  const tree = require("./worktree-tree.js");
+  const list = [
+    {
+      id: "original",
+      path: "/work/shared",
+      repo: "z",
+      branch: "z",
+      sizeBytes: 1,
+      activityAt: "2026-01-01T00:00:00Z",
+    },
+    {
+      id: "copy",
+      path: "/work/shared",
+      repo: "a",
+      branch: "a",
+      sizeBytes: 2,
+      activityAt: "2026-01-02T00:00:00Z",
+    },
+  ];
+  for (const [sort, descending] of [
+    ["branch", false],
+    ["repo", false],
+    ["size", true],
+    ["activity", true],
+  ]) {
+    const result = projectTree(
+      list,
+      {
+        root: "/work",
+        search: "",
+        view: "all",
+        sort,
+        descending,
+        collapsedDirectories: new Set(),
+      },
+      tree,
+    );
+    assert.deepEqual(
+      result.visible.map((row) => row.id),
+      ["copy", "original"],
+      sort,
+    );
+    const markup = renderTreeRows(result.directoryRows, {
+      selected: new Set(["copy"]),
+      collapsed: new Set(),
+      disabled: false,
+    });
+    assert.match(markup, /2 worktrees/);
+    assert.match(markup, /class="worktree-row selected"[^>]+data-id="copy"/);
+    assert.match(markup, /class="worktree-row"[^>]+data-id="original"/);
+    assert.match(markup, /data-delete="copy"/);
+    assert.match(markup, /data-delete="original"/);
+  }
+});
+
 test("tree markup escapes metadata and distinguishes missing/pending checkouts", async () => {
   const { renderTreeRows } = await import(
     "../renderer/worktree-presentation.mjs"
@@ -470,6 +529,70 @@ async function workspaceFixture(overrides = {}) {
   return { workspace, api, savedScans, pendingTimers, initial, notifications };
 }
 
+test("settings warnings stay visible without failing scans and errors take priority", async () => {
+  const { createWorkspaceView } = await import(
+    "../renderer/workspace-view.mjs"
+  );
+  const warning =
+    "Could not save settings: read-only profile. These choices will be used for this session.";
+  const scans = [],
+    options = {
+      root: "/session",
+      host: "",
+      excludes: ["custom"],
+      github: true,
+    };
+  const fixture = await workspaceFixture({
+    async scan(value) {
+      scans.push(value);
+      return {
+        root: options.root,
+        host: "",
+        options,
+        warning,
+        error: "",
+        busy: false,
+        report: { worktrees: [], warnings: [] },
+      };
+    },
+  });
+  const { document, element } = preferenceDocument();
+  const view = createWorkspaceView({ document, workspace: fixture.workspace });
+  await fixture.workspace.scan(options);
+  view.render();
+  assert.equal(fixture.workspace.error, "");
+  assert.equal(fixture.workspace.blocked, false);
+  assert.equal(element("#error-banner").hidden, false);
+  assert.equal(element("#error-banner").dataset.kind, "warning");
+  assert.equal(element("#error-banner").attributes.role, "status");
+  assert.equal(element("#error-message").textContent, warning);
+  assert.equal(
+    element("#dismiss-error").attributes["aria-label"],
+    "Dismiss warning",
+  );
+  fixture.workspace.showError("Operation failed");
+  view.render();
+  assert.equal(element("#error-message").textContent, "Operation failed");
+  assert.equal(element("#error-banner").attributes.role, "alert");
+  assert.equal(element("#error-banner").dataset.kind, "error");
+  element("#dismiss-error").onclick();
+  view.render();
+  assert.equal(element("#error-message").textContent, warning);
+  element("#dismiss-error").onclick();
+  view.render();
+  assert.equal(element("#error-banner").hidden, true);
+  await fixture.workspace.refresh();
+  assert.deepEqual(
+    scans,
+    [options, options],
+    "refresh uses live choices even when persistence failed",
+  );
+  view.render();
+  assert.equal(element("#error-message").textContent, warning);
+  assert.equal(element("#error-banner").hidden, false);
+  fixture.workspace.dispose();
+});
+
 test("workspace publishes cached immutable snapshots with nested mutation isolation", async () => {
   const row = {
     id: "tree",
@@ -561,8 +684,18 @@ function preferenceDocument() {
         disabled: false,
         open: false,
         dataset: {},
+        attributes: {},
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        },
+        removeAttribute(name) {
+          delete this.attributes[name];
+        },
         selectedOptions: [{ textContent: "System" }],
         addEventListener() {},
+        querySelectorAll() {
+          return [];
+        },
         focus() {},
         reportValidity() {},
         reset() {},
@@ -581,9 +714,92 @@ function preferenceDocument() {
       querySelector: element,
       querySelectorAll: () => [],
       documentElement: { dataset: {} },
+      body: { classList: { toggle() {} } },
     },
   };
 }
+
+test("workspace labels have single owners and tree rendering never touches them", async () => {
+  const { createPreferencesController } = await import(
+    "../renderer/preferences-controller.mjs"
+  );
+  const { createWorkspaceView } = await import(
+    "../renderer/workspace-view.mjs"
+  );
+  const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
+  const fixture = await workspaceFixture({
+    getState: async () => ({
+      host: "build-vps",
+      root: "/sessions",
+      version: "test-version",
+      busy: false,
+      report: { worktrees: [], warnings: [] },
+    }),
+  });
+  const { document, element } = preferenceDocument();
+  const visited = new Set();
+  document.querySelector = (selector) => {
+    visited.add(selector);
+    return element(selector);
+  };
+  const preferences = createPreferencesController({
+    document,
+    api: {},
+    defaults: { excludes: [] },
+    notify() {},
+  });
+  const chrome = createWorkspaceView({
+    document,
+    workspace: fixture.workspace,
+  });
+  const trees = createWorktreeView({
+    document,
+    workspace: fixture.workspace,
+    tree: require("./worktree-tree.js"),
+    showWorktreeMenu() {},
+  });
+  visited.clear();
+  trees.render();
+  for (const selector of [
+    "#machine-label",
+    "#root-label",
+    "#path-button",
+    "#window-context",
+    "#connection-label",
+    "#version",
+  ])
+    assert.equal(visited.has(selector), false, `tree must not own ${selector}`);
+  visited.clear();
+  preferences.renderStatus({ host: "build-vps", root: "/sessions" });
+  assert.equal(element("#machine-label").textContent, "build-vps");
+  assert.equal(element("#machine-label").title, "build-vps");
+  assert.equal(element("#root-label").textContent, "build-vps:/sessions");
+  assert.equal(
+    element("#path-button").title,
+    "Scan folder: build-vps:/sessions",
+  );
+  for (const selector of ["#window-context", "#connection-label", "#version"])
+    assert.equal(
+      visited.has(selector),
+      false,
+      `preferences must not own ${selector}`,
+    );
+  visited.clear();
+  chrome.render();
+  assert.equal(element("#window-context").textContent, "build-vps — Arbor");
+  assert.equal(element("#connection-label").textContent, "SSH workspace");
+  assert.equal(element("#version").textContent, "test-version");
+  for (const selector of ["#machine-label", "#root-label", "#path-button"])
+    assert.equal(
+      visited.has(selector),
+      false,
+      `workspace chrome must not own ${selector}`,
+    );
+  preferences.renderStatus({ host: "", root: "" });
+  assert.equal(element("#machine-label").textContent, "This computer");
+  assert.equal(element("#root-label").textContent, "Home folder");
+  fixture.workspace.dispose();
+});
 
 test("Add Host, setup and protocol share SSH alias, IPv6 and length validation", async () => {
   const { isValidSSHHost, MAX_HOST_LENGTH, MAX_HOST_LABEL_LENGTH } =

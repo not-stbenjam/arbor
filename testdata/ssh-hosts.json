@@ -1,0 +1,19 @@
+[
+  { "host": "", "valid": true },
+  { "host": "vps", "valid": true },
+  { "host": "alice@build.example", "valid": true },
+  { "host": "user@[2001:db8::1]", "valid": true },
+  { "host": "build-box_2.example", "valid": true },
+  { "host": "_alias", "valid": true },
+  { "host": "vps\n", "valid": false },
+  { "host": "vps\r", "valid": false },
+  { "host": "vps\u0000", "valid": false },
+  { "host": "vps\nother", "valid": false },
+  { "host": "vps other", "valid": false },
+  { "host": " vps", "valid": false },
+  { "host": "vps\t", "valid": false },
+  { "host": "-option", "valid": false },
+  { "host": "user/host", "valid": false },
+  { "host": "host;other", "valid": false },
+  { "host": "höst", "valid": false }
+]

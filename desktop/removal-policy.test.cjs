@@ -3,6 +3,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { Backend } = require("./backend.cjs");
+const { WorkspaceCache } = require("./workspace-cache.cjs");
+const { scanOptions } = require("./protocol.cjs");
 const { execute, CommandError } = require("./process-runner.cjs");
 const {
   planRemoval,
@@ -153,7 +155,7 @@ test("nonzero CLI stdout preserves actionable legacy-lock failure through backen
             `process.stdout.write(${JSON.stringify(failure)});process.stderr.write('some worktrees could not be removed');process.exitCode=1;`,
           ]),
   });
-  backend.scan({ root: "/work" });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
   await backend.waitUntilIdle();
   const result = await backend.remove(selection(backend, [first]));
   assert.equal(result.results[0].removed, false);
@@ -179,7 +181,7 @@ test("same-path batch removes once then refreshes the remaining registration by 
       return args.includes("--target-only") ? report([missing]) : report();
     },
   });
-  backend.scan({ root: "/work" });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
   await backend.waitUntilIdle();
   const result = await backend.remove(selection(backend));
   assert.equal(result.results.length, 1);
@@ -213,7 +215,7 @@ test("failed cleanup and targeted inspection affect only the selected registrati
           : report();
       },
     });
-    backend.scan({ root: "/work" });
+    await backend.configureWorkspace({ root: "/work" }, async () => {});
     await backend.waitUntilIdle();
     const result = await backend.remove(selection(backend, [second]));
     assert.deepEqual(result.report.worktrees[0], first);
@@ -244,7 +246,7 @@ test("closing cleanup retains sibling registration as needing inspection, never 
           });
     },
   });
-  backend.scan({ root: "/work" });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
   await backend.waitUntilIdle();
   const removing = backend.remove(selection(backend));
   backend.requestClose({ finishCleanup: true });
@@ -254,4 +256,121 @@ test("closing cleanup retains sibling registration as needing inspection, never 
   assert.equal(result.report.worktrees.length, 1);
   assert.equal(result.report.worktrees[0].id, second.id);
   assert.equal(result.report.worktrees[0].retryInspection, true);
+});
+
+test("targeted retry drops an externally unregistered ID and updates other cached workspaces", async () => {
+  const cache = new WorkspaceCache();
+  const alternate = scanOptions({ root: "/", github: true });
+  cache.put(alternate, JSON.parse(report()));
+  const calls = [];
+  let inspectAttempts = 0;
+  const backend = new Backend({
+    cache,
+    run: async (args) => {
+      calls.push(args);
+      if (args.includes("--target-only")) {
+        inspectAttempts++;
+        if (inspectAttempts === 1)
+          throw new Error("temporary inspection failure");
+        return report([]);
+      }
+      return report();
+    },
+  });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
+  await backend.waitUntilIdle();
+  backend.inspectWorktree({
+    id: first.id,
+    revision: backend.getState().revision,
+  });
+  await backend.waitUntilIdle();
+  assert.equal(backend.getState().report.worktrees[0].retryInspection, true);
+  backend.inspectWorktree({
+    id: first.id,
+    revision: backend.getState().revision,
+  });
+  await backend.waitUntilIdle();
+  const state = backend.getState();
+  assert.equal(state.error, "");
+  assert.deepEqual(state.report.worktrees, [second]);
+  assert.deepEqual(cache.get(alternate).worktrees, [second]);
+  await backend.configureWorkspace(
+    scanOptions({ root: "/work" }),
+    async () => {},
+    { restore: true },
+  );
+  assert.equal(backend.getState().cached, true);
+  assert.deepEqual(backend.getState().report.worktrees, [second]);
+  assert.equal(
+    calls.length,
+    3,
+    "only initial scan and two targeted inspections run",
+  );
+});
+
+test("cleanup invalidates only its exact ID in other cached snapshots", async () => {
+  const cache = new WorkspaceCache();
+  const alternate = scanOptions({ root: "/", github: true });
+  cache.put(alternate, JSON.parse(report()));
+  const backend = new Backend({
+    cache,
+    run: async (args) =>
+      args[0] === "remove"
+        ? JSON.stringify({ path: first.path, removed: true })
+        : report([first]),
+  });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
+  await backend.waitUntilIdle();
+  await backend.remove(selection(backend, [first]));
+  assert.deepEqual(cache.get(alternate).worktrees, [second]);
+});
+
+test("outside-root selections are refused even when permissive flags are present", () => {
+  const state = {
+    revision: "snapshot",
+    report: JSON.parse(report([{ ...first, outsideRoot: true }])),
+  };
+  assert.throws(
+    () => planRemoval(state, { revision: "snapshot", items: [first] }),
+    /protected/,
+  );
+});
+
+test("wrong-path removal success does not remove the selected row or cached registration", async () => {
+  const cache = new WorkspaceCache();
+  const options = scanOptions({ root: "/work" });
+  const backend = new Backend({
+    cache,
+    run: async (args) =>
+      args[0] === "remove"
+        ? JSON.stringify({ path: "/other", removed: true })
+        : report([first]),
+  });
+  await backend.configureWorkspace(options, async () => {});
+  await backend.waitUntilIdle();
+  const result = await backend.remove(selection(backend, [first]));
+  assert.equal(result.results[0].removed, false);
+  assert.equal(result.results[0].error, "Arbor did not confirm removal");
+  assert.equal(result.report.worktrees[0].id, first.id);
+  assert.equal(cache.get(options).worktrees[0].id, first.id);
+});
+
+test("targeted inspection refuses matching ID returned at another physical path", async () => {
+  const backend = new Backend({
+    run: async (args) =>
+      report([
+        args.includes("--target-only") ? { ...first, path: "/other" } : first,
+      ]),
+  });
+  await backend.configureWorkspace({ root: "/work" }, async () => {});
+  await backend.waitUntilIdle();
+  backend.inspectWorktree({
+    id: first.id,
+    revision: backend.getState().revision,
+  });
+  await backend.waitUntilIdle();
+  const current = backend.getState().report.worktrees[0];
+  assert.equal(current.path, first.path);
+  assert.equal(current.retryInspection, true);
+  assert.match(current.inspectionError, /different identity/);
 });

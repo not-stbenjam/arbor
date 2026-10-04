@@ -24,6 +24,7 @@ export function createWorkspaceController({
     report: null,
     busy: false,
     error: "",
+    warning: "",
     root: "",
     host: "",
     revision: "",
@@ -42,6 +43,7 @@ export function createWorkspaceController({
     resettingPreferences = false;
   let clientError = "",
     dismissedError = "",
+    dismissedWarning = "",
     pollTimer,
     pollGeneration = 0;
   const setTimeout = (...args) => timers.setTimeout(...args),
@@ -109,6 +111,7 @@ export function createWorkspaceController({
     options = structuredClone(options);
     clientError = "";
     dismissedError = "";
+    dismissedWarning = "";
     const generation = ++pollGeneration;
     clearTimeout(pollTimer);
     const oldHost = state.host;
@@ -321,8 +324,13 @@ export function createWorkspaceController({
       const message = clientError || state.error || "";
       return message === dismissedError ? "" : message;
     },
+    get warning() {
+      return state.warning === dismissedWarning ? "" : state.warning;
+    },
     dismissError() {
-      dismissedError = clientError || state.error;
+      const error = clientError || state.error;
+      if (error && error !== dismissedError) dismissedError = error;
+      else dismissedWarning = state.warning;
       publish();
     },
     dispose() {

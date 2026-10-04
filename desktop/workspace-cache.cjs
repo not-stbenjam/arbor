@@ -154,14 +154,14 @@ class WorkspaceCache {
     this.persist();
   }
 
-  removePaths(host, paths) {
-    const removed = new Set(paths.map((value) => path.posix.normalize(value)));
+  removeIDs(host, ids) {
+    const removed = new Set(ids);
     for (const entry of this.entries.values()) {
       if (entry.options.host !== (host || "")) continue;
-      // Removing a parent checkout does not remove nested Git registrations.
-      // Their own entries remain reviewable, even if their folders are missing.
+      // Different repositories can register the same physical path. Only the
+      // confirmed identity is gone; all other registrations stay reviewable.
       entry.report.worktrees = entry.report.worktrees.filter(
-        (row) => !removed.has(path.posix.normalize(row.path)),
+        (row) => !removed.has(row.id),
       );
     }
     this.persist();

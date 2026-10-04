@@ -3,11 +3,8 @@
 const { randomUUID } = require("node:crypto");
 const os = require("node:os");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
-const {
-  planRemoval,
-  removalArguments,
-  removalFailure,
-} = require("./removal-policy.cjs");
+const { planRemoval } = require("./removal-policy.cjs");
+const { executeCleanupBatch } = require("./cleanup-batch.cjs");
 const { scanOptions, parseReport, progressEvent } = require("./protocol.cjs");
 const { execute, childEnvironment } = require("./process-runner.cjs");
 const MAX_PARTIAL_WORKTREES = 20000;
@@ -16,6 +13,7 @@ class Backend {
   #cache;
   #run;
   #partialPaths;
+  #partialIDs = new Map();
   #scanController;
   #targetInspectionController;
   #stopAfterCurrent;
@@ -49,6 +47,7 @@ class Backend {
       report: null,
       busy: false,
       error: "",
+      warning: "",
       root: this.#options.root,
       host: this.#options.host,
       options: { ...this.#options },
@@ -113,8 +112,8 @@ class Backend {
     this.assertInteractive();
     if (this.#state.setupRequired) return this.getState();
     return refresh
-      ? this.scan(this.#options)
-      : this.activateWorkspace(this.#options);
+      ? this.#scan(this.#options)
+      : this.#activateWorkspace(this.#options);
   }
 
   configureWorkspace(value, persist, { restore = false } = {}) {
@@ -126,19 +125,27 @@ class Backend {
     const options = scanOptions(value);
     this.#transition = "workspace";
     this.#transitionPending = (async () => {
+      let warning = "";
       try {
         if (this.#state.busy) {
           this.#cancelScan();
           await this.#pending;
         }
         if (this.#disposed) throw new Error("Arbor is closing");
-        await persist(structuredClone(options));
+        try {
+          await persist(structuredClone(options));
+        } catch (error) {
+          warning = `Could not save settings: ${String(error.message || error).slice(0, 1024)}. These choices will be used for this session.`;
+        }
         this.#options = options;
       } finally {
         this.#transition = null;
       }
       if (this.#disposed) return this.getState();
-      return restore ? this.activateWorkspace(options) : this.scan(options);
+      if (restore) await this.#activateWorkspace(options);
+      else this.#scan(options);
+      this.#state.warning = warning;
+      return this.getState();
     })();
     return this.#transitionPending;
   }
@@ -157,7 +164,7 @@ class Backend {
         this.#transition = null;
       }
       // Saving preferences must not launch a new subprocess after close.
-      return this.#disposed ? this.getState() : this.scan(options);
+      return this.#disposed ? this.getState() : this.#scan(options);
     })();
     return this.#transitionPending;
   }
@@ -200,7 +207,7 @@ class Backend {
     this.#disposed = true;
     this.#transitionController?.abort();
     for (const controller of this.#readers.keys()) controller.abort();
-    if (this.#operation === "remove") this.stopCleanupAfterCurrent();
+    if (this.#operation === "remove") this.#stopCleanupAfterCurrent();
     else {
       this.#scanController?.abort();
       this.#targetInspectionController?.abort();
@@ -266,16 +273,38 @@ class Backend {
           if (!this.#disposed && !this.#state.cancelRequested && event) {
             const { worktree, pending: _pending, ...status } = event;
             if (worktree) {
-              const index = this.#partialPaths.get(worktree.path);
-              if (index !== undefined)
+              // Registration identity is not a disk path: copied repositories
+              // can retain distinct registrations for the same checkout.
+              const provisional =
+                event.stage === "discovery" && !worktree.commonDir;
+              let index = this.#partialIDs.get(worktree.id);
+              if (index === undefined && !provisional) {
+                index = this.#partialPaths.get(worktree.path);
+                if (index != null) {
+                  this.#partialIDs.delete(
+                    this.#state.partialWorktrees[index].id,
+                  );
+                  this.#partialPaths.delete(worktree.path);
+                }
+              }
+              if (index != null) {
                 this.#state.partialWorktrees[index] = worktree;
-              else if (
+                this.#partialIDs.set(worktree.id, index);
+                if (
+                  !provisional &&
+                  this.#partialPaths.get(worktree.path) === index
+                )
+                  this.#partialPaths.delete(worktree.path);
+              } else if (
                 this.#state.partialWorktrees.length < MAX_PARTIAL_WORKTREES
               ) {
-                this.#partialPaths.set(
-                  worktree.path,
-                  this.#state.partialWorktrees.length,
-                );
+                index = this.#state.partialWorktrees.length;
+                this.#partialIDs.set(worktree.id, index);
+                if (provisional)
+                  this.#partialPaths.set(
+                    worktree.path,
+                    this.#partialPaths.has(worktree.path) ? null : index,
+                  );
                 this.#state.partialWorktrees.push(worktree);
               }
             }
@@ -289,9 +318,14 @@ class Backend {
     );
   }
 
+  #clearPartialIndexes() {
+    this.#partialPaths.clear();
+    this.#partialIDs.clear();
+  }
+
   #beginProgress(stage = "starting") {
     this.#state.partialWorktrees = [];
-    this.#partialPaths.clear();
+    this.#clearPartialIndexes();
     this.#state.progress = {
       stage,
       path: this.#options.root,
@@ -302,7 +336,7 @@ class Backend {
     };
   }
 
-  async activateWorkspace(value = {}) {
+  async #activateWorkspace(value = {}) {
     this.assertInteractive();
     if (this.#state.setupRequired)
       throw new Error("Complete setup before scanning");
@@ -316,9 +350,9 @@ class Backend {
     if (this.#disposed) throw new Error("Arbor is closing");
     if (this.#state.busy) throw new Error("An operation is already running");
     const report = this.#cache.get(options);
-    if (!report) return this.scan(options);
+    if (!report) return this.#scan(options);
     this.#options = options;
-    this.#partialPaths.clear();
+    this.#clearPartialIndexes();
     Object.assign(this.#state, {
       report,
       root: report.root,
@@ -326,6 +360,7 @@ class Backend {
       options: { ...options },
       busy: false,
       error: "",
+      warning: "",
       revision: randomUUID(),
       cached: true,
       progress: null,
@@ -337,7 +372,7 @@ class Backend {
     return this.getState();
   }
 
-  scan(value = {}) {
+  #scan(value = {}) {
     this.assertInteractive();
     if (this.#state.setupRequired)
       throw new Error("Complete setup before scanning");
@@ -347,6 +382,7 @@ class Backend {
       report: null,
       busy: true,
       error: "",
+      warning: "",
       root: this.#options.root,
       host: this.#options.host,
       revision: null,
@@ -387,7 +423,7 @@ class Backend {
         if (!this.#state.cancelled) {
           this.#state.progress = null;
           this.#state.partialWorktrees = [];
-          this.#partialPaths.clear();
+          this.#clearPartialIndexes();
         }
       });
     return this.getState();
@@ -410,12 +446,13 @@ class Backend {
   #resetState() {
     this.#options = scanOptions();
     this.#cache.clear();
-    this.#partialPaths.clear();
+    this.#clearPartialIndexes();
     this.#scanController = null;
     Object.assign(this.#state, {
       report: null,
       busy: false,
       error: "",
+      warning: "",
       root: this.#options.root,
       host: this.#options.host,
       options: { ...this.#options },
@@ -455,6 +492,17 @@ class Backend {
         (entry) => entry.id === row.id,
       );
       if (index < 0) return;
+      if (
+        !current &&
+        !report.worktrees.some((entry) => entry.path === row.path)
+      ) {
+        // An external Git removal can unregister the target between scans.
+        // Absence is not an inspection failure unless another identity now
+        // occupies this path; never replace that different registration.
+        this.#state.report.worktrees.splice(index, 1);
+        this.#cache.removeIDs(this.#options.host, [row.id]);
+        return;
+      }
       if (!current || current.path !== row.path)
         throw new Error(
           "Worktree registration changed; targeted inspection returned a different identity",
@@ -524,119 +572,82 @@ class Backend {
     return this.getState();
   }
 
+  async #reconcileRemoval(row, outcome) {
+    if (outcome.removed) {
+      this.#state.report.worktrees = this.#state.report.worktrees.filter(
+        (entry) => entry.id !== row.id,
+      );
+      this.#cache.removeIDs(this.#options.host, [row.id]);
+      for (const sibling of this.#state.report.worktrees.filter(
+        (entry) => entry.path === row.path,
+      ))
+        await this.#inspectAfterCleanup(sibling);
+      return;
+    }
+    const entry = this.#state.report.worktrees.find(
+      (item) => item.id === row.id,
+    );
+    if (!entry) return;
+    entry.lastRemovalError = outcome.error;
+    const inspectionError = await this.#inspectAfterCleanup(entry);
+    return inspectionError ? { inspectionError } : undefined;
+  }
+
+  async #inspectAfterCleanup(row) {
+    try {
+      if (this.#stopAfterCurrent || this.#disposed)
+        throw new Error("Inspection skipped while closing");
+      await this.#refreshTarget(row);
+    } catch (error) {
+      this.#markInspectionFailure(row, error);
+      return error.message;
+    }
+  }
+
   async remove(value, confirm) {
     this.assertInteractive();
     if (this.#state.busy) throw new Error("An operation is already running");
-    const { selected, discardLocal, recommendedOnly, confirmation } =
-      planRemoval(this.#state, value);
+    const plan = planRemoval(this.#state, value);
     this.#state.busy = true;
     this.#state.error = "";
     this.#operation = "remove";
     this.#stopAfterCurrent = false;
     this.#beginProgress("removing");
-    this.#state.progress.total = selected.length;
-    const options = { ...this.#options },
-      results = [],
-      statsSession = randomUUID();
-    const perform = async () => {
-      try {
-        if (
-          confirmation.length &&
-          (!confirm || !(await confirm(confirmation, { discardLocal })))
-        )
-          return {
-            cancelled: true,
-            results,
-            report: structuredClone(this.#state.report),
-            revision: this.#state.revision,
-          };
+    this.#state.progress.total = plan.selected.length;
+    const options = { ...this.#options };
+    this.#pending = executeCleanupBatch(plan, {
+      host: options.host,
+      run: this.#run,
+      confirm,
+      shouldStop: () => this.#stopAfterCurrent,
+      onBegin: () => {
         this.#state.revision = null;
-        for (const w of selected) {
-          if (this.#stopAfterCurrent) break;
-          this.#state.progress.path = w.path;
-          const args = removalArguments(w, {
-            host: options.host,
-            statsSession,
-            discardLocal,
-            recommendedOnly,
-          });
-          try {
-            const result = JSON.parse(await this.#run(args));
-            if (!result || result.path !== w.path || result.removed !== true)
-              throw new Error(result?.error || "Arbor did not confirm removal");
-            results.push({
-              path: w.path,
-              removed: true,
-              ...(typeof result.retainedBranch === "string" &&
-              result.retainedBranch
-                ? { retainedBranch: result.retainedBranch }
-                : {}),
-            });
-            this.#state.report.worktrees = this.#state.report.worktrees.filter(
-              (entry) => entry.id !== w.id,
-            );
-            this.#cache.removePaths(options.host, [w.path]);
-            for (const sibling of this.#state.report.worktrees.filter(
-              (entry) => entry.path === w.path,
-            )) {
-              try {
-                if (this.#stopAfterCurrent || this.#disposed)
-                  throw new Error("Inspection skipped while closing");
-                await this.#refreshTarget(sibling);
-              } catch (error) {
-                this.#markInspectionFailure(sibling, error);
-              }
-            }
-          } catch (error) {
-            const message = removalFailure(error, w.path);
-            const outcome = {
-              path: w.path,
-              removed: false,
-              error: message,
-            };
-            results.push(outcome);
-            const entry = this.#state.report.worktrees.find(
-              (item) => item.id === w.id,
-            );
-            if (entry) {
-              entry.lastRemovalError = message;
-              try {
-                if (this.#stopAfterCurrent)
-                  throw new Error("Inspection skipped while closing");
-                await this.#refreshTarget(entry);
-              } catch (inspectionError) {
-                this.#markInspectionFailure(entry, inspectionError);
-                outcome.inspectionError = inspectionError.message;
-              }
-            }
-          }
-          this.#state.progress.completed = results.length;
-        }
-        // Successful removals are already verified by the CLI. Preserve the
-        // untouched snapshot rather than starting another whole-disk scan.
-        this.#state.revision = randomUUID();
+      },
+      onProgress: (progress) => Object.assign(this.#state.progress, progress),
+      reconcile: (row, outcome) => this.#reconcileRemoval(row, outcome),
+    })
+      .then((result) => {
+        if (!result.cancelled) this.#state.revision = randomUUID();
         return {
-          results,
-          stopped: this.#stopAfterCurrent,
+          ...result,
           report: structuredClone(this.#state.report),
           revision: this.#state.revision,
-          error: this.#state.error,
+          ...(!result.cancelled ? { error: this.#state.error } : {}),
         };
-      } finally {
+      })
+      .finally(async () => {
         this.#cache.put(options, this.#state.report);
         await this.#cache.pending;
         this.#state.busy = false;
         this.#operation = null;
         this.#state.progress = null;
         this.#state.partialWorktrees = [];
-        this.#partialPaths.clear();
-      }
-    };
-    this.#pending = perform();
+        this.#clearPartialIndexes();
+      });
     return this.#pending;
   }
 
-  stopCleanupAfterCurrent() {
+  #stopCleanupAfterCurrent() {
     if (this.#operation !== "remove") throw new Error("No cleanup is running");
     this.#stopAfterCurrent = true;
     this.#targetInspectionController?.abort();

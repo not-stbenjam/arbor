@@ -2,6 +2,75 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const tree = require("./worktree-tree.js");
 const w = (path, extra = {}) => ({ id: path, path, canRemove: true, ...extra });
+test("same-path registrations retain identity in every view and folder action", () => {
+  const values = [
+    w("/work/shared", {
+      id: "original",
+      commonDir: "/repo/a",
+      branch: "zebra",
+      recommended: true,
+    }),
+    w("/work/shared", {
+      id: "copy",
+      commonDir: "/repo/b",
+      branch: "apple",
+      canRemove: false,
+    }),
+    w("/work/shared/nested", {
+      id: "nested",
+      commonDir: "/repo/b",
+      pending: true,
+    }),
+  ];
+  for (const [options, ids] of [
+    [{}, ["original", "copy", "nested"]],
+    [{ view: "recommended" }, ["original"]],
+    [{ repo: "/repo/b" }, ["copy", "nested"]],
+    [{ query: "apple" }, ["copy"]],
+  ]) {
+    const root = tree.build(tree.filter(values, options), "/work");
+    const rows = tree.flatten(root);
+    assert.deepEqual(
+      rows
+        .filter((row) => row.kind === "worktree")
+        .map((row) => row.worktree.id),
+      ids,
+    );
+    assert.deepEqual(
+      root.descendants.map((row) => row.id),
+      ids,
+    );
+    assert.deepEqual(
+      tree.folderWorktrees(rows, "/work").map((row) => row.id),
+      ids,
+    );
+    const collapsed = tree.flatten(root, new Set(["/work"]));
+    assert.equal(collapsed.length, 1);
+    assert.equal(collapsed[0].node.descendants.length, ids.length);
+  }
+  const root = tree.build(values, "/work");
+  const sorted = tree.flatten(root, new Set(), (a, b) =>
+    (a[0].branch || "").localeCompare(b[0].branch || ""),
+  );
+  assert.deepEqual(
+    sorted
+      .filter((row) => row.kind === "worktree")
+      .map((row) => row.worktree.id),
+    ["copy", "original", "nested"],
+  );
+  const cleanup = tree.cleanup(
+    tree.folderWorktrees(tree.flatten(root), "/work/shared"),
+    "/work/shared",
+  );
+  assert.deepEqual(
+    cleanup.removable.map((row) => row.id),
+    ["original"],
+  );
+  assert.deepEqual(
+    cleanup.kept.map((row) => row.id),
+    ["copy", "nested"],
+  );
+});
 test("physical tree includes ancestors and separates repositories from paths", () => {
   const root = tree.build(
     [

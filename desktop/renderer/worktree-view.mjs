@@ -7,7 +7,7 @@ import { icon, repoID, ago } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
 
 // Owns tree-only interaction state: filters, sorting, expansion and selection.
-// Backend revisions are reconciled by path; switching workspaces clears it.
+// Backend revisions reconcile registration IDs; switching workspaces clears it.
 export function createWorktreeView({
   document,
   workspace,
@@ -30,7 +30,6 @@ export function createWorktreeView({
   const collapsedDirectories = new Set();
   const items = () => workspace.items;
   const blocked = () => workspace.blocked;
-  const machineName = () => workspace.snapshot.host || "This computer";
   function renderControls() {
     $("#worktree-list")
       .querySelectorAll("[data-delete], [data-folder-delete]")
@@ -63,18 +62,6 @@ export function createWorktreeView({
     $("#all-count").textContent = list.length;
     $("#recommended-count").textContent = ready.length;
     $("#repo-count").textContent = repos.length;
-    $("#machine-label").textContent = machineName();
-    $("#machine-label").title = machineName();
-    $("#window-context").textContent = workspace.snapshot.host
-      ? `${workspace.snapshot.host} — Arbor`
-      : "Arbor";
-    $("#connection-label").textContent = workspace.snapshot.host
-      ? "SSH workspace"
-      : "Local workspace";
-    $("#version").textContent = workspace.snapshot.version || "";
-    const path = `${workspace.snapshot.host ? `${workspace.snapshot.host}:` : ""}${workspace.snapshot.root || "Home folder"}`;
-    $("#root-label").textContent = path;
-    $("#path-button").title = `Scan folder: ${path}`;
     const signature = JSON.stringify([repos, repo]);
     if (signature !== repoSignature) {
       $("#repo-list").innerHTML = renderRepositoryList(repos, repo);

@@ -84,6 +84,21 @@ func TestRemovalResultFailureKeepsTargetAndError(t *testing.T) {
 	}
 }
 
+func TestRemoteRemovalSuccessMustMatchRequestedPath(t *testing.T) {
+	w := worktree.Worktree{ID: "fixture", Path: "/remote/session", Head: strings.Repeat("a", 40), Branch: "topic", CanRemove: true}
+	for _, returnedPath := range []string{"/remote/other", ""} {
+		t.Run(returnedPath, func(t *testing.T) {
+			statsRemoteFixture(t, func(string) ([]byte, error) {
+				return json.Marshal(worktree.RemovalResult{Path: returnedPath, Removed: true, RetainedBranch: "other-target-branch"})
+			})
+			result, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "stats-fixture-vps", Worktree: w, Options: worktree.RemovalOptions{ExpectedHead: w.Head}})
+			if err == nil || result.Removed || result.Path != w.Path || result.Error != err.Error() || result.RetainedBranch != "" {
+				t.Fatalf("unbound success must not count as removal: %+v, %v", result, err)
+			}
+		})
+	}
+}
+
 func TestRemoteRemovalPreservesMissingAndEmptyConsent(t *testing.T) {
 	w := worktree.Worktree{ID: "confirmed-registration", Path: "/remote/session", CommonDir: "/remote/repo/.git", Head: strings.Repeat("a", 40), Branch: "topic", CanDiscard: true}
 	var sent string

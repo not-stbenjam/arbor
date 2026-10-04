@@ -42,7 +42,12 @@ class PreferencesStore {
     return this.#write((current) => ({
       ...current,
       theme: editable.theme,
-      hosts: editable.hosts,
+      hosts: editable.hosts.map((host) => {
+        const saved = current.hosts.find((entry) => entry.host === host.host);
+        // Editing a name/theme must not restore an older scan destination.
+        // Existing host roots, like local root history, belong to saveScan.
+        return saved ? { ...host, root: saved.root } : host;
+      }),
       // Scan choices, setup completion, and recent local roots have one writer.
     }));
   }

@@ -38,6 +38,8 @@ test("CLI, progress, and cache share worktree metadata validation", () => {
     { head: null },
     { blockers: [42] },
     { path: "/repo/\0bad" },
+    { path: "" },
+    { id: "" },
     { pr: { number: "1", merged: true } },
   ]) {
     const malformed = { ...row, ...mutation };

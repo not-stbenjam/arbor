@@ -41,7 +41,10 @@ test("workspace configuration persists once before scanning and restores without
     await saved.promise;
   });
   assert.equal(calls, 0);
-  assert.throws(() => backend.scan(options), /already running/);
+  assert.throws(
+    () => backend.configureWorkspace(options, async () => {}),
+    /already running/,
+  );
   saved.resolve();
   await configuring;
   await backend.waitUntilIdle();
@@ -59,7 +62,7 @@ test("workspace configuration persists once before scanning and restores without
   assert.equal(calls, 1, "workspace restore never triggers a healthy rescan");
 });
 
-test("failed workspace persistence leaves the current snapshot and scan options unchanged", async () => {
+test("failed workspace persistence warns but scans using the requested session options", async () => {
   let calls = 0;
   const backend = new Backend({
     run: async () => {
@@ -67,18 +70,52 @@ test("failed workspace persistence leaves the current snapshot and scan options 
       return report();
     },
   });
-  backend.scan(options);
+  await backend.configureWorkspace(options, async () => {});
   await backend.waitUntilIdle();
-  const before = backend.getState();
-  await assert.rejects(
-    backend.configureWorkspace({ root: "/other" }, async () => {
-      throw new Error("disk full");
-    }),
-    /disk full/,
+  await backend.configureWorkspace({ root: "/other" }, async () => {
+    throw new Error("disk full");
+  });
+  await backend.waitUntilIdle();
+  assert.equal(backend.getState().options.root, "/other");
+  assert.equal(backend.getState().error, "");
+  assert.match(
+    backend.getState().warning,
+    /Could not save settings: disk full/,
   );
-  assert.deepEqual(backend.getState(), before);
-  assert.equal(calls, 1);
+  assert.ok(backend.getState().report);
+  assert.equal(calls, 2);
   assert.doesNotThrow(() => backend.assertInteractive());
+  await backend.configureWorkspace(options, async () => {});
+  assert.equal(backend.getState().warning, "");
+  await backend.waitUntilIdle();
+});
+
+test("failed preference save still activates a cached host without rescanning", async () => {
+  let calls = 0;
+  const backend = new Backend({
+    run: async () => {
+      calls++;
+      return report();
+    },
+  });
+  const remote = { ...options, host: "vps" };
+  await backend.configureWorkspace(remote, async () => {});
+  await backend.waitUntilIdle();
+  await backend.configureWorkspace(options, async () => {});
+  await backend.waitUntilIdle();
+  const restored = await backend.configureWorkspace(
+    remote,
+    async () => {
+      throw new Error("read-only profile");
+    },
+    { restore: true },
+  );
+  assert.equal(calls, 2);
+  assert.equal(restored.host, "vps");
+  assert.equal(restored.cached, true);
+  assert.equal(restored.error, "");
+  assert.match(restored.warning, /read-only profile/);
+  assert.equal(restored.report.worktrees.length, 1);
 });
 
 test("closing while workspace preferences persist waits without starting a new subprocess", async () => {
@@ -118,7 +155,10 @@ test("setup owns persistence and close cannot launch a subprocess after saving",
     value.root = "/mutated-copy";
     await saved.promise;
   });
-  assert.throws(() => backend.scan(options), /Setup is being saved/);
+  assert.throws(
+    () => backend.configureWorkspace(options, async () => {}),
+    /Setup is being saved/,
+  );
   assert.throws(
     () => backend.completeSetup(options, async () => {}),
     /Setup is being saved/,
@@ -171,14 +211,17 @@ test("cancelling reset preserves a running scan and its existing workspace", asy
       return scan.promise;
     },
   });
-  backend.scan(options);
+  await backend.configureWorkspace(options, async () => {});
   const reset = backend.resetPreferences(
     () => confirmation.promise,
     async () => {
       persisted = true;
     },
   );
-  assert.throws(() => backend.scan(options), /already running/);
+  assert.throws(
+    () => backend.configureWorkspace(options, async () => {}),
+    /already running/,
+  );
   confirmation.resolve(false);
   assert.equal((await reset).cancelled, true);
   assert.equal(aborted, false);
@@ -205,7 +248,7 @@ test("confirmed reset stops a scan, persists before clearing, and reopens setup 
       );
     },
   });
-  backend.scan(options);
+  await backend.configureWorkspace(options, async () => {});
   const reset = backend.resetPreferences(
     async () => true,
     async () => {
@@ -215,7 +258,10 @@ test("confirmed reset stops a scan, persists before clearing, and reopens setup 
     },
   );
   await saveStarted.promise;
-  assert.throws(() => backend.scan(options), /already running/);
+  assert.throws(
+    () => backend.configureWorkspace(options, async () => {}),
+    /already running/,
+  );
   assert.deepEqual(backend.requestClose(), { action: "wait" });
   saving.resolve();
   const result = await reset;
@@ -242,7 +288,7 @@ test("reopen waits for scan cancellation and a newer close cancels pending reope
       return scan.promise;
     },
   });
-  backend.scan(options);
+  await backend.configureWorkspace(options, async () => {});
   assert.deepEqual(backend.requestClose(), { action: "wait" });
   assert.equal(aborted, true);
   const reopening = backend.reopen();
@@ -272,7 +318,7 @@ test("cleanup close requires consent, finishes only the current item, and restor
         : current.promise;
     },
   });
-  backend.scan(options);
+  await backend.configureWorkspace(options, async () => {});
   await backend.waitUntilIdle();
   const cleanup = backend.remove({
     revision: backend.getState().revision,
@@ -292,7 +338,10 @@ test("cleanup close requires consent, finishes only the current item, and restor
   assert.deepEqual(backend.requestClose({ finishCleanup: true }), {
     action: "wait",
   });
-  assert.throws(() => backend.scan(options), /closing/);
+  assert.throws(
+    () => backend.configureWorkspace(options, async () => {}),
+    /closing/,
+  );
   current.resolve(JSON.stringify({ path: row.path, removed: true }));
   const removed = await cleanup;
   await backend.waitUntilIdle();
@@ -315,7 +364,7 @@ test("closing during native removal consent cannot start the selected deletion",
       return report();
     },
   });
-  backend.scan(options);
+  await backend.configureWorkspace(options, async () => {});
   await backend.waitUntilIdle();
   const cleanup = backend.remove(
     {

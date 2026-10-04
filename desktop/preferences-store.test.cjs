@@ -92,3 +92,51 @@ test("failed atomic writes preserve state and do not poison the persistence queu
   assert.equal(store.get().scan.root, "/saved");
   assert.deepEqual((await PreferencesStore.open(filename)).get(), store.get());
 });
+
+test("stale editable preferences cannot overwrite a host's newer scan root", async (t) => {
+  const filename = fixture(t);
+  const store = await PreferencesStore.open(filename);
+  await store.saveScan(
+    { host: "vps", root: "~/old" },
+    { setupCompleted: true },
+  );
+  const stale = store.get();
+  await Promise.all([
+    store.saveScan({ host: "vps", root: "~/current" }),
+    store.saveEditable({
+      ...stale,
+      theme: "dark",
+      hosts: [{ ...stale.hosts[0], name: "My VPS" }],
+    }),
+  ]);
+  const value = store.get();
+  assert.equal(value.theme, "dark");
+  assert.deepEqual(value.hosts, [
+    { host: "vps", name: "My VPS", root: "~/current" },
+  ]);
+  assert.equal(value.scan.root, "~/current");
+  assert.deepEqual((await PreferencesStore.open(filename)).get(), value);
+  await store.saveEditable({ ...value, hosts: [] });
+  assert.deepEqual(
+    store.get().hosts,
+    [],
+    "explicit forgetting still removes a host",
+  );
+});
+
+test("local root history is bounded, recent-first and deduplicated across saves", async (t) => {
+  const store = await PreferencesStore.open(fixture(t));
+  for (let index = 0; index < 10; index++)
+    await store.saveScan({ root: `/project-${index}` });
+  await store.saveScan({ root: "/project-5" });
+  assert.deepEqual(store.get().roots, [
+    "/project-5",
+    "/project-9",
+    "/project-8",
+    "/project-7",
+    "/project-6",
+    "/project-4",
+    "/project-3",
+    "/project-2",
+  ]);
+});
