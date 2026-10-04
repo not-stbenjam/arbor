@@ -62,46 +62,71 @@ func discover(ctx context.Context, root string, excluded func(string) bool, prog
 			lastUpdate = time.Now()
 		}
 	}
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	// Read each directory once and detect bare-repository markers in those
+	// entries. Probing path/HEAD with Stat in every directory adds a syscall
+	// for every folder in a home directory, including non-repository folders.
+	stack := []string{root}
+	for len(stack) > 0 {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return paths, warnings, ctx.Err()
 		}
+		path := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if excluded(path) {
+			continue
+		}
+		update(path, false)
+		entries, err := os.ReadDir(path)
 		if err != nil {
 			if path == root {
-				return err
+				return paths, warnings, err
 			}
 			if len(warnings) < 100 {
 				warnings = append(warnings, fmt.Sprintf("Cannot read %s: %v", path, err))
 			}
-			return nil
+			continue
 		}
-		// The marker belongs to its parent worktree, not to a separate scan
-		// directory. Detect it even when a broad glob would exclude .git;
-		// otherwise '*' would hide the deliberately selected root repository.
-		if d.Name() == ".git" {
-			found(filepath.Dir(path))
-			if d.IsDir() {
-				return filepath.SkipDir
+		var marker, head, objects bool
+		for _, entry := range entries {
+			if ctx.Err() != nil {
+				return paths, warnings, ctx.Err()
 			}
-			return nil
-		}
-		if d.IsDir() && excluded(path) {
-			return filepath.SkipDir
-		}
-		// Bare repositories do not have a .git marker.
-		if d.IsDir() {
-			update(path, false)
-			if _, err := os.Stat(filepath.Join(path, "HEAD")); err == nil {
-				if st, err := os.Stat(filepath.Join(path, "objects")); err == nil && st.IsDir() && gitText(ctx, path, "rev-parse", "--is-bare-repository") == "true" {
-					found(path)
-					return filepath.SkipDir
+			switch entry.Name() {
+			case ".git":
+				marker = true
+			case "HEAD":
+				head = true
+			case "objects":
+				objects = entry.IsDir()
+				if entry.Type()&os.ModeSymlink != 0 {
+					info, err := os.Stat(filepath.Join(path, "objects"))
+					objects = err == nil && info.IsDir()
 				}
 			}
 		}
-		return nil
-	})
+		if head && objects && gitText(ctx, path, "rev-parse", "--is-bare-repository") == "true" {
+			found(path)
+			continue
+		}
+		if marker {
+			// .git identifies this directory, not an independently excludable
+			// child. A '*' rule must not hide an explicitly selected root.
+			found(path)
+		}
+		// Reverse pushes retain WalkDir's lexical discovery order. Never follow
+		// symlinks or skip a checkout's other directories: nested repos count.
+		for i := len(entries) - 1; i >= 0; i-- {
+			if ctx.Err() != nil {
+				return paths, warnings, ctx.Err()
+			}
+			entry := entries[i]
+			if entry.IsDir() && entry.Name() != ".git" {
+				stack = append(stack, filepath.Join(path, entry.Name()))
+			}
+		}
+	}
 	update(root, true)
-	return paths, warnings, err
+	return paths, warnings, nil
 }
 
 func Scan(ctx context.Context, options Options) (Report, error) {
@@ -130,12 +155,26 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		return Report{}, fmt.Errorf("Git 2.36 or newer is required (found %s)", strings.TrimSpace(gitVersion))
 	}
 	report := Report{Root: root, ScannedAt: start, Worktrees: []Worktree{}, Warnings: []string{}, GitHub: options.GitHub, Fetched: options.Fetch}
-	paths, warnings, err := discover(ctx, root, excluded, options.Progress)
+	paths := []string{root}
+	var warnings []string
+	if !options.TargetOnly {
+		progress := options.Progress
+		if options.LinkedOnly && progress != nil {
+			progress = func(event Progress) {
+				// A .git marker alone cannot classify the checkout as linked.
+				// Wait for Git's registered worktree list before showing rows.
+				event.Worktree = nil
+				options.Progress(event)
+			}
+		}
+		paths, warnings, err = discover(ctx, root, excluded, progress)
+	}
 	if err != nil {
 		return report, err
 	}
 	report.Warnings = append(report.Warnings, warnings...)
 	seen := map[string]bool{}
+	registeredPaths := map[string]bool{}
 	notify := func(stage, path string, completed, total int) {
 		if options.Progress != nil {
 			options.Progress(Progress{Stage: stage, Path: path, Discovered: len(paths), Completed: completed, Total: total})
@@ -144,6 +183,9 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 	for _, path := range paths {
 		if ctx.Err() != nil {
 			return report, ctx.Err()
+		}
+		if registeredPaths[path] {
+			continue
 		}
 		common := gitText(ctx, path, "rev-parse", "--path-format=absolute", "--git-common-dir")
 		if common == "" {
@@ -174,11 +216,15 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		entries := parseList(raw)
 		for i := range entries {
 			w := &entries[i]
+			registeredPaths[w.Path] = true
+			w.Main = i == 0
+			if (options.TargetOnly && w.Path != root) || (options.LinkedOnly && (w.Main || w.Bare)) {
+				continue
+			}
 			if excluded(w.Path) {
 				continue
 			}
 			w.CommonDir = common
-			w.Main = i == 0
 			w.Repo = filepath.Base(filepath.Dir(common))
 			if w.Main && w.Bare {
 				w.Repo = strings.TrimSuffix(filepath.Base(common), ".git")
@@ -201,6 +247,12 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 	var wg sync.WaitGroup
 	var progressMu sync.Mutex
 	completed := 0
+	defaults := map[string]*repositoryDefault{}
+	for _, w := range report.Worktrees {
+		if defaults[w.CommonDir] == nil {
+			defaults[w.CommonDir] = &repositoryDefault{}
+		}
+	}
 	notify("inspect", root, 0, len(report.Worktrees))
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
@@ -213,7 +265,7 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 				progressMu.Lock()
 				notify("inspect", report.Worktrees[index].Path, completed, len(report.Worktrees))
 				progressMu.Unlock()
-				inspect(ctx, &report.Worktrees[index], options)
+				inspectWithDefault(ctx, &report.Worktrees[index], options, defaults[report.Worktrees[index].CommonDir])
 				if ctx.Err() != nil {
 					return
 				}
@@ -255,6 +307,17 @@ dispatch:
 }
 
 func inspect(ctx context.Context, w *Worktree, options Options) {
+	inspectWithDefault(ctx, w, options, nil)
+}
+
+// Scan shares ref lookup only within its snapshot. Removal calls inspect with
+// no cache, so all deletion decisions continue to use fresh repository state.
+type repositoryDefault struct {
+	once sync.Once
+	ref  string
+}
+
+func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defaultCache *repositoryDefault) {
 	w.Blockers = []string{}
 	w.Problems = []string{}
 	w.PublishedRefs = []string{}
@@ -331,36 +394,47 @@ func inspect(ctx context.Context, w *Worktree, options Options) {
 	if w.Ignored {
 		block("Ignored files on disk (may include local secrets or build output)")
 	}
-	flags, err := git(ctx, w.Path, "ls-files", "-v", "-z")
+	index, err := git(ctx, w.Path, "ls-files", "-v", "--stage", "-z")
 	if err != nil {
 		block("Cannot verify index flags")
-	} else {
-		for _, line := range strings.Split(flags, "\x00") {
-			if len(line) > 0 && (line[0] == 'S' || (line[0] >= 'a' && line[0] <= 'z')) {
-				block("Sparse or assume-unchanged index entries")
-				break
-			}
-		}
-	}
-	stages, err := git(ctx, w.Path, "ls-files", "--stage", "-z")
-	if err != nil {
 		block("Cannot verify submodules")
 	} else {
-		for _, entry := range strings.Split(stages, "\x00") {
-			if strings.HasPrefix(entry, "160000 ") {
-				block("Contains submodules")
-				break
+		var sparse, submodules bool
+		for _, line := range strings.Split(index, "\x00") {
+			if len(line) > 0 && (line[0] == 'S' || (line[0] >= 'a' && line[0] <= 'z')) {
+				sparse = true
+			}
+			if len(line) >= 2 && strings.HasPrefix(line[2:], "160000 ") {
+				submodules = true
 			}
 		}
+		if sparse {
+			block("Sparse or assume-unchanged index entries")
+		}
+		if submodules {
+			block("Contains submodules")
+		}
 	}
-	for _, name := range []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"} {
-		p := gitText(ctx, w.Path, "rev-parse", "--path-format=absolute", "--git-path", name)
-		if _, err := os.Stat(p); err == nil {
-			block("Git operation in progress")
-			break
+	metadata, err := gitPaths(ctx, w.Path, []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "HEAD", "index", "logs/HEAD"})
+	if err != nil {
+		block("Cannot locate Git metadata")
+		w.Problems = append(w.Problems, err.Error())
+	} else {
+		for _, p := range metadata[:6] {
+			if _, err := os.Stat(p); err == nil {
+				block("Git operation in progress")
+				break
+			}
 		}
 	}
 	measure(ctx, w, block)
+	if len(metadata) == 9 {
+		for _, path := range metadata[6:] {
+			if st, err := os.Stat(path); err == nil && st.ModTime().After(w.ActivityAt) {
+				w.ActivityAt = st.ModTime()
+			}
+		}
+	}
 	w.Upstream = gitText(ctx, w.Path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
 	if w.Upstream != "" {
 		counts := strings.Fields(gitText(ctx, w.Path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}"))
@@ -376,7 +450,12 @@ func inspect(ctx context.Context, w *Worktree, options Options) {
 		}
 	}
 	w.Published = len(w.PublishedRefs) > 0
-	w.DefaultRef = defaultRef(ctx, w.Path)
+	if defaultCache == nil {
+		w.DefaultRef = defaultRef(ctx, w.Path)
+	} else {
+		defaultCache.once.Do(func() { defaultCache.ref = defaultRef(ctx, w.Path) })
+		w.DefaultRef = defaultCache.ref
+	}
 	if w.DefaultRef != "" {
 		_, err := git(ctx, w.Path, "merge-base", "--is-ancestor", w.Head, w.DefaultRef)
 		w.Merged = err == nil
@@ -399,6 +478,7 @@ func inspect(ctx context.Context, w *Worktree, options Options) {
 	}
 	w.CanRemove = len(w.Blockers) == 0 && len(w.Problems) == 0
 	w.Recommended = w.CanRemove && w.Merged
+	annotateDiscard(w)
 }
 
 func defaultRef(ctx context.Context, path string) string {
@@ -459,11 +539,5 @@ func measure(ctx context.Context, w *Worktree, block func(string)) {
 	if err != nil {
 		block("Cannot inspect every file")
 		w.Problems = append(w.Problems, err.Error())
-	}
-	for _, name := range []string{"HEAD", "index", "logs/HEAD"} {
-		path := gitText(ctx, w.Path, "rev-parse", "--path-format=absolute", "--git-path", name)
-		if st, err := os.Stat(path); err == nil && st.ModTime().After(w.ActivityAt) {
-			w.ActivityAt = st.ModTime()
-		}
 	}
 }

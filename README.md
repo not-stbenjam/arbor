@@ -4,7 +4,7 @@
 <p align="center">macOS · Linux · Desktop app + portable CLI · Local and SSH hosts</p>
 <p align="center"><a href="https://github.com/not-stbenjam/arbor/actions/workflows/ci.yml"><img src="https://github.com/not-stbenjam/arbor/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="https://github.com/not-stbenjam/arbor/releases">Download</a> · <a href="#build-from-source">Build from source</a></p>
 
-Arbor finds the Git worktrees scattered across your machine and brings them into a focused desktop workspace. Inspect the repository, branch, commit, recent activity, working-directory state, disk usage, and whether work has reached a remote or been merged. Remove a finished worktree in one click, or clean up a list of low-risk recommendations.
+Arbor finds linked Git worktrees and lets you delete them. See where they live, which branch they contain, and when they were last active. Delete one checkout or a folder's worktrees. Ordinary repository checkouts are not listed as cleanup items.
 
 The desktop app uses Electron with a native window, system typography, compact controls, and a Go backend. It loads its interface from the app bundle, communicates with the backend through a narrow local bridge, and does not start a web server or open a browser. The same inspection and cleanup engine is available as a small standalone CLI. No account or hosted service is required. Fetching and GitHub checks are optional.
 
@@ -65,7 +65,9 @@ Every release includes `arbor_VERSION_checksums.txt` with SHA-256 hashes for bot
 
 ## Scanning
 
-Arbor discovers Git repositories beneath your chosen folder, lists their registered worktrees, then checks Git status, merge/push evidence, file sizes, and activity. A projects folder is usually faster than your entire home folder. Optional fetching and GitHub verification add network work.
+Arbor discovers Git repositories beneath your chosen folder and lists their linked worktrees. Both the GUI and CLI omit primary checkouts and bare repositories by default. Ordinary repositories are used to find linked checkouts, but are not themselves fully inspected. A projects folder is usually faster than your entire home folder. Optional fetching and GitHub verification add network work.
+
+The desktop groups worktrees by their actual directories. Each row shows its path, branch, repository, last activity, and size. Delete a row or use a folder's Delete action for its descendant worktrees. Folder deletion removes only the listed worktrees, not the parent folder or unrelated files. Right-click a row to copy its path, open it in Finder/a file manager, or open a local terminal. Local opening actions are unavailable for SSH worktrees.
 
 The desktop shows worktrees as they are found, with pending checks, the current scan stage and path, elapsed time, and completed counts. Cleanup stays disabled until the complete scan has passed its checks. **Stop scan** cancels the current scan and leaves incomplete results visible; scan again before removing anything.
 
@@ -73,7 +75,7 @@ Setup and **Workspace settings** include editable exclusions. Defaults skip dire
 
 Enter one directory name, path, or glob pattern per line. Patterns are case-sensitive: `*` matches characters within a directory name, `?` matches one character, `[abc]` or `[a-z]` matches a character class, and a whole `**` path component matches zero or more directory levels. A single-name pattern matches directories anywhere below the selected root; a relative path pattern is anchored to that root, and an absolute or `~/` pattern is anchored to that machine's filesystem or home folder. Matching a directory excludes its subtree. Use `~/.codex*/.tmp` to skip temporary folders under both `.codex` and alternate Codex home names; use `**/build` for build folders at any depth. Backslash escapes a literal wildcard. Brace expansion and `!` negation rules are not supported. The explicitly selected root itself is always scanned. Clear the list to disable exclusions.
 
-Exclusions also omit registered worktrees in excluded subtrees. They never skip file checks during deletion: ignored files, local changes, and other blockers remain protected. SSH exclusions are resolved on the remote machine.
+Exclusions also omit registered worktrees in excluded subtrees. They never skip file checks during deletion. SSH exclusions are resolved on the remote machine.
 
 **Settings** stays pinned below the scrolling repository list. To start over, choose **Settings → Reset to defaults…** and confirm. Arbor stops any active scan, clears its saved settings and scan results, and reopens setup. It does not delete repositories, worktrees, or SSH configuration. Reset is unavailable while worktree cleanup is running.
 
@@ -108,7 +110,12 @@ arbor clean --path "$HOME/git"
 arbor clean --path "$HOME/git" --fetch --github --yes
 
 # Remove an eligible worktree; its local branch is retained.
+arbor remove -- /absolute/path/to/worktree  # preview, including local-file warnings
 arbor remove --yes -- /absolute/path/to/worktree
+
+# Delete all linked worktrees beneath a folder, including unmerged/local work.
+arbor clean --path /absolute/path/to/old-sessions --all       # preview
+arbor clean --path /absolute/path/to/old-sessions --all --yes # execute
 arbor version
 ```
 
@@ -132,9 +139,13 @@ Both macOS and Linux support ARM64 and x86-64. Git must be installed remotely; i
 
 Recommendations require evidence of a merge and a fully inspected, removable worktree. Arbor checks ancestry against the default branch and can query GitHub PR metadata when enabled. Remote-tracking refs are local snapshots: **Published** means a remote-tracking ref contains the current commit; it does not prove the remote currently has it. Use **Fetch** to refresh refs and **GitHub** to query PR status. Failed network checks do not count as merge evidence.
 
-Removal uses Git's worktree removal command and retains the branch. Arbor checks the target again immediately before deletion and refuses a changed commit. Primary worktrees, default/protected branches, dirty or untracked files, ignored files, locked worktrees, detached HEADs, nested repositories, submodules, sparse/assume-unchanged indexes, in-progress Git operations, and incomplete inspections block cleanup. Ignored files can include `.env` files as well as build output, so Arbor protects them too.
+Manual Delete can remove linked worktrees with local changes, ignored files, a Git lock, a detached HEAD, or a default branch checkout. The desktop shows one confirmation with the selected paths and any local-file disposal warning. The CLI shows a preview unless `--yes` is supplied; `arbor remove --yes` confirms disposal of that checkout's local files. `arbor clean` removes only recommendations unless `--all` is explicitly supplied. `--keep-local` makes a manual CLI removal refuse local-file disposal.
 
-The app provides one-click removal for eligible worktrees and recommendations. The CLI defaults to a preview unless `--yes` is supplied. Deleted checkouts are not moved to Trash; the retained branch can be checked out again with `git worktree add PATH BRANCH`.
+Removal uses Git's worktree removal command and retains named branches. Detached commits are saved on an `arbor/retained/…` recovery branch. Arbor checks the exact target again before deletion, including its commit and branch. It never deletes primary repositories or follows a changed path. Nested repositories, submodules, sparse indexes, in-progress Git operations, and unreadable/incomplete checkouts still require resolving the specific problem reported by Git or Arbor.
+
+Successful deletions disappear from the existing list immediately; cleanup does not launch a new full scan. A failed deletion stays visible with its error. Refresh is explicit. Quitting cancels a scan; during deletion, Arbor can finish the current worktree and quit without starting the remaining deletions.
+
+Deleted checkouts are not moved to Trash. Committed work can be checked out again with `git worktree add PATH BRANCH`; discarded uncommitted, untracked, and ignored files cannot be recovered through Git.
 
 **Last activity** is estimated from the commit, worktree file modification times, and Git metadata. **Disk usage** counts regular checkout files, not shared Git objects, and is not an exact promise of reclaimed space. Discovery does not follow directory symlinks. Permission problems and incomplete scans are reported.
 

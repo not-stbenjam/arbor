@@ -14,6 +14,8 @@
       '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01m4-11h6m-6 11h6"/>',
     chevrons: '<path d="m8 9 4-4 4 4m-8 6 4 4 4-4"/>',
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+    "chevron-right": '<path d="m9 6 6 6-6 6"/>',
+    more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
     "check-circle": '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
     shield:
       '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>',
@@ -108,12 +110,11 @@
     view = "all",
     repo = "",
     search = "",
-    sort = "activity",
-    descending = true;
+    sort = "path",
+    descending = false;
   let selection = new Set(),
     anchor = "",
     cursor = "",
-    inspector = false,
     connected = false,
     removing = false,
     clientError = "",
@@ -121,7 +122,6 @@
   let pollTimer,
     rowSignature = "",
     repoSignature = "",
-    detailSignature = "",
     visible = [],
     desiredFetch = false,
     desiredGitHub = false,
@@ -131,7 +131,11 @@
     setupSubmitting = false,
     resettingPreferences = false,
     pollGeneration = 0;
-  const items = () => state.report?.worktrees || state.partialWorktrees || [];
+  const tree = window.ArborTree;
+  const collapsedDirectories = new Set();
+  let directoryRows = [];
+  const items = () =>
+    tree.linked(state.report?.worktrees || state.partialWorktrees || []);
   const blocked = () =>
     !connected ||
     state.busy ||
@@ -184,40 +188,6 @@
   };
   const sizeOf = (list) =>
     list.reduce((n, w) => n + Math.max(0, w.sizeBytes || 0), 0);
-  const badge = (text, color = "", symbol = "") =>
-    `<span class="badge${color ? ` badge-${color}` : ""}">${symbol ? icon(symbol) : ""}${esc(text)}</span>`;
-  function badges(w) {
-    if (w.pending)
-      return `<span class="badge badge-pending">${icon(state.cancelled ? "info" : "refresh", state.cancelled ? "" : "spinning")}${state.cancelled ? "Not checked" : "Checking…"}</span>`;
-    const result = [];
-    if (w.main) result.push(badge("Main", "", "lock"));
-    else if (w.bare) result.push(badge("Bare"));
-    else if (w.locked) result.push(badge("Locked", "", "lock"));
-    else if (w.merged) result.push(badge("Merged", "green", "merge"));
-    if (w.dirty) result.push(badge(`${w.changedFiles || 1} changed`, "orange"));
-    else if (w.ignored) result.push(badge("Ignored files", "orange"));
-    if (w.githubState === "verified")
-      result.push(
-        badge(
-          w.pr?.merged ? `PR #${w.pr.number}` : "GitHub",
-          "purple",
-          "check",
-        ),
-      );
-    else if (w.published && !w.main)
-      result.push(
-        badge(
-          state.report?.fetched ? "Pushed" : "Pushed · cached",
-          "",
-          "cloud",
-        ),
-      );
-    else if (!w.published && !w.main && !w.bare && !w.locked)
-      result.push(badge("Push unverified"));
-    if (w.missing) result.push(badge("Missing", "orange"));
-    if (w.outsideRoot) result.push(badge("Outside scan"));
-    return result.join("");
-  }
   function notify(message, error = false) {
     const el = document.createElement("div");
     el.className = `toast${error ? " error" : ""}`;
@@ -341,22 +311,18 @@
     $("#cleanup-button").disabled =
       disabled || !state.revision || !ready.length;
     $("#cleanup-button").innerHTML =
-      `${icon(removing ? "refresh" : "cleanup", removing ? "spinning" : "")}<span>${removing ? "Removing…" : `Clean up${ready.length ? ` (${ready.length})` : ""}`}</span>`;
+      `${icon(removing ? "refresh" : "cleanup", removing ? "spinning" : "")}<span>${removing ? "Deleting…" : `Delete merged${ready.length ? ` (${ready.length})` : ""}`}</span>`;
     $("#cleanup-button").title =
       `Remove ${ready.length} recommended worktrees on ${machineName()} and reclaim ${size(sizeOf(ready))}. Branches are kept.`;
-    document.querySelectorAll("[data-remove]").forEach((b) => {
-      const w = items().find((w) => w.id === b.dataset.remove);
-      b.disabled = disabled || !state.revision || !w?.canRemove || !!w?.pending;
-    });
+    document
+      .querySelectorAll("[data-delete], [data-folder-delete]")
+      .forEach((b) => {
+        b.disabled = disabled || !state.revision;
+      });
     $("#selection-bar").hidden = selection.size < 2;
     $("#selection-label").textContent = `${selection.size} worktrees selected`;
     $("#remove-selected").disabled =
-      disabled ||
-      !selection.size ||
-      !state.revision ||
-      items()
-        .filter((w) => selection.has(w.id))
-        .some((w) => !w.canRemove);
+      disabled || !selection.size || !state.revision;
   }
   function render() {
     const list = items(),
@@ -377,9 +343,6 @@
     );
     $("#all-count").textContent = list.length;
     $("#recommended-count").textContent = ready.length;
-    $("#protected-count").textContent = list.filter(
-      (w) => !w.canRemove && !w.pending,
-    ).length;
     $("#repo-count").textContent = repos.length;
     $("#machine-label").textContent = machineName();
     $("#machine-label").title = machineName();
@@ -422,7 +385,6 @@
       : {
           all: "All worktrees",
           recommended: "Recommended",
-          protected: "Protected",
         }[view];
     $("#view-title").textContent = title;
     $("#recommendation-note").hidden = view !== "recommended";
@@ -453,40 +415,75 @@
     renderError();
     renderProgress();
     renderRows();
-    renderInspector();
     renderControls();
   }
   function renderRows() {
     const query = search.trim().toLowerCase();
-    visible = items().filter(
+    const filtered = items().filter(
       (w) =>
         (!repo || repoID(w) === repo) &&
         (view !== "recommended" || w.recommended) &&
-        (view !== "protected" || (!w.canRemove && !w.pending)) &&
         (!query ||
-          [w.branch, w.repo, w.path, w.head, w.subject].some((v) =>
-            (v || "").toLowerCase().includes(query),
+          [w.path, w.branch, w.repo, w.head, w.subject].some((value) =>
+            (value || "").toLowerCase().includes(query),
           )),
     );
-    visible.sort((a, b) => {
-      let compare =
-        sort === "branch"
-          ? branchName(a).localeCompare(branchName(b))
-          : sort === "repo"
-            ? (a.repo || "").localeCompare(b.repo || "") ||
-              branchName(a).localeCompare(branchName(b))
-            : sort === "size"
-              ? (a.sizeBytes || 0) - (b.sizeBytes || 0)
-              : (parsedDate(a.activityAt)?.valueOf() || 0) -
-                (parsedDate(b.activityAt)?.valueOf() || 0);
-      return compare * (descending ? -1 : 1);
-    });
-    $("#visible-count").textContent = visible.length;
-    document.querySelectorAll("[data-sort]").forEach((b) => {
-      b.parentElement.classList.toggle("sorted", b.dataset.sort === sort);
-      b.parentElement.setAttribute(
+    const directoryTree = tree.build(
+      filtered,
+      state.report?.root || state.root,
+    );
+    const value = (descendants) =>
+      sort === "size"
+        ? sizeOf(descendants)
+        : sort === "activity"
+          ? Math.max(
+              ...descendants.map(
+                (w) => parsedDate(w.activityAt)?.valueOf() || 0,
+              ),
+            )
+          : sort === "branch"
+            ? branchName(descendants[0])
+            : sort === "repo"
+              ? descendants[0].repo || ""
+              : descendants[0].path;
+    const compare = (a, b) => {
+      if (sort === "path") return 0;
+      const left = value(a),
+        right = value(b);
+      return (
+        (typeof left === "number" ? left - right : left.localeCompare(right)) *
+        (descending ? -1 : 1)
+      );
+    };
+    directoryRows = tree.flatten(
+      directoryTree,
+      query ? new Set() : collapsedDirectories,
+      sort === "path" && !descending ? undefined : compare,
+    );
+    if (sort === "path" && descending && directoryTree) {
+      const reverse = (node) => {
+        node.children.reverse();
+        node.children.forEach(reverse);
+      };
+      reverse(directoryTree);
+      directoryRows = tree.flatten(
+        directoryTree,
+        query ? new Set() : collapsedDirectories,
+      );
+    }
+    visible = directoryRows
+      .filter((entry) => entry.kind === "worktree")
+      .map((entry) => entry.worktree);
+    $("#visible-count").textContent = filtered.length;
+    $("#tree-sort").value = sort;
+    document.querySelectorAll("[data-sort]").forEach((button) => {
+      button.parentElement.classList.toggle(
+        "sorted",
+        button.dataset.sort === sort,
+      );
+      button.parentElement.setAttribute(
         "aria-sort",
-        b.dataset.sort === sort
+        button.dataset.sort === sort
           ? descending
             ? "descending"
             : "ascending"
@@ -494,74 +491,68 @@
       );
     });
     const signature = JSON.stringify([
-      visible,
+      filtered,
       sort,
       descending,
       view,
       search,
       repo,
-      state.report?.fetched,
+      [...collapsedDirectories],
       state.busy,
       connected,
       removing,
       state.cancelled,
-      visible.map((w) => ago(w.activityAt)),
+      state.revision,
+      filtered.map((w) => ago(w.activityAt)),
     ]);
     if (signature === rowSignature) {
       renderSelection();
       return;
     }
     rowSignature = signature;
-    $("#empty-state").hidden = visible.length > 0;
-    if (!visible.length) {
+    $("#empty-state").hidden = filtered.length > 0;
+    if (!filtered.length) {
       const loading = state.busy || (!connected && !clientError);
-      let heading = loading
-        ? "Scanning workspace…"
+      const heading = loading
+        ? "Finding linked worktrees…"
         : !items().length
-          ? "No worktrees found"
+          ? "No linked worktrees found"
           : "No matching worktrees";
-      let text = loading
-        ? state.host
-          ? "Connecting over SSH and preparing the remote CLI."
-          : "Discovering Git repositories and their worktrees."
+      const description = loading
+        ? "Worktree folders appear here as they are discovered."
         : !items().length
-          ? "Choose a folder containing Git repositories to get started."
-          : "Try another search or select a different view.";
-      if (view === "recommended" && items().length && !query && !repo) {
-        heading = "No cleanup recommended";
-        text =
-          "Worktrees appear here when they are clean and their commits are already merged.";
-      }
+          ? "Choose a folder containing linked Git worktrees. Ordinary repository checkouts are not included."
+          : "Try another search or repository.";
       $("#empty-state").innerHTML =
-        `${icon(loading ? "refresh" : "trees", loading ? "spinning" : "")}<h2>${heading}</h2><p>${text}</p>${!loading && !items().length ? '<button class="button" data-open-settings>Choose scan folder</button>' : ""}`;
+        `${icon(loading ? "refresh" : "folder", loading ? "spinning" : "")}<h2>${heading}</h2><p>${description}</p>${!loading && !items().length ? '<button class="button" data-open-settings>Choose scan folder</button>' : ""}`;
     }
+    const indentation = (depth) =>
+      '<span class="tree-indent" aria-hidden="true"></span>'.repeat(
+        Math.min(depth, 12),
+      );
     const scroll = $("#table-scroll").scrollTop;
-    $("#worktree-list").innerHTML = visible
-      .map(
-        (w) =>
-          `<tr class="worktree-row${selection.has(w.id) ? " selected" : ""}" data-id="${esc(w.id)}" aria-selected="${selection.has(w.id)}"><td class="branch-cell"><div class="branch-cell-inner">${icon(w.main ? "folder" : w.merged ? "merge" : "branch", w.merged && !w.main ? "merged-icon" : "")}<div class="branch-copy"><span class="branch-name" title="${esc(branchName(w))}">${esc(branchName(w))}</span><span class="branch-commit">${esc((w.head || "").slice(0, 7))}</span></div></div></td><td class="repo-cell" title="${esc(w.commonDir)}">${esc(w.repo)}</td><td class="status-cell"><div class="badges">${badges(w)}</div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${size(w.sizeBytes)}</td><td class="action-cell"><button class="icon-button row-delete" data-remove="${esc(w.id)}" ${blocked() || !w.canRemove ? "disabled" : ""} aria-label="Remove ${esc(branchName(w))}" title="${esc(w.canRemove ? "Remove worktree; retain branch" : [...(w.blockers || []), ...(w.problems || [])].join("; ") || "Protected worktree")}">${icon(w.canRemove ? "trash" : "lock")}</button></td></tr>`,
-      )
+    $("#worktree-list").innerHTML = directoryRows
+      .map((entry) => {
+        if (entry.kind === "directory") {
+          const node = entry.node;
+          const all = tree.descendants(items(), node.path);
+          const expanded = !!query || !collapsedDirectories.has(node.path);
+          const count =
+            all.length === node.descendants.length
+              ? `${all.length} ${all.length === 1 ? "worktree" : "worktrees"}`
+              : `${node.descendants.length} of ${all.length} shown`;
+          return `<tr class="directory-row" data-directory-path="${esc(node.path)}" aria-level="${entry.depth + 1}" aria-expanded="${expanded}"><td colspan="3" class="directory-cell"><div class="directory-line">${indentation(entry.depth)}<button class="directory-toggle" data-toggle-directory="${esc(node.path)}" aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${esc(node.path)}">${icon(expanded ? "chevron-down" : "chevron-right")}${icon("folder")}<span title="${esc(node.path)}">${esc(entry.depth === 0 ? node.path : node.name)}</span></button><span class="directory-count">${count}</span></div></td><td class="action-cell"><button class="row-action folder-delete" data-folder-delete="${esc(node.path)}" title="Delete linked worktrees under ${esc(node.path)}; keep this folder" ${blocked() || !state.revision ? "disabled" : ""}>Delete…</button></td></tr>`;
+        }
+        const w = entry.worktree;
+        const context = w.pending
+          ? state.cancelled
+            ? "Scan incomplete"
+            : "Checking…"
+          : `${branchName(w)}${w.repo ? ` · ${w.repo}` : ""}`;
+        return `<tr class="worktree-row${selection.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" aria-level="${entry.depth + 1}" aria-selected="${selection.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}" aria-label="${esc(w.path)}"><span class="path-parent">${esc(tree.parent(w.path).replace(/\/$/, "") + "/")}</span><span class="path-leaf">${esc(w.path.split("/").filter(Boolean).pop())}</span></span><span class="worktree-context" title="${esc(context)}">${esc(context)}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${blocked() || !state.revision ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
+      })
       .join("");
     $("#table-scroll").scrollTop = scroll;
-    for (const w of visible.filter((w) => w.pending)) {
-      const row = document.querySelector(
-        `.worktree-row[data-id="${CSS.escape(w.id)}"]`,
-      );
-      row.classList.add("pending-row");
-      row.querySelector(".branch-commit").textContent = state.cancelled
-        ? "Inspection incomplete"
-        : "Checking metadata…";
-      row.querySelector(".size-cell").textContent = "—";
-      const button = row.querySelector("[data-remove]");
-      button.innerHTML = icon(
-        state.cancelled ? "info" : "refresh",
-        state.cancelled ? "" : "spinning",
-      );
-      button.title = state.cancelled
-        ? "Scan again to complete inspection"
-        : "Inspection in progress";
-      button.setAttribute("aria-label", `Checking ${branchName(w)}`);
-    }
     renderControls();
   }
   function renderSelection() {
@@ -569,53 +560,6 @@
       row.classList.toggle("selected", selection.has(row.dataset.id));
       row.setAttribute("aria-selected", String(selection.has(row.dataset.id)));
     });
-  }
-  function renderInspector() {
-    $("#inspector").hidden = !inspector;
-    document.body.classList.toggle("inspector-open", inspector);
-    $("#inspector-button").setAttribute("aria-pressed", String(inspector));
-    if (!inspector) return;
-    const w = items().find((w) => selection.has(w.id));
-    const signature = JSON.stringify([
-      w,
-      state.host,
-      state.report?.fetched,
-      blocked(),
-      selection.size,
-      state.revision,
-      state.cancelled,
-    ]);
-    if (signature === detailSignature) return;
-    detailSignature = signature;
-    const header = `<div class="inspector-header"><span>Worktree details</span><button class="icon-button" data-close-inspector aria-label="Close details">${icon("close")}</button></div>`;
-    if (!w || selection.size !== 1) {
-      $("#inspector-content").innerHTML =
-        `${header}<div class="inspector-empty">${icon("info")}${selection.size > 1 ? `${selection.size} worktrees selected.<br>Select one to inspect its metadata.` : "Select a worktree to inspect its metadata and cleanup status."}</div>`;
-      return;
-    }
-    if (w.pending) {
-      $("#inspector-content").innerHTML =
-        `${header}<div class="inspector-body"><h2 class="inspector-branch">${icon("branch")}<span>${esc(branchName(w))}</span></h2><div class="inspector-path"><code>${esc(w.path)}</code></div><p class="detail-note">${icon(state.cancelled ? "info" : "refresh", state.cancelled ? "" : "spinning")}<span>${state.cancelled ? "The scan stopped before inspection finished. Scan again to check this worktree." : "Checking this worktree. Commit, change, merge, and push information will appear as inspection finishes."}</span></p></div>`;
-      return;
-    }
-    const github =
-      {
-        not_checked: "Not checked",
-        no_pr: "No matching PR",
-        not_github: "No GitHub remote",
-        unavailable: "Could not verify",
-        verified: "Verified",
-      }[w.githubState] || "Not checked";
-    const push =
-      w.githubState === "verified"
-        ? "Exact commit verified on GitHub"
-        : w.published
-          ? `Commit found in ${state.report?.fetched ? "fetched" : "cached"} remote references`
-          : "Commit not verified on a remote";
-    const detailRow = (label, value) =>
-      `<div class="detail-row"><span>${label}</span><span>${esc(value)}</span></div>`;
-    $("#inspector-content").innerHTML =
-      `${header}<div class="inspector-body"><h2 class="inspector-branch">${icon("branch")}<span>${esc(branchName(w))}</span></h2><p class="inspector-repo">${esc(w.repo)} · ${esc(machineName())}</p><div class="badges">${badges(w)}</div><div class="inspector-path"><code>${esc(w.path)}</code><button class="icon-button" data-copy="${esc(w.path)}" title="Copy path" aria-label="Copy worktree path">${icon("copy")}</button></div><section class="inspector-section"><h3>Activity</h3>${detailRow("Last active", ago(w.activityAt))}${detailRow("Disk space", size(w.sizeBytes))}${detailRow("Changed files", w.changedFiles || 0)}<p class="detail-note">Latest observed commit, Git activity, or file change. ${esc(fullDate(w.activityAt))}.</p></section><section class="inspector-section"><h3>Latest commit</h3><p class="detail-commit">${esc(w.subject || "No commit information")}</p><div class="detail-hash">${esc(w.head)}</div>${detailRow("Author", w.author || "Unknown")}${detailRow("Committed", fullDate(w.commitAt))}</section><section class="inspector-section"><h3>Remote & merge status</h3>${detailRow("Upstream", w.upstream || "Not configured")}${w.upstream ? detailRow("Tracking", `${w.ahead} ahead · ${w.behind} behind`) : ""}${detailRow("GitHub", github)}<p class="detail-note">${icon("cloud")}<span>${esc(push)}.</span></p>${(w.publishedRefs || []).length ? `<p class="detail-hash">${esc(w.publishedRefs.join(", "))}</p>` : ""}<p class="detail-note">${icon(w.merged ? "check-circle" : "info")}<span>${esc(w.merged ? w.mergeReason || "Commits are merged" : `Not verified merged${w.defaultRef ? ` into ${w.defaultRef}` : ""}`)}.</span></p>${w.pr ? `<button class="detail-link" data-external="${esc(w.pr.url)}">#${w.pr.number} ${esc(w.pr.title)} ${icon("external")}</button><p class="detail-note">${esc(w.pr.state)}</p>` : ""}</section><section class="inspector-section"><h3>Cleanup</h3>${w.recommended ? `<p class="detail-note">${icon("check-circle")}<span>Recommended: clean, merged, and safe to remove. The branch is retained.</span></p>` : ""}${(w.blockers || []).map((s) => `<p class="detail-note warning">${icon("shield")}<span>${esc(s)}</span></p>`).join("")}${(w.problems || []).map((s) => `<p class="detail-note warning">${icon("warning")}<span>${esc(s)}</span></p>`).join("")}${w.canRemove && !w.recommended ? '<p class="detail-note">Not recommended for automatic cleanup. Review unmerged commits before removing.</p>' : ""}<button class="button button-danger inspector-remove" data-remove="${esc(w.id)}" ${blocked() || !w.canRemove ? "disabled" : ""}>${icon("trash")}Remove worktree</button></section></div>`;
   }
   function scanProgressText() {
     const p = state.progress || {};
@@ -874,17 +818,22 @@
       : prefs.roots[0] || "";
     scan({ root, host, github: false, fetch: false });
   }
-  async function remove(list, recommendedOnly) {
+  async function remove(list, recommendedOnly, options = {}) {
     if (blocked() || !state.revision || !list.length) return;
     const revision = state.revision;
     removing = true;
     clientError = "";
+    pollGeneration++;
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(poll, 350);
     renderControls();
     try {
       const result = await window.arbor.remove({
         items: list.map((w) => ({ id: w.id, head: w.head })),
         recommendedOnly,
         revision,
+        discardLocal: options.discardLocal === true,
+        forceConfirm: options.forceConfirm === true,
       });
       if (Object.hasOwn(result, "report")) state.report = result.report;
       if (Object.hasOwn(result, "revision")) state.revision = result.revision;
@@ -893,7 +842,7 @@
         failed = (result.results || []).filter((r) => !r.removed);
       if (removed.length) {
         notify(
-          `Removed ${removed.length} ${removed.length === 1 ? "worktree" : "worktrees"}. Branches retained.`,
+          `Deleted ${removed.length} ${removed.length === 1 ? "worktree folder" : "worktree folders"}.`,
         );
         const removedPaths = new Set(removed.map((r) => r.path));
         for (const w of list)
@@ -908,8 +857,58 @@
     } catch (error) {
       showError(error.message);
     } finally {
+      // A progress poll may still contain busy=true. Settle from the backend
+      // after remove resolves, and discard every poll from the old operation.
+      pollGeneration++;
+      clearTimeout(pollTimer);
+      try {
+        updateState(await window.arbor.getState());
+      } catch (error) {
+        connected = false;
+        showError(`Could not refresh Arbor after deletion: ${error.message}`);
+      }
       removing = false;
       render();
+      pollTimer = setTimeout(poll, state.busy ? 700 : 3000);
+    }
+  }
+  function explainKept(kept, append = false) {
+    if (!kept.length) return;
+    const explanation = kept
+      .map(
+        (w) =>
+          `${w.path}: ${(w.blockers || []).concat(w.problems || []).join("; ") || (w.pending ? "Scan again to finish checking this worktree." : "This directory cannot be deleted as a linked worktree.")}`,
+      )
+      .join("\n");
+    showError(
+      append && clientError ? `${clientError}\n${explanation}` : explanation,
+    );
+  }
+  async function deleteWorktrees(selected) {
+    if (blocked() || !state.revision || !selected.length) return;
+    const kept = selected.filter(
+      (w) => w.pending || (!w.canRemove && !w.canDiscard),
+    );
+    const eligible = selected.filter(
+      (w) => !w.pending && (w.canRemove || w.canDiscard),
+    );
+    if (!eligible.length) {
+      explainKept(kept);
+      return;
+    }
+    await remove(eligible, false, {
+      forceConfirm: true,
+      discardLocal: eligible.some((w) => !w.canRemove && w.canDiscard),
+    });
+    explainKept(kept, true);
+  }
+  async function showWorktreeMenu(id) {
+    const worktree = items().find((w) => w.id === id);
+    if (!worktree) return;
+    try {
+      await window.arbor.showWorktreeMenu({ id, revision: state.revision });
+    } catch (error) {
+      notify(error.message, true);
     }
   }
   function selectRow(id, event) {
@@ -932,7 +931,6 @@
       anchor = id;
     }
     renderSelection();
-    renderInspector();
     renderControls();
     $("#worktree-list").focus({ preventScroll: true });
   }
@@ -961,14 +959,23 @@
         }
         renderRows();
       }
-      if (button.dataset.remove) {
-        const w = items().find((w) => w.id === button.dataset.remove);
-        if (w) remove([w], w.recommended);
+      if (button.dataset.toggleDirectory) {
+        const path = button.dataset.toggleDirectory;
+        if (collapsedDirectories.has(path)) collapsedDirectories.delete(path);
+        else collapsedDirectories.add(path);
+        renderRows();
+        document
+          .querySelector(`[data-toggle-directory="${CSS.escape(path)}"]`)
+          ?.focus({ preventScroll: true });
       }
-      if (button.hasAttribute("data-close-inspector")) {
-        inspector = false;
-        renderInspector();
+      if (button.dataset.folderDelete)
+        deleteWorktrees(tree.descendants(items(), button.dataset.folderDelete));
+      if (button.dataset.delete) {
+        const w = items().find((w) => w.id === button.dataset.delete);
+        if (w) deleteWorktrees([w]);
       }
+      if (button.dataset.worktreeMenu)
+        showWorktreeMenu(button.dataset.worktreeMenu);
       if (button.dataset.host !== undefined) switchHost(button.dataset.host);
       if (button.dataset.forgetHost) {
         prefs.hosts = prefs.hosts.filter(
@@ -977,31 +984,32 @@
         savePrefs();
         openMachines();
       }
-      if (button.dataset.copy)
-        window.arbor
-          .copyText(button.dataset.copy)
-          .then(() => notify("Path copied."))
-          .catch((e) => notify(e.message, true));
-      if (button.dataset.external)
-        window.arbor
-          .openExternal(button.dataset.external)
-          .catch((e) => notify(e.message, true));
       if (button.hasAttribute("data-open-settings")) openSettings();
       return;
     }
     const row = event.target.closest("[data-id]");
     if (row) selectRow(row.dataset.id, event);
   });
-  $("#worktree-list").addEventListener("dblclick", (event) => {
-    if (event.target.closest("button")) return;
+  $("#worktree-list").addEventListener("contextmenu", (event) => {
     const row = event.target.closest("[data-id]");
-    if (row) {
-      selection = new Set([row.dataset.id]);
-      inspector = true;
-      render();
-    }
+    if (!row) return;
+    event.preventDefault();
+    if (!selection.has(row.dataset.id)) selectRow(row.dataset.id, event);
+    showWorktreeMenu(row.dataset.id);
   });
   $("#worktree-list").addEventListener("keydown", (event) => {
+    const directoryButton = event.target.closest("[data-toggle-directory]");
+    if (directoryButton && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      event.preventDefault();
+      const path = directoryButton.dataset.toggleDirectory;
+      if (event.key === "ArrowLeft") collapsedDirectories.add(path);
+      else collapsedDirectories.delete(path);
+      renderRows();
+      document
+        .querySelector(`[data-toggle-directory="${CSS.escape(path)}"]`)
+        ?.focus({ preventScroll: true });
+      return;
+    }
     if (event.target.closest("button")) return;
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
@@ -1022,11 +1030,13 @@
         )
         ?.scrollIntoView({ block: "nearest" });
     }
-    if (event.key === "Enter") {
+    if (
+      event.key === "Enter" ||
+      event.key === "ContextMenu" ||
+      (event.shiftKey && event.key === "F10")
+    ) {
       event.preventDefault();
-      inspector = true;
-      renderInspector();
-      renderControls();
+      if (cursor) showWorktreeMenu(cursor);
     }
     if ((event.metaKey || event.ctrlKey) && event.key === "a") {
       event.preventDefault();
@@ -1039,6 +1049,11 @@
     selection.clear();
     render();
   };
+  $("#tree-sort").onchange = (event) => {
+    sort = event.target.value;
+    descending = ["activity", "size"].includes(sort);
+    renderRows();
+  };
   $("#refresh-button").onclick = refresh;
   $("#cleanup-button").onclick = () =>
     remove(
@@ -1047,15 +1062,7 @@
     );
   $("#remove-selected").onclick = () => {
     const selected = items().filter((w) => selection.has(w.id));
-    remove(
-      selected,
-      selected.every((w) => w.recommended),
-    );
-  };
-  $("#inspector-button").onclick = () => {
-    inspector = !inspector;
-    renderInspector();
-    renderControls();
+    deleteWorktrees(selected);
   };
   $("#settings-button").onclick = openSettings;
   $("#scan-options-button").onclick = openSettings;
@@ -1142,6 +1149,17 @@
       openSetup();
       return;
     }
+    if (action && typeof action === "object") {
+      if (action.type === "worktree-remove") {
+        if (!action.revision || action.revision !== state.revision) {
+          notify("The scan changed. Try deleting the worktree again.", true);
+          return;
+        }
+        const w = items().find((w) => w.id === action.id);
+        if (w) deleteWorktrees([w]);
+      }
+      return;
+    }
     if (action === "refresh") refresh();
     if (action === "settings") openSettings();
     if (action === "focus-search") {
@@ -1192,13 +1210,13 @@
       view = "all";
       repo = "";
       search = "";
-      sort = "activity";
-      descending = true;
+      sort = "path";
+      descending = false;
+      collapsedDirectories.clear();
       $("#search").value = "";
       selection.clear();
       anchor = "";
       cursor = "";
-      inspector = false;
       clientError = "";
       dismissedError = "";
       setupStep = 1;

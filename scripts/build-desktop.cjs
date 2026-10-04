@@ -82,6 +82,7 @@ if (!process.argv.includes("--prepare")) {
         "desktop/common/**/*",
         "package.json",
         "!desktop/**/*.test.cjs",
+        "!desktop/common/**/*.test.cjs",
         "!desktop/smoke-test.cjs",
       ],
       extraResources: [

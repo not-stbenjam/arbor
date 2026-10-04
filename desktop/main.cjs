@@ -14,6 +14,8 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
+const { spawn } = require("node:child_process");
+const { menuTarget, terminalCommand } = require("./worktree-menu.cjs");
 const { pathToFileURL } = require("node:url");
 const {
   Backend,
@@ -31,6 +33,9 @@ let window,
   resetPending = false,
   quitAfterRemoval = false,
   quitDialog = false;
+let removalConfirmation;
+let closingScan = false,
+  quitAfterScan = false;
 let preferenceWrite = Promise.resolve();
 const rendererPath = path.join(__dirname, "renderer", "index.html");
 const rendererURL = pathToFileURL(rendererPath).href;
@@ -175,6 +180,92 @@ function handle(channel, handler) {
 
 function registerIPC() {
   handle("arbor:get-state", () => backend.getState());
+  handle("arbor:worktree-menu", (value) => {
+    guardReset();
+    const target = menuTarget(backend.state, value);
+    const current = () => {
+      guardReset();
+      const next = menuTarget(backend.state, value);
+      if (next.path !== target.path || next.host !== target.host)
+        throw new Error("The worktree list changed; try the menu again");
+      return next;
+    };
+    const click = (action) => () => {
+      Promise.resolve()
+        .then(() => action(current()))
+        .catch((error) => {
+          if (window && !window.isDestroyed())
+            void dialog.showMessageBox(window, {
+              type: "error",
+              title: "Worktree action unavailable",
+              message: error.message,
+            });
+        });
+    };
+    const localLabel = target.host ? " (local worktrees only)" : "";
+    const terminal = target.local
+      ? terminalCommand(process.platform, target.path, findExecutable)
+      : null;
+    Menu.buildFromTemplate([
+      {
+        label: "Copy Path",
+        click: click((row) => clipboard.writeText(row.path)),
+      },
+      { type: "separator" },
+      {
+        label:
+          (process.platform === "darwin"
+            ? "Reveal in Finder"
+            : "Show in File Manager") + localLabel,
+        enabled: target.local,
+        click: click(async (row) => {
+          await localDirectory(row);
+          shell.showItemInFolder(row.path);
+        }),
+      },
+      {
+        label: "Open Folder" + localLabel,
+        enabled: target.local,
+        click: click(async (row) => {
+          await localDirectory(row);
+          const error = await shell.openPath(row.path);
+          if (error) throw new Error(error);
+        }),
+      },
+      {
+        label:
+          "Open in Terminal" +
+          localLabel +
+          (target.local && !terminal ? " (not installed)" : ""),
+        enabled: !!terminal,
+        click: click(async (row) => {
+          await localDirectory(row);
+          const command = terminalCommand(
+            process.platform,
+            row.path,
+            findExecutable,
+          );
+          if (!command) throw new Error("No supported terminal is installed");
+          await launchTerminal(command);
+        }),
+      },
+      { type: "separator" },
+      {
+        label: "Delete Worktree…",
+        enabled: target.removable,
+        click: click((row) => {
+          if (!row.removable)
+            throw new Error("The worktree is no longer available for deletion");
+          sendAction({
+            type: "worktree-remove",
+            id: row.id,
+            revision: row.revision,
+          });
+        }),
+      },
+    ]).popup({ window });
+    return true;
+  });
   handle("arbor:cancel-scan", () => {
     guardReset();
     return backend.cancelScan();
@@ -204,22 +295,40 @@ function registerIPC() {
   });
   handle("arbor:remove", async (selection) => {
     guardReset();
-    const result = await backend.remove(selection, async (trees) => {
-      const response = await dialog.showMessageBox(window, {
-        type: "warning",
-        title: "Remove worktree?",
-        message:
-          trees.length === 1
-            ? `Remove “${trees[0].branch}”?`
-            : `Remove ${trees.length} worktrees?`,
-        detail: `These worktrees are not verified cleanup recommendations. Their folders will be removed; Git branches and commits will be retained.\n\n${trees.map((w) => w.path).join("\n")}`,
-        buttons: ["Cancel", "Remove Worktree" + (trees.length > 1 ? "s" : "")],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
-      });
-      return response.response === 1;
-    });
+    const result = await backend.remove(
+      selection,
+      async (trees, { discardLocal }) => {
+        removalConfirmation = new AbortController();
+        try {
+          const response = await dialog.showMessageBox(window, {
+            signal: removalConfirmation.signal,
+            type: "warning",
+            title: discardLocal
+              ? "Discard local data and remove?"
+              : "Remove worktree?",
+            message:
+              trees.length === 1
+                ? `Remove “${trees[0].branch}”?`
+                : `Remove ${trees.length} worktrees?`,
+            detail: discardLocal
+              ? `Local changes, untracked files, and ignored files will be permanently deleted. Git branches and commits are retained.\n\n${trees.map((w) => `${w.path}\n${(w.discardWarnings || []).join("\n")}`).join("\n\n")}`
+              : `The selected worktree folders will be deleted. Git branches and commits are retained.\n\n${trees.map((w) => w.path).join("\n")}`,
+            buttons: [
+              "Cancel",
+              discardLocal
+                ? "Discard & Remove"
+                : "Remove Worktree" + (trees.length > 1 ? "s" : ""),
+            ],
+            defaultId: 0,
+            cancelId: 0,
+            noLink: true,
+          });
+          return response.response === 1;
+        } finally {
+          removalConfirmation = null;
+        }
+      },
+    );
     if (quitAfterRemoval) setImmediate(() => app.quit());
     return result;
   });
@@ -302,16 +411,57 @@ function registerIPC() {
     await shell.openExternal(url.href);
     return true;
   });
-  handle("arbor:copy-text", (value) => {
+  handle("arbor:copy-text", async (value) => {
     if (typeof value !== "string" || value.length > 1024 * 1024)
       throw new Error("Invalid clipboard text");
-    clipboard.writeText(value);
+    await clipboard.writeText(value);
     return true;
   });
 }
 
 function guardReset() {
   if (resetPending) throw new Error("Arbor reset is in progress");
+}
+
+async function localDirectory(target) {
+  if (!target.local || target.host)
+    throw new Error("This action is only available for local worktrees");
+  const info = await fsp.stat(target.path);
+  if (!info.isDirectory())
+    throw new Error("The worktree directory no longer exists");
+}
+
+function findExecutable(name) {
+  for (const directory of (childEnvironment().PATH || "").split(
+    path.delimiter,
+  )) {
+    if (!path.isAbsolute(directory)) continue;
+    const binary = path.join(directory, name);
+    try {
+      fs.accessSync(binary, fs.constants.X_OK);
+      if (fs.statSync(binary).isFile()) return binary;
+    } catch {
+      /* Try the next PATH directory. */
+    }
+  }
+  return null;
+}
+
+function launchTerminal(command) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command.binary, command.args, {
+      cwd: command.cwd,
+      env: childEnvironment(),
+      shell: false,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
 }
 
 function savePreferences(nextValue) {
@@ -332,28 +482,54 @@ function savePreferences(nextValue) {
   return preferenceWrite;
 }
 
-function guardQuit(event) {
+function guardQuit(event, applicationQuit = false) {
+  if (backend?.operation === "scan") {
+    event.preventDefault();
+    quitAfterScan ||= applicationQuit;
+    if (!closingScan) {
+      closingScan = true;
+      backend.dispose();
+      const finishClose = () => {
+        closingScan = false;
+        if (quitAfterScan) app.quit();
+        else if (window && !window.isDestroyed()) window.close();
+      };
+      backend.pending.then(finishClose, finishClose);
+    }
+    return;
+  }
   if (backend?.operation !== "remove") {
     backend?.dispose();
     return;
   }
   event.preventDefault();
+  if (removalConfirmation) {
+    quitAfterRemoval = true;
+    backend.stopCleanupAfterCurrent();
+    removalConfirmation.abort();
+    backend.pending.finally(() => app.quit());
+    return;
+  }
   if (quitDialog || quitAfterRemoval) return;
   quitDialog = true;
   dialog
     .showMessageBox(window, {
       type: "info",
       title: "Cleanup is running",
-      message: "Wait for cleanup to finish before quitting.",
-      detail: "Arbor is preserving the result of your worktree cleanup.",
-      buttons: ["Keep Arbor Open", "Quit When Finished"],
+      message: "Finish the current worktree, then quit?",
+      detail:
+        "Arbor will finish the one worktree currently being removed, leave the remaining worktrees untouched, and quit without rescanning.",
+      buttons: ["Keep Arbor Open", "Finish Current & Quit"],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
     })
     .then(({ response }) => {
       quitAfterRemoval = response === 1;
-      if (quitAfterRemoval && backend.operation !== "remove") app.quit();
+      if (quitAfterRemoval) {
+        if (backend.operation === "remove") backend.stopCleanupAfterCurrent();
+        backend.pending.finally(() => app.quit());
+      }
     })
     .finally(() => {
       quitDialog = false;
@@ -528,20 +704,6 @@ if (process.env.ARBOR_SMOKE_TEST === "1") {
           throw new Error(
             `Renderer reported an error: ${consoleErrors.join("; ") || "error banner visible"}`,
           );
-        if (
-          process.env.ARBOR_SMOKE_INSPECTOR === "1" &&
-          state.report.worktrees.length
-        ) {
-          await win.webContents.executeJavaScript(
-            `document.querySelector('.worktree-row')?.click(); document.querySelector('#inspector-button')?.click()`,
-          );
-          if (
-            !(await win.webContents.executeJavaScript(
-              `document.querySelector('#inspector').hidden === false`,
-            ))
-          )
-            throw new Error("Worktree inspector did not open");
-        }
         if (process.env.ARBOR_SMOKE_SCREENSHOT) {
           win.setContentSize(1240, 800);
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -564,7 +726,7 @@ if (process.env.ARBOR_SMOKE_TEST === "1") {
 }
 
 app.setName("Arbor");
-app.on("before-quit", guardQuit);
+app.on("before-quit", (event) => guardQuit(event, true));
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });

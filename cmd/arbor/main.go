@@ -43,14 +43,17 @@ List options:
   --exclude GLOB    Skip a directory name, path, or glob (repeatable; quote patterns)
   --no-default-excludes  Scan without the default cache/temp exclusions
   --recommended     Only show cleanup recommendations
+  --linked-only     Only linked worktrees (default: true)
 
 Cleanup options:
   --yes             Perform removal (otherwise preview only)
   --json            Machine-readable result
+  --all             With clean: include unmerged worktrees and local files
 
 Remove options:
   --head COMMIT     Require this exact commit
   --recommended-only  Require a fresh cleanup recommendation
+  --discard-local  Explicitly delete local files in a linked worktree (requires --yes)
 
 Examples:
   arbor list --path ~/code
@@ -58,8 +61,10 @@ Examples:
   arbor clean --path ~/code --github --yes
   arbor remove --yes -- ../finished-feature
 
-Branches are retained. Dirty, ignored, locked, primary, detached, and protected
-worktrees are never removed. All deletion decisions are checked again on disk.
+Branches are retained. "remove" deletes the selected linked checkout and its
+local files; preview first, then pass --yes. "clean" defaults to merged, clean
+worktrees; --all includes other linked checkouts. Primary repositories are never
+removed. Detached commits are retained on an arbor/retained/ recovery branch.
 `
 
 type commonFlags struct {
@@ -118,12 +123,18 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	f.SetOutput(stderr)
 	var common commonFlags
 	addCommon(f, &common)
-	var yes, recommended, progress bool
+	var yes, recommended, progress, all bool
+	linkedOnly := true
 	var noDefaultExcludes bool
+	var discardLocal bool
+	var keepLocal bool
+	var targetOnly bool
 	var watchStdin bool
 	var excludes stringListFlag
 	var head, id, branch string
 	if command == "list" {
+		f.BoolVar(&targetOnly, "target-only", false, "internal: inspect only the exact registered worktree path")
+		f.BoolVar(&linkedOnly, "linked-only", true, "only linked worktrees, excluding primary repository checkouts")
 		f.BoolVar(&recommended, "recommended", false, "only cleanup recommendations")
 		f.BoolVar(&progress, "progress", false, "stream scan progress on stderr")
 		f.BoolVar(&noDefaultExcludes, "no-default-excludes", false, "disable default cache/temp exclusions")
@@ -133,7 +144,12 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if command == "clean" || command == "remove" {
 		f.BoolVar(&yes, "yes", false, "perform removal instead of preview")
 	}
+	if command == "clean" {
+		f.BoolVar(&all, "all", false, "include unmerged linked worktrees and discard local files (preview unless --yes)")
+	}
 	if command == "remove" {
+		f.BoolVar(&keepLocal, "keep-local", false, "refuse removal if local files would be discarded")
+		f.BoolVar(&discardLocal, "discard-local", false, "allow deleting local files and overriding a worktree lock; detached commits are retained")
 		f.StringVar(&head, "head", "", "expected commit")
 		f.StringVar(&id, "id", "", "expected worktree identity")
 		f.StringVar(&branch, "branch", "", "expected branch")
@@ -142,6 +158,15 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if err := f.Parse(args); err != nil {
 		return err
 	}
+	if discardLocal && recommended {
+		return errors.New("--discard-local cannot be combined with --recommended-only")
+	}
+	if discardLocal && keepLocal {
+		return errors.New("--discard-local and --keep-local are mutually exclusive")
+	}
+	// An explicit remove is the CLI counterpart of the desktop Delete action.
+	// --yes confirms disposing of this checkout's local files; without it, preview.
+	discardLocal = discardLocal || (command == "remove" && !recommended && !keepLocal) || (command == "clean" && all)
 	if watchStdin {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
@@ -165,6 +190,8 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		common.root = f.Arg(0)
 	}
 	options := common.options()
+	options.LinkedOnly = linkedOnly
+	options.TargetOnly = command == "remove" || targetOnly
 	if noDefaultExcludes || len(excludes) > 0 {
 		options.Excludes = []string{}
 		if !noDefaultExcludes {
@@ -205,7 +232,7 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	var selected []worktree.Worktree
 	if command == "clean" {
 		for _, w := range report.Worktrees {
-			if w.Recommended {
+			if w.Recommended || (all && (w.CanRemove || w.CanDiscard)) {
 				selected = append(selected, w)
 			}
 		}
@@ -218,7 +245,7 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 			}
 		}
 		if len(selected) != 1 {
-			return errors.New("path is not a registered worktree")
+			return errors.New("path is not a linked worktree")
 		}
 		w := selected[0]
 		if head != "" && head != w.Head {
@@ -230,7 +257,7 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		if branch != "" && branch != w.Branch {
 			return errors.New("branch changed; scan again")
 		}
-		if !w.CanRemove {
+		if !w.CanRemove && !(discardLocal && w.CanDiscard) {
 			return fmt.Errorf("cannot remove: %s", strings.Join(append(w.Blockers, w.Problems...), "; "))
 		}
 		if recommended && !w.Recommended {
@@ -242,6 +269,13 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 			return json.NewEncoder(stdout).Encode(map[string]any{"dryRun": true, "worktrees": selected})
 		}
 		printTable(stdout, selected)
+		if discardLocal {
+			for _, w := range selected {
+				for _, warning := range w.DiscardWarnings {
+					fmt.Fprintln(stdout, warning)
+				}
+			}
+		}
 		fmt.Fprintf(stdout, "\nPreview only. %d worktree(s) eligible. Pass --yes to remove; branches are retained.\n", len(selected))
 		return nil
 	}
@@ -249,7 +283,7 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	failed := false
 	for _, w := range selected {
 		result := worktree.RemovalResult{Path: w.Path}
-		if err := engine.Remove(ctx, common.host, w, w.Head, command == "clean" || recommended); err != nil {
+		if err := engine.RemoveWithOptions(ctx, common.host, w, w.Head, (command == "clean" && !all) || recommended, discardLocal); err != nil {
 			result.Error = err.Error()
 			failed = true
 		} else {
@@ -289,23 +323,23 @@ func (values *stringListFlag) Set(value string) error {
 
 func printTable(out io.Writer, entries []worktree.Worktree) {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "REPOSITORY\tBRANCH\tCOMMIT\tACTIVITY\tSTATUS\tPATH")
+	fmt.Fprintln(w, "PATH\tBRANCH\tREPOSITORY\tACTIVITY\tSTATUS")
 	for _, entry := range entries {
-		state := "active"
-		if entry.Published {
-			state = "pushed (cached)"
-		}
+		state := "clean"
 		if entry.Merged {
 			state = "merged"
 		}
-		if entry.Recommended {
-			state = "recommended"
+		if entry.Locked {
+			state = "Git locked"
+		}
+		if entry.Ignored {
+			state = "ignored files"
 		}
 		if entry.Dirty {
-			state = "uncommitted"
+			state = "local changes"
 		}
-		if len(entry.Blockers) > 0 {
-			state += "; protected"
+		if !entry.CanRemove && !entry.CanDiscard && len(entry.Blockers) > 0 {
+			state = printable(entry.Blockers[0])
 		}
 		branch := entry.Branch
 		if entry.Detached {
@@ -314,15 +348,11 @@ func printTable(out io.Writer, entries []worktree.Worktree) {
 		if entry.Bare {
 			branch = "(bare)"
 		}
-		head := entry.Head
-		if len(head) > 8 {
-			head = head[:8]
-		}
 		age := "—"
 		if !entry.ActivityAt.IsZero() {
 			age = duration(time.Since(entry.ActivityAt))
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", printable(entry.Repo), printable(branch), head, age, state, printable(entry.Path))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", printable(entry.Path), printable(branch), printable(entry.Repo), age, state)
 	}
 	_ = w.Flush()
 }

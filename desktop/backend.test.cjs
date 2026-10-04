@@ -53,6 +53,7 @@ test("scan returns busy state immediately, invokes CLI with exact arguments, and
     "list",
     "--json",
     "--progress",
+    "--linked-only",
     "--path",
     "~/project's files",
     "--host",
@@ -93,7 +94,7 @@ test("failed host change clears previous report and invalidates deletion revisio
   await assert.rejects(backend.remove(old), /scan changed/);
 });
 
-test("recommended removal binds identity, host and GitHub evidence, then refreshes without refetch", async () => {
+test("recommended removal binds identity, host and GitHub evidence, then updates without rescanning", async () => {
   const calls = [];
   const source = { ...tree, pr: { merged: true } };
   const backend = new Backend({
@@ -123,11 +124,13 @@ test("recommended removal binds identity, host and GitHub evidence, then refresh
     "--host",
     "vps",
     "--github",
+    "--keep-local",
     "--recommended-only",
     "--",
     tree.path,
   ]);
-  assert.equal(calls[2].includes("--fetch"), false);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(result.report.worktrees, []);
   assert.equal(result.results[0].removed, true);
   assert.notEqual(result.revision, before);
   assert.equal(backend.getState().busy, false);
@@ -191,7 +194,7 @@ test("stale commits, duplicate selections, protected trees, and nonrecommendatio
   );
 });
 
-test("partial cleanup errors preserve outcomes and a failed refresh does not enable stale actions", async () => {
+test("partial cleanup errors block failed rows and do not trigger a refresh", async () => {
   let calls = 0;
   const backend = new Backend({
     run: async (args) => {
@@ -206,8 +209,15 @@ test("partial cleanup errors preserve outcomes and a failed refresh does not ena
   const result = await backend.remove(selection(backend));
   assert.equal(result.results[0].removed, false);
   assert.match(result.results[0].error, /Ignored/);
-  assert.equal(result.revision, null);
-  assert.match(result.error, /refreshing failed/);
+  assert.ok(result.revision);
+  assert.equal(result.error, "");
+  assert.equal(result.report.worktrees[0].canRemove, false);
+  assert.equal(result.report.worktrees[0].recommended, false);
+  assert.match(
+    result.report.worktrees[0].blockers[0],
+    /Ignored files now exist/,
+  );
+  assert.equal(calls, 2);
   assert.equal(backend.state.busy, false);
 });
 
@@ -742,4 +752,171 @@ test("glob exclusions persist and cross the subprocess boundary as literal argum
     ...excludes,
   ]);
   assert.deepEqual(JSON.parse(echoed), excludes);
+});
+
+test("cleanup stops after its current worktree without rescanning or touching remaining selections", async () => {
+  const second = {
+    ...tree,
+    id: "tree-2",
+    path: "/work/topic-2",
+    branch: "topic-2",
+  };
+  const untouched = {
+    ...tree,
+    id: "tree-3",
+    path: "/work/topic-3",
+    branch: "topic-3",
+  };
+  const calls = [];
+  let finish;
+  const backend = new Backend({
+    run: (args) => {
+      calls.push(args);
+      if (args[0] === "list")
+        return Promise.resolve(report([tree, second, untouched]));
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  backend.scan({});
+  await backend.pending;
+  const before = backend.getState().revision;
+  const pending = backend.remove(
+    selection(backend, {
+      items: [tree, second].map(({ id, head }) => ({ id, head })),
+    }),
+  );
+  assert.equal(backend.getState().progress.stage, "removing");
+  assert.equal(backend.getState().progress.total, 2);
+  assert.equal(backend.getState().progress.path, tree.path);
+  backend.stopCleanupAfterCurrent();
+  assert.equal(
+    backend.dispose(),
+    false,
+    "current removal must never be killed",
+  );
+  finish(JSON.stringify({ path: tree.path, removed: true }));
+  const result = await pending;
+  assert.equal(result.stopped, true);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(result.results, [{ path: tree.path, removed: true }]);
+  assert.deepEqual(result.report.worktrees, [second, untouched]);
+  assert.notEqual(result.revision, before);
+  assert.throws(() => backend.stopCleanupAfterCurrent(), /No cleanup/);
+});
+
+test("disposing an ordinary scan aborts it without waiting for the child in the close handler", async () => {
+  let signal;
+  const backend = new Backend({
+    run: (_args, callbacks) =>
+      new Promise((_resolve, reject) => {
+        signal = callbacks.signal;
+        signal.addEventListener("abort", () => reject(new Error("stopped")), {
+          once: true,
+        });
+      }),
+  });
+  backend.scan({});
+  assert.equal(backend.dispose(), true);
+  assert.equal(signal.aborted, true);
+  await backend.pending;
+  assert.equal(backend.getState().busy, false);
+  assert.equal(backend.getState().report, null);
+});
+
+test("explicit discard requires confirmation and flags only worktrees needing it", async () => {
+  const dirty = {
+    ...tree,
+    id: "dirty",
+    path: "/work/dirty",
+    canRemove: false,
+    canDiscard: true,
+    recommended: false,
+    discardWarnings: ["Uncommitted files will be lost"],
+  };
+  const calls = [];
+  const backend = new Backend({
+    run: async (args) => {
+      calls.push(args);
+      return args[0] === "list"
+        ? report([tree, dirty])
+        : JSON.stringify({ path: args.at(-1), removed: true });
+    },
+  });
+  backend.scan({});
+  await backend.pending;
+  const request = selection(backend, {
+    items: [tree, dirty].map(({ id, head }) => ({ id, head })),
+    recommendedOnly: false,
+    discardLocal: true,
+  });
+  let confirmations = 0;
+  const result = await backend.remove(request, async (rows, options) => {
+    confirmations++;
+    assert.equal(options.discardLocal, true);
+    assert.deepEqual(rows, [tree, dirty]);
+    return true;
+  });
+  assert.equal(confirmations, 1);
+  assert.equal(calls[1].includes("--discard-local"), false);
+  assert.equal(calls[1].includes("--keep-local"), true);
+  assert.equal(calls[2].includes("--discard-local"), true);
+  assert.equal(calls[2].includes("--keep-local"), false);
+  assert.deepEqual(result.report.worktrees, []);
+});
+
+test("discard cannot bypass confirmation, structural blockers, or recommendation-only mode", async () => {
+  const source = {
+    ...tree,
+    canRemove: false,
+    canDiscard: true,
+    recommended: false,
+  };
+  const calls = [];
+  const backend = new Backend({
+    run: async (args) => {
+      calls.push(args);
+      return report([source]);
+    },
+  });
+  backend.scan({});
+  await backend.pending;
+  await assert.rejects(
+    backend.remove(selection(backend, { discardLocal: true })),
+    /recommended-only/,
+  );
+  await assert.rejects(
+    backend.remove(selection(backend, { recommendedOnly: false })),
+    /protected/,
+  );
+  const result = await backend.remove(
+    selection(backend, { recommendedOnly: false, discardLocal: true }),
+  );
+  assert.equal(result.cancelled, true);
+  assert.equal(calls.length, 1);
+  backend.state.report.worktrees[0].canDiscard = false;
+  await assert.rejects(
+    backend.remove(
+      selection(backend, { recommendedOnly: false, discardLocal: true }),
+      async () => true,
+    ),
+    /protected/,
+  );
+});
+
+test("folder deletion can explicitly request one confirmation even for recommended rows", async () => {
+  const backend = new Backend({ run: async () => report() });
+  backend.scan({});
+  await backend.pending;
+  let count = 0;
+  const result = await backend.remove(
+    selection(backend, { forceConfirm: true }),
+    async () => {
+      count++;
+      return false;
+    },
+  );
+  assert.equal(count, 1);
+  assert.equal(result.cancelled, true);
 });

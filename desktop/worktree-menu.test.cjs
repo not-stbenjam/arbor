@@ -1,0 +1,121 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { menuTarget, terminalCommand } = require("./worktree-menu.cjs");
+
+const row = { id: "topic", path: "/work/topic", canRemove: true };
+const state = {
+  revision: "revision-1",
+  host: "",
+  busy: false,
+  report: { worktrees: [row] },
+};
+
+test("native menu resolves the current row rather than a renderer supplied path", () => {
+  const target = menuTarget(state, {
+    id: row.id,
+    revision: state.revision,
+    path: "/arbitrary",
+  });
+  assert.equal(target.path, row.path);
+  assert.equal(target.local, true);
+  assert.equal(target.removable, true);
+  for (const value of [
+    null,
+    [],
+    { id: "missing", revision: state.revision },
+    { id: row.id, revision: "old" },
+    { id: row.id },
+  ])
+    assert.throws(() => menuTarget(state, value));
+});
+
+test("partial rows can be copied but cannot enable deletion", () => {
+  const target = menuTarget(
+    {
+      revision: null,
+      host: "",
+      busy: true,
+      report: null,
+      partialWorktrees: [row],
+    },
+    { id: row.id, revision: null },
+  );
+  assert.equal(target.path, row.path);
+  assert.equal(target.local, true);
+  assert.equal(target.removable, false);
+});
+
+test("remote and missing rows cannot launch local applications", () => {
+  assert.equal(
+    menuTarget(
+      { ...state, host: "vps" },
+      { id: row.id, revision: state.revision },
+    ).local,
+    false,
+  );
+  assert.equal(
+    menuTarget(
+      { ...state, report: { worktrees: [{ ...row, missing: true }] } },
+      { id: row.id, revision: state.revision },
+    ).local,
+    false,
+  );
+  assert.throws(() =>
+    menuTarget(
+      { ...state, report: { worktrees: [{ ...row, path: "bad\0path" }] } },
+      { id: row.id, revision: state.revision },
+    ),
+  );
+});
+
+test("manual-discard candidates get a delete action but outside-root entries do not", () => {
+  const source = {
+    ...state,
+    report: { worktrees: [{ ...row, canRemove: false, canDiscard: true }] },
+  };
+  assert.equal(
+    menuTarget(source, { id: row.id, revision: state.revision }).removable,
+    true,
+  );
+  source.report.worktrees[0].outsideRoot = true;
+  assert.equal(
+    menuTarget(source, { id: row.id, revision: state.revision }).removable,
+    false,
+  );
+});
+
+test("macOS Terminal receives opaque directory arguments, never shell commands", () => {
+  const directory = "/work/a'; $(touch nope)\nnext";
+  const command = terminalCommand("darwin", directory, () =>
+    assert.fail("must use fixed system launcher"),
+  );
+  assert.equal(command.binary, "/usr/bin/open");
+  assert.deepEqual(command.args, [
+    "-a",
+    "/System/Applications/Utilities/Terminal.app",
+    "--",
+    directory,
+  ]);
+  assert.equal(command.cwd, directory);
+});
+
+test("Linux terminals use argv or cwd without shell interpolation", () => {
+  const directory = "/work/$(command);\nhello";
+  const gnome = terminalCommand("linux", directory, (name) =>
+    name === "gnome-terminal" ? "/usr/bin/gnome-terminal" : null,
+  );
+  assert.deepEqual(gnome.args, [`--working-directory=${directory}`]);
+  const xterm = terminalCommand("linux", directory, (name) =>
+    name === "xterm" ? "/usr/bin/xterm" : null,
+  );
+  assert.deepEqual(xterm.args, []);
+  assert.equal(xterm.cwd, directory);
+  assert.equal(
+    terminalCommand("linux", directory, () => null),
+    null,
+  );
+  assert.throws(() => terminalCommand("linux", "relative", () => null));
+  assert.throws(() => terminalCommand("linux", "/bad\0path", () => null));
+});

@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld(
     resetPreferences: () => ipcRenderer.invoke("arbor:reset-preferences"),
     openExternal: (url) => ipcRenderer.invoke("arbor:open-external", url),
     copyText: (text) => ipcRenderer.invoke("arbor:copy-text", text),
+    showWorktreeMenu: (selection) =>
+      ipcRenderer.invoke("arbor:worktree-menu", selection),
     onMenuAction: (callback) => {
       if (typeof callback !== "function")
         throw new TypeError("Menu callback must be a function");

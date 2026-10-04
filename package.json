@@ -1,6 +1,6 @@
 {
   "name": "arbor-desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A quiet desktop home for your Git worktrees",
   "author": "Arbor contributors",
   "license": "MIT",
@@ -15,7 +15,7 @@
     "start": "electron .",
     "desktop:package": "node scripts/build-desktop.cjs",
     "desktop:dir": "node scripts/build-desktop.cjs --dir",
-    "test:desktop": "node --test desktop/*.test.cjs"
+    "test:desktop": "node --test desktop/*.test.cjs desktop/common/*.test.cjs"
   },
   "devDependencies": {
     "electron": "44.5.1",

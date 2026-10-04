@@ -9,6 +9,7 @@
     />
     <title>Arbor</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="../common/worktree-tree.js" defer></script>
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -47,10 +48,7 @@
             ><span id="all-count" class="count">0</span></button
           ><button data-view="recommended" class="nav-item">
             <span data-icon="check-circle"></span><span>Recommended</span
-            ><span id="recommended-count" class="count">0</span></button
-          ><button data-view="protected" class="nav-item">
-            <span data-icon="shield"></span><span>Protected</span
-            ><span id="protected-count" class="count">0</span>
+            ><span id="recommended-count" class="count">0</span>
           </button>
         </nav>
         <div class="sidebar-section-title">
@@ -88,15 +86,7 @@
             ><button id="refresh-button" class="button">
               <span data-icon="refresh"></span><span>Refresh</span></button
             ><button id="cleanup-button" class="button button-accent" disabled>
-              <span data-icon="cleanup"></span><span>Clean up</span></button
-            ><button
-              id="inspector-button"
-              class="icon-button"
-              title="Toggle details"
-              aria-label="Toggle details"
-              aria-pressed="false"
-            >
-              <span data-icon="panel"></span>
+              <span data-icon="cleanup"></span><span>Delete merged</span>
             </button>
           </div>
         </header>
@@ -109,7 +99,17 @@
             </button>
           </div>
           <div class="path-actions">
-            <span id="verification-label">Local Git metadata</span
+            <label class="tree-sort-label"
+              >Sort
+              <select id="tree-sort" aria-label="Sort worktrees">
+                <option value="path">Path</option>
+                <option value="branch">Branch</option>
+                <option value="repo">Repository</option>
+                <option value="activity">Last active</option>
+                <option value="size">Size</option>
+              </select></label
+            >
+            <span id="verification-label" hidden>Local Git metadata</span
             ><button
               id="scan-options-button"
               class="icon-button"
@@ -160,20 +160,19 @@
         <div class="content-panes">
           <section class="table-pane" aria-label="Git worktrees">
             <div class="table-scroll" id="table-scroll">
-              <table>
+              <table
+                class="directory-table"
+                role="treegrid"
+                aria-multiselectable="true"
+                aria-label="Worktrees by directory"
+              >
                 <thead>
                   <tr>
                     <th class="branch-column">
-                      <button data-sort="branch">
-                        Branch <span data-icon="sort"></span>
+                      <button data-sort="path">
+                        Folder / Worktree <span data-icon="sort"></span>
                       </button>
                     </th>
-                    <th class="repo-column">
-                      <button data-sort="repo">
-                        Repository <span data-icon="sort"></span>
-                      </button>
-                    </th>
-                    <th class="status-column">Status</th>
                     <th class="activity-column">
                       <button data-sort="activity">
                         Last active <span data-icon="sort"></span>
@@ -192,7 +191,7 @@
                 <tbody
                   id="worktree-list"
                   tabindex="0"
-                  aria-label="Worktrees. Use arrow keys to select and Enter for details."
+                  aria-label="Worktree directory tree. Use arrow keys to select and Enter for actions."
                 ></tbody>
               </table>
               <div id="empty-state" class="empty-state" hidden></div>
@@ -200,18 +199,10 @@
             <div class="selection-bar" id="selection-bar" hidden>
               <span id="selection-label"></span
               ><button class="button" id="remove-selected">
-                <span data-icon="trash"></span>Remove selected
+                <span data-icon="trash"></span>Delete selected
               </button>
             </div>
           </section>
-          <aside
-            id="inspector"
-            class="inspector"
-            aria-label="Worktree details"
-            hidden
-          >
-            <div id="inspector-content"></div>
-          </aside>
         </div>
         <footer class="statusbar">
           <span id="status-message">Connecting to Arbor…</span

@@ -38,6 +38,7 @@ function partialWorktree(value, pending) {
   const result = {
     canRemove: false,
     recommended: false,
+    canDiscard: false,
     pending: pending !== false,
   };
   for (const key of [
@@ -75,7 +76,12 @@ function partialWorktree(value, pending) {
     "merged",
   ])
     result[key] = value[key] === true;
-  for (const key of ["publishedRefs", "blockers", "problems"])
+  for (const key of [
+    "publishedRefs",
+    "blockers",
+    "problems",
+    "discardWarnings",
+  ])
     result[key] = Array.isArray(value[key])
       ? value[key]
           .slice(0, 100)
@@ -378,6 +384,7 @@ class Backend {
       "list",
       "--json",
       "--progress",
+      "--linked-only",
       "--path",
       options.root || (options.host ? "~" : os.homedir()),
     ];
@@ -539,6 +546,11 @@ class Backend {
       value.items.length > 1000
     )
       throw new Error("Choose between 1 and 1000 worktrees");
+    const discardLocal = value.discardLocal === true;
+    if (discardLocal && value.recommendedOnly === true)
+      throw new Error(
+        "Discarding local data cannot be a recommended-only cleanup",
+      );
     const selected = [],
       seen = new Set();
     for (const item of value.items) {
@@ -552,7 +564,12 @@ class Backend {
       const w = this.state.report.worktrees.find(
         (entry) => entry.id === item.id,
       );
-      if (!w || w.head !== item.head || !w.canRemove || w.outsideRoot)
+      if (
+        !w ||
+        w.head !== item.head ||
+        !(w.canRemove || (discardLocal && w.canDiscard)) ||
+        w.outsideRoot
+      )
         throw new Error("Worktree changed or is protected; scan again");
       if (value.recommendedOnly === true && !w.recommended)
         throw new Error("Worktree is not a cleanup recommendation");
@@ -562,13 +579,21 @@ class Backend {
     this.state.busy = true;
     this.state.error = "";
     this.operation = "remove";
+    this.stopAfterCurrent = false;
     this.beginProgress("removing");
+    this.state.progress.total = selected.length;
     const options = { ...this.options },
       results = [];
     const perform = async () => {
       try {
-        const manual = selected.filter((w) => !w.recommended);
-        if (manual.length && (!confirm || !(await confirm(manual))))
+        const manual =
+          discardLocal || value.forceConfirm === true
+            ? selected
+            : selected.filter((w) => !w.recommended);
+        if (
+          manual.length &&
+          (!confirm || !(await confirm(manual, { discardLocal })))
+        )
           return {
             cancelled: true,
             results,
@@ -577,6 +602,8 @@ class Backend {
           };
         this.state.revision = null;
         for (const w of selected) {
+          if (this.stopAfterCurrent) break;
+          this.state.progress.path = w.path;
           const args = [
             "remove",
             "--yes",
@@ -590,6 +617,9 @@ class Backend {
           ];
           if (options.host) args.push("--host", options.host);
           if (w.pr?.merged) args.push("--github");
+          args.push(
+            discardLocal && !w.canRemove ? "--discard-local" : "--keep-local",
+          );
           if (value.recommendedOnly === true || w.recommended)
             args.push("--recommended-only");
           args.push("--", w.path);
@@ -598,28 +628,36 @@ class Backend {
             if (!result || result.path !== w.path || result.removed !== true)
               throw new Error(result?.error || "Arbor did not confirm removal");
             results.push({ path: w.path, removed: true });
+            this.state.report.worktrees = this.state.report.worktrees.filter(
+              (entry) => entry.path !== w.path,
+            );
           } catch (error) {
             results.push({
               path: w.path,
               removed: false,
               error: error.message,
             });
+            const entry = this.state.report.worktrees.find(
+              (item) => item.path === w.path,
+            );
+            if (entry) {
+              entry.canRemove = false;
+              entry.recommended = false;
+              entry.canDiscard = false;
+              entry.blockers = [
+                ...(entry.blockers || []),
+                `Removal refused: ${error.message}. Refresh before trying again.`,
+              ];
+            }
           }
+          this.state.progress.completed = results.length;
         }
-        try {
-          this.beginProgress("starting");
-          this.state.report = null;
-          const report = await this.readReport({ ...options, fetch: false });
-          Object.assign(this.state, {
-            report,
-            root: report.root,
-            revision: randomUUID(),
-          });
-        } catch (error) {
-          this.state.error = `Cleanup finished, but refreshing failed: ${error.message}`;
-        }
+        // Successful removals are already verified by the CLI. Preserve the
+        // untouched snapshot rather than starting another whole-disk scan.
+        this.state.revision = randomUUID();
         return {
           results,
+          stopped: this.stopAfterCurrent,
           report: structuredClone(this.state.report),
           revision: this.state.revision,
           error: this.state.error,
@@ -634,6 +672,11 @@ class Backend {
     };
     this.pending = perform();
     return this.pending;
+  }
+
+  stopCleanupAfterCurrent() {
+    if (this.operation !== "remove") throw new Error("No cleanup is running");
+    this.stopAfterCurrent = true;
   }
 
   dispose() {

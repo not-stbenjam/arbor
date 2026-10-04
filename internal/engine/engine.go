@@ -68,6 +68,12 @@ func Scan(ctx context.Context, host string, options worktree.Options) (worktree.
 		root = "~"
 	}
 	args := []string{"list", "--json", "--watch-stdin", "--path", root}
+	if options.TargetOnly {
+		args = append(args, "--target-only")
+	}
+	if options.LinkedOnly {
+		args = append(args, "--linked-only")
+	}
 	if options.Excludes != nil {
 		args = append(args, "--no-default-excludes")
 		for _, exclude := range options.Excludes {
@@ -98,10 +104,17 @@ func Scan(ctx context.Context, host string, options worktree.Options) (worktree.
 }
 
 func Remove(ctx context.Context, host string, w worktree.Worktree, head string, recommendedOnly bool) error {
-	if host == "" {
-		return worktree.Remove(ctx, w, head, recommendedOnly)
+	return RemoveWithOptions(ctx, host, w, head, recommendedOnly, false)
+}
+
+func RemoveWithOptions(ctx context.Context, host string, w worktree.Worktree, head string, recommendedOnly, discardLocal bool) error {
+	if recommendedOnly && discardLocal {
+		return errors.New("discarding local files cannot be used for recommended cleanup")
 	}
-	if !w.CanRemove || w.OutsideRoot {
+	if host == "" {
+		return worktree.RemoveWithOptions(ctx, w, head, recommendedOnly, discardLocal)
+	}
+	if (!w.CanRemove && !(discardLocal && w.CanDiscard)) || w.OutsideRoot {
 		return errors.New("worktree is protected; scan again to see why")
 	}
 	args := []string{"remove", "--json", "--yes", "--head", head, "--id", w.ID, "--branch", w.Branch}
@@ -110,6 +123,11 @@ func Remove(ctx context.Context, host string, w worktree.Worktree, head string, 
 	}
 	if recommendedOnly {
 		args = append(args, "--recommended-only")
+	}
+	if discardLocal {
+		args = append(args, "--discard-local")
+	} else {
+		args = append(args, "--keep-local")
 	}
 	args = append(args, "--", w.Path)
 	data, err := ssh(ctx, host, args...)

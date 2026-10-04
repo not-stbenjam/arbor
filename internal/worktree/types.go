@@ -8,6 +8,11 @@ type Options struct {
 	Fetch  bool   `json:"fetch"`
 	// Nil uses DefaultExcludes; an explicit empty slice scans every directory.
 	Excludes []string `json:"excludes"`
+	// LinkedOnly lists linked worktrees, not ordinary repository roots.
+	LinkedOnly bool `json:"linkedOnly"`
+	// TargetOnly resolves one exact registered checkout, without a discovery walk.
+	// Removal still performs its own complete, fresh safety inspection.
+	TargetOnly bool `json:"-"`
 	// Progress is optional. Scan serializes callbacks, including inspection workers.
 	Progress func(Progress) `json:"-"`
 }
@@ -36,41 +41,43 @@ type Report struct {
 }
 
 type Worktree struct {
-	ID            string       `json:"id"`
-	Path          string       `json:"path"`
-	Repo          string       `json:"repo"`
-	CommonDir     string       `json:"commonDir"`
-	Branch        string       `json:"branch"`
-	Head          string       `json:"head"`
-	Subject       string       `json:"subject"`
-	Author        string       `json:"author"`
-	CommitAt      time.Time    `json:"commitAt"`
-	ActivityAt    time.Time    `json:"activityAt"`
-	SizeBytes     int64        `json:"sizeBytes"`
-	Main          bool         `json:"main"`
-	Bare          bool         `json:"bare"`
-	Detached      bool         `json:"detached"`
-	Locked        bool         `json:"locked"`
-	LockReason    string       `json:"lockReason"`
-	Missing       bool         `json:"missing"`
-	OutsideRoot   bool         `json:"outsideRoot"`
-	Dirty         bool         `json:"dirty"`
-	ChangedFiles  int          `json:"changedFiles"`
-	Ignored       bool         `json:"ignored"`
-	Upstream      string       `json:"upstream"`
-	Ahead         int          `json:"ahead"`
-	Behind        int          `json:"behind"`
-	Published     bool         `json:"published"`
-	PublishedRefs []string     `json:"publishedRefs"`
-	DefaultRef    string       `json:"defaultRef"`
-	Merged        bool         `json:"merged"`
-	MergeReason   string       `json:"mergeReason"`
-	GitHubState   string       `json:"githubState"`
-	PR            *PullRequest `json:"pr,omitempty"`
-	Recommended   bool         `json:"recommended"`
-	CanRemove     bool         `json:"canRemove"`
-	Blockers      []string     `json:"blockers"`
-	Problems      []string     `json:"problems"`
+	ID              string       `json:"id"`
+	Path            string       `json:"path"`
+	Repo            string       `json:"repo"`
+	CommonDir       string       `json:"commonDir"`
+	Branch          string       `json:"branch"`
+	Head            string       `json:"head"`
+	Subject         string       `json:"subject"`
+	Author          string       `json:"author"`
+	CommitAt        time.Time    `json:"commitAt"`
+	ActivityAt      time.Time    `json:"activityAt"`
+	SizeBytes       int64        `json:"sizeBytes"`
+	Main            bool         `json:"main"`
+	Bare            bool         `json:"bare"`
+	Detached        bool         `json:"detached"`
+	Locked          bool         `json:"locked"`
+	LockReason      string       `json:"lockReason"`
+	Missing         bool         `json:"missing"`
+	OutsideRoot     bool         `json:"outsideRoot"`
+	Dirty           bool         `json:"dirty"`
+	ChangedFiles    int          `json:"changedFiles"`
+	Ignored         bool         `json:"ignored"`
+	Upstream        string       `json:"upstream"`
+	Ahead           int          `json:"ahead"`
+	Behind          int          `json:"behind"`
+	Published       bool         `json:"published"`
+	PublishedRefs   []string     `json:"publishedRefs"`
+	DefaultRef      string       `json:"defaultRef"`
+	Merged          bool         `json:"merged"`
+	MergeReason     string       `json:"mergeReason"`
+	GitHubState     string       `json:"githubState"`
+	PR              *PullRequest `json:"pr,omitempty"`
+	Recommended     bool         `json:"recommended"`
+	CanRemove       bool         `json:"canRemove"`
+	CanDiscard      bool         `json:"canDiscard"`
+	DiscardWarnings []string     `json:"discardWarnings"`
+	Blockers        []string     `json:"blockers"`
+	Problems        []string     `json:"problems"`
 }
 
 type PullRequest struct {

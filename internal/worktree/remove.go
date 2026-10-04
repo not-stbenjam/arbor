@@ -12,6 +12,15 @@ import (
 // Remove never removes branches, uses no force flags, and distrusts the scan's
 // potentially stale status. expectedHead binds the user's action to its commit.
 func Remove(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly bool) error {
+	return RemoveWithOptions(ctx, snapshot, expectedHead, recommendedOnly, false)
+}
+
+// RemoveWithOptions permits explicit local-file disposal, but never bypasses
+// identity checks or turns a primary repository into a removable worktree.
+func RemoveWithOptions(ctx context.Context, snapshot Worktree, expectedHead string, recommendedOnly, discardLocal bool) error {
+	if recommendedOnly && discardLocal {
+		return errors.New("discarding local files cannot be used for recommended cleanup")
+	}
 	if expectedHead == "" || expectedHead != snapshot.Head {
 		return errors.New("commit changed or was not supplied; scan again")
 	}
@@ -61,16 +70,35 @@ func Remove(ctx context.Context, snapshot Worktree, expectedHead string, recomme
 	if current.Head != expectedHead {
 		return errors.New("worktree commit changed during validation; scan again")
 	}
-	if !current.CanRemove {
+	if !current.CanRemove && !(discardLocal && current.CanDiscard) {
 		return fmt.Errorf("cannot remove: %s", strings.Join(append(current.Blockers, current.Problems...), "; "))
 	}
 	if recommendedOnly && !current.Recommended {
 		return errors.New("worktree is no longer a cleanup recommendation")
 	}
 	// Retaining the named branch is part of Arbor's removal contract.
-	if current.Branch == "" || gitText(ctx, current.Path, "rev-parse", "--verify", "refs/heads/"+current.Branch) != expectedHead {
+	if current.Detached && discardLocal {
+		branch := RecoveryBranch(*current)
+		ref := "refs/heads/" + branch
+		if existing := gitText(ctx, current.Path, "rev-parse", "--verify", ref); existing != expectedHead {
+			if existing != "" {
+				return errors.New("recovery branch already points to another commit")
+			}
+			if _, err := git(ctx, current.Path, "branch", "--", branch, expectedHead); err != nil {
+				return fmt.Errorf("could not preserve detached commit: %w", err)
+			}
+		}
+	} else if current.Branch == "" || gitText(ctx, current.Path, "rev-parse", "--verify", "refs/heads/"+current.Branch) != expectedHead {
 		return errors.New("branch no longer preserves this commit")
 	}
-	_, err = git(ctx, current.Path, "worktree", "remove", "--", current.Path)
+	args := []string{"worktree", "remove"}
+	if discardLocal {
+		args = append(args, "--force")
+		if current.Locked {
+			args = append(args, "--force")
+		}
+	}
+	args = append(args, "--", current.Path)
+	_, err = git(ctx, current.Path, args...)
 	return err
 }

@@ -52,6 +52,33 @@ func gitText(ctx context.Context, path string, args ...string) string {
 	return strings.TrimSpace(out)
 }
 
+// Resolve metadata paths in one Git process. Repeated --git-path options keep
+// Git's shared/per-worktree routing rules authoritative. Rare newline-containing
+// paths use the unambiguous one-at-a-time fallback.
+func gitPaths(ctx context.Context, path string, names []string) ([]string, error) {
+	args := []string{"rev-parse", "--path-format=absolute"}
+	for _, name := range names {
+		args = append(args, "--git-path", name)
+	}
+	out, err := git(ctx, path, args...)
+	if err != nil {
+		return nil, err
+	}
+	paths := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(paths) == len(names) {
+		return paths, nil
+	}
+	paths = nil
+	for _, name := range names {
+		out, err := git(ctx, path, "rev-parse", "--path-format=absolute", "--git-path", name)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, strings.TrimSuffix(out, "\n"))
+	}
+	return paths, nil
+}
+
 func parseList(raw string) []Worktree {
 	var result []Worktree
 	var w Worktree
