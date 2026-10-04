@@ -68,3 +68,11 @@ func TestRemoteTargetAndRemovalPolicyArguments(t *testing.T) {
 		}
 	}
 }
+
+func TestRemovalResultFailureKeepsTargetAndError(t *testing.T) {
+	w := worktree.Worktree{Path: "/protected/checkout", Head: strings.Repeat("a", 40)}
+	result, err := RemoveWithResult(context.Background(), "fixture-vps", w, w.Head, false, false)
+	if err == nil || result.Removed || result.Path != w.Path || result.Error != err.Error() {
+		t.Fatalf("protected removal result: %+v, %v", result, err)
+	}
+}
