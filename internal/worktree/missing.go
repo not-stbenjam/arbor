@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 func emptyCheckoutDirectory(target string) bool {
@@ -32,7 +33,7 @@ func removeEmptyCheckout(target string, original os.FileInfo) error {
 	if err != nil || original == nil || !os.SameFile(original, current) {
 		return errors.New("empty checkout directory changed during validation")
 	}
-	if err := os.Remove(target); err != nil {
+	if err := syscall.Rmdir(target); err != nil {
 		return fmt.Errorf("could not remove empty checkout directory: %w", err)
 	}
 	return nil

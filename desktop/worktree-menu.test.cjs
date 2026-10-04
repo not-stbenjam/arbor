@@ -147,42 +147,51 @@ test("modern Linux terminal launchers preserve opaque working directories", () =
   }
 });
 
-test("confirmation names detached worktree folders and does not invent local file loss", () => {
+test("confirmation follows force disposal even when detached and locked snapshots were clean", () => {
   const cleanDetached = removalConfirmationOptions(
-    [{ ...row, branch: "", detached: true }],
+    [{ ...row, branch: "", detached: true, canRemove: false }],
     true,
   );
   assert.equal(cleanDetached.message, "Remove “topic”?");
-  assert.equal(cleanDetached.title, "Remove worktree?");
+  assert.equal(cleanDetached.title, "Discard local data and remove?");
+  assert.equal(cleanDetached.buttons[1], "Discard & Remove");
   assert.match(cleanDetached.detail, /recovery branches/);
   assert.match(cleanDetached.detail, /only if needed/);
-  assert.doesNotMatch(
+  assert.match(
     cleanDetached.detail,
-    /files will be permanently discarded/,
+    /Any local files.*will be permanently discarded/,
   );
   const cleanProtected = removalConfirmationOptions(
     [{ ...row, branch: "develop" }],
     true,
   );
   assert.doesNotMatch(cleanProtected.detail, /discarded|recovery branches/);
-  const locked = removalConfirmationOptions([{ ...row, locked: true }], true);
+  const locked = removalConfirmationOptions(
+    [{ ...row, locked: true, canRemove: false }],
+    true,
+  );
   assert.match(locked.detail, /locks.*overridden/);
-  assert.doesNotMatch(locked.detail, /files will be permanently discarded/);
+  assert.match(locked.detail, /Any local files.*will be permanently discarded/);
 });
 
-test("confirmation describes only actual local-file categories", () => {
-  const dirty = removalConfirmationOptions([{ ...row, dirty: true }], true);
+test("force confirmation covers all local-file categories once, independent of cached contents", () => {
+  const dirty = removalConfirmationOptions(
+    [{ ...row, dirty: true, canRemove: false }],
+    true,
+  );
   assert.equal(dirty.title, "Discard local data and remove?");
-  assert.match(dirty.detail, /Uncommitted and untracked files/);
-  assert.doesNotMatch(dirty.detail, /ignored files/i);
-  const ignored = removalConfirmationOptions([{ ...row, ignored: true }], true);
-  assert.match(ignored.detail, /Ignored files/);
-  assert.doesNotMatch(ignored.detail, /uncommitted/i);
+  assert.match(dirty.detail, /uncommitted, untracked, and ignored files/);
+  const ignored = removalConfirmationOptions(
+    [{ ...row, ignored: true, canRemove: false }],
+    true,
+  );
+  assert.match(ignored.detail, /uncommitted, untracked, and ignored files/);
 });
 
 test("bulk confirmation bounds long path previews and summarizes warnings once", () => {
   const rows = Array.from({ length: 1000 }, (_, index) => ({
     ...row,
+    canRemove: false,
     path: `/work/${"long-folder/".repeat(100)}line\n${index}\tend`,
     dirty: true,
     ignored: true,
@@ -231,6 +240,7 @@ test("confirmation keeps exact short previews without inventing warnings", () =>
 test("missing-only confirmations remove registrations without claiming folder or data loss", () => {
   const missing = {
     ...row,
+    canRemove: false,
     missing: true,
     dirty: true,
     ignored: true,
@@ -242,8 +252,9 @@ test("missing-only confirmations remove registrations without claiming folder or
   assert.match(single.detail, /Only Git worktree registrations/);
   assert.doesNotMatch(
     single.detail,
-    /folders will be deleted|permanently discarded|overridden/,
+    /folders will be deleted|permanently discarded/,
   );
+  assert.match(single.detail, /locks.*overridden/);
   const multiple = removalConfirmationOptions(
     [missing, { ...missing, path: "/work/other" }],
     true,

@@ -5,6 +5,7 @@ const { randomUUID } = require("node:crypto");
 const os = require("node:os");
 const { StringDecoder } = require("node:string_decoder");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
+const { usesDiscardLocal } = require("./worktree-menu.cjs");
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
 const HOST = /^[A-Za-z0-9_][A-Za-z0-9_.@:\[\]-]*$/;
@@ -754,10 +755,14 @@ class Backend {
             w.branch,
           ];
           if (w.commonDir) args.push("--repo", w.commonDir);
+          if (w.missing) args.push("--expect-missing");
+          if (w.empty) args.push("--expect-empty");
           if (options.host) args.push("--host", options.host);
           if (w.pr?.merged) args.push("--github");
           args.push(
-            discardLocal && !w.canRemove ? "--discard-local" : "--keep-local",
+            usesDiscardLocal(w, discardLocal)
+              ? "--discard-local"
+              : "--keep-local",
           );
           if (value.recommendedOnly === true) args.push("--recommended-only");
           args.push("--", w.path);
@@ -777,7 +782,6 @@ class Backend {
               (entry) => entry.path !== w.path,
             );
             this.cache.removePaths(options.host, [w.path]);
-            this.cache.put(options, this.state.report);
           } catch (error) {
             const outcome = {
               path: w.path,

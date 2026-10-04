@@ -76,7 +76,7 @@ test("bounded LRU keeps recently visited workspaces and bounds serialized bytes"
   assert.ok(Buffer.byteLength(small.serialize()) <= 100);
 });
 
-test("confirmed deletions prune overlapping same-host snapshots, never sibling prefixes or other hosts", () => {
+test("confirmed deletions prune exact registrations across same-host snapshots, retaining nested registrations", () => {
   const cache = new WorkspaceCache();
   const rows = [
     row,
@@ -92,13 +92,77 @@ test("confirmed deletions prune overlapping same-host snapshots, never sibling p
   cache.removePaths("", [row.path]);
   assert.deepEqual(
     cache.get(options()).worktrees.map((w) => w.id),
-    ["sibling"],
+    ["nested", "sibling"],
   );
   assert.deepEqual(
     cache.get(options({ root: "/", github: true })).worktrees.map((w) => w.id),
-    ["sibling"],
+    ["nested", "sibling"],
   );
   assert.equal(cache.get(options({ host: "remote" })).worktrees.length, 3);
+});
+
+test("failed inspection evicts its workspace and aliases without replacing healthy snapshots", () => {
+  const cache = new WorkspaceCache();
+  const remoteHome = options({ host: "remote", root: "~" });
+  const remotePath = options({ host: "remote", root: "/home/person" });
+  cache.put(remoteHome, report([row], "/home/person"));
+  cache.put(options(), report());
+  const failed = {
+    ...row,
+    canRemove: false,
+    recommended: false,
+    canDiscard: false,
+    retryInspection: true,
+    inspectionError: "timed out",
+    lastRemovalError: "changed",
+  };
+  cache.put(remotePath, report([failed], "/home/person"));
+  assert.equal(cache.get(remoteHome), null);
+  assert.equal(cache.get(remotePath), null);
+  assert.equal(cache.get(options()).worktrees[0].canRemove, true);
+  const inspected = {
+    ...row,
+    retryInspection: false,
+    lastRemovalError: "changed",
+    inspectionError: "old failure",
+  };
+  cache.put(remotePath, report([inspected], "/home/person"));
+  assert.deepEqual(cache.get(remotePath).worktrees, [row]);
+  assert.equal(
+    inspected.lastRemovalError,
+    "changed",
+    "live error remains available until the user dismisses it",
+  );
+});
+
+test("legacy disk snapshots cannot restore failed inspection state or transient errors", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "arbor-cache-failure-test-"),
+  );
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filename = path.join(directory, "workspace-cache.json");
+  await fs.writeFile(
+    filename,
+    JSON.stringify({
+      version: 1,
+      entries: [
+        {
+          options: options(),
+          report: report([{ ...row, retryInspection: true, canRemove: false }]),
+        },
+        {
+          options: options({ host: "remote" }),
+          report: report([
+            { ...row, lastRemovalError: "old error", retryInspection: false },
+          ]),
+        },
+      ],
+    }),
+  );
+  const cache = await WorkspaceCache.open(filename);
+  assert.equal(cache.get(options()), null);
+  assert.deepEqual(cache.get(options({ host: "remote" })).worktrees, [row]);
+  await cache.pending;
 });
 
 test("disk snapshots survive restart, write atomically, and tolerate corruption/reset", async (t) => {

@@ -137,6 +137,11 @@ func RemoveWithSession(ctx context.Context, host string, w worktree.Worktree, he
 		return result, errors.New("worktree is protected; scan again to see why")
 	}
 	args := []string{"remove", "--json", "--yes", "--head", head, "--id", w.ID, "--branch", w.Branch}
+	if w.Missing {
+		args = append(args, "--expect-missing")
+	} else if w.Empty {
+		args = append(args, "--expect-empty")
+	}
 	if sessionID != "" {
 		args = append(args, "--stats-session", sessionID)
 	}

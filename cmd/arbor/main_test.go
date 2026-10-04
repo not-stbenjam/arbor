@@ -54,6 +54,21 @@ func TestCLIProgressPreservesJSONStdout(t *testing.T) {
 	}
 }
 
+func TestCLITableLabelsAbsentCheckouts(t *testing.T) {
+	var out bytes.Buffer
+	if err := printTable(&out, []worktree.Worktree{
+		{Path: "/work/missing", Missing: true, CanDiscard: true},
+		{Path: "/work/empty", Empty: true, CanDiscard: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"missing checkout", "empty checkout"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("missing status %q in %s", expected, out.String())
+		}
+	}
+}
+
 func TestCLICleanupPreviewsThenRemovesRetainingBranch(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")

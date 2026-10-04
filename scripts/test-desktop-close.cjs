@@ -152,7 +152,12 @@ if (args[0] === 'remove') {
   dialog.showMessageBox = async (...args) => {
     const options = args.at(-1);
     if (options.title === "Cleanup is running") return { response: 1 };
-    if (phase === "confirmations" && options.title === "Remove worktree?") {
+    if (
+      phase === "confirmations" &&
+      ["Remove worktree?", "Discard local data and remove?"].includes(
+        options.title,
+      )
+    ) {
       confirmations.push(options);
       return { response: 0 };
     }
@@ -262,9 +267,11 @@ if (args[0] === 'remove') {
             assert.equal(confirmations[1].message, "Remove “tree-2”?");
             assert.ok(
               confirmations.every(
-                (options) => !options.detail.includes("permanently discarded"),
+                (options) =>
+                  options.detail.includes("Any local files") &&
+                  options.buttons[1] === "Discard & Remove",
               ),
-              "clean detached/protected rows must not claim file loss",
+              "force-removal consent must cover files added since the cached scan",
             );
           } else {
             const selection = {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/not-stbenjam/arbor/internal/stats"
 )
@@ -23,6 +24,15 @@ func ReadStats(ctx context.Context, host string) (stats.Report, error) {
 	}
 	if report.Version != 1 {
 		return stats.Report{}, fmt.Errorf("remote Arbor returned an unsupported statistics format")
+	}
+	for _, stamp := range []string{report.FirstCleanupAt, report.LastCleanupAt} {
+		if stamp == "" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, stamp); err != nil {
+			// Remote fields can reach terminal output; do not echo invalid data.
+			return stats.Report{}, fmt.Errorf("remote Arbor returned an invalid statistics timestamp")
+		}
 	}
 	return report, nil
 }

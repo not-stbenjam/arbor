@@ -219,6 +219,10 @@ func record(batch Batch, now time.Time) error {
 		state.Warning = "Previous unreadable statistics were preserved in " + filepath.Base(backup) + "; new totals start here."
 	} else if err != nil {
 		return err
+	} else {
+		// Keep the recovery notice for the first post-recovery read. A later
+		// successful cleanup acknowledges it without deleting its backup.
+		state.Warning = ""
 	}
 	if contains(state.RecentBatchIDs, batch.ID) {
 		return nil

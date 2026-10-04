@@ -82,3 +82,29 @@ func TestRemovalResultFailureKeepsTargetAndError(t *testing.T) {
 		t.Fatalf("protected removal result: %+v, %v", result, err)
 	}
 }
+
+func TestRemoteRemovalPreservesMissingAndEmptyConsent(t *testing.T) {
+	w := worktree.Worktree{ID: "confirmed-registration", Path: "/remote/session", CommonDir: "/remote/repo/.git", Head: strings.Repeat("a", 40), Branch: "topic", CanDiscard: true}
+	var sent string
+	statsRemoteFixture(t, func(command string) ([]byte, error) {
+		sent = command
+		return json.Marshal(worktree.RemovalResult{Path: w.Path, Removed: true})
+	})
+	for _, kind := range []string{"present", "missing", "empty"} {
+		t.Run(kind, func(t *testing.T) {
+			w.Missing = kind == "missing"
+			w.Empty = kind == "empty"
+			if _, err := RemoveWithSession(context.Background(), "stats-fixture-vps", w, w.Head, false, true, "shared-session"); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(sent, "'--expect-missing'") != w.Missing || strings.Contains(sent, "'--expect-empty'") != w.Empty {
+				t.Fatalf("%s expectation lost across SSH: %s", kind, sent)
+			}
+			for _, expected := range []string{"'--head' " + quote(w.Head), "'--id' " + quote(w.ID), "'--branch' " + quote(w.Branch), "'--repo' " + quote(w.CommonDir), "'--stats-session' 'shared-session'", "'--discard-local'"} {
+				if !strings.Contains(sent, expected) {
+					t.Fatalf("existing removal contract changed (%s): %s", expected, sent)
+				}
+			}
+		})
+	}
+}

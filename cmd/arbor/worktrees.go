@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/not-stbenjam/arbor/internal/stats"
 	"github.com/not-stbenjam/arbor/internal/worktree"
 )
+
+var cleanupSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 func runWorktrees(ctx context.Context, command string, flags *commandOptions, stdout, stderr io.Writer) error {
 	common := flags.common
@@ -34,6 +37,12 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 	}
 	if discardLocal && keepLocal {
 		return fmt.Errorf("%s and --keep-local are mutually exclusive", policyFlag)
+	}
+	if flags.expectMissing && flags.expectEmpty {
+		return errors.New("--expect-missing and --expect-empty are mutually exclusive")
+	}
+	if flags.statsSession != "" && !cleanupSessionPattern.MatchString(flags.statsSession) {
+		return errors.New("--stats-session must contain 1–128 letters, digits, hyphens, or underscores")
 	}
 	// An explicit remove is the CLI counterpart of the desktop Delete action.
 	// --yes confirms disposing of this checkout's local files; without it, preview.
@@ -117,9 +126,17 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 			}
 		}
 		if len(selected) != 1 {
-			return errors.New("path is not a linked worktree")
+			return errors.New("path is not a linked worktree; for an empty or missing checkout, supply --repo with its owning repository")
 		}
 		w := selected[0]
+		// These expectations carry narrow consent from a cached GUI snapshot or
+		// SSH caller across the subprocess boundary. Reuse this target inspection.
+		if flags.expectMissing && !w.Missing {
+			return errors.New("worktree directory appeared after confirmation; inspect it again")
+		}
+		if flags.expectEmpty && !w.Empty && !w.Missing {
+			return errors.New("checkout is no longer empty after confirmation; inspect it again")
+		}
 		if head != "" && head != w.Head {
 			return errors.New("commit changed; scan again")
 		}
@@ -164,9 +181,6 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 	sessionID := flags.statsSession
 	if sessionID == "" {
 		sessionID = batchID
-	}
-	if len(sessionID) > 128 {
-		return errors.New("cleanup session identifier is too long")
 	}
 	batch := stats.Batch{ID: batchID, SessionID: sessionID}
 	// Record only completed local removals. Remote CLI processes write their own
@@ -256,6 +270,12 @@ func printTable(out io.Writer, entries []worktree.Worktree) error {
 		}
 		if entry.Dirty {
 			state = "local changes"
+		}
+		if entry.Empty {
+			state = "empty checkout"
+		}
+		if entry.Missing {
+			state = "missing checkout"
 		}
 		if !entry.CanRemove && !entry.CanDiscard && len(entry.Blockers) > 0 {
 			state = printable(entry.Blockers[0])

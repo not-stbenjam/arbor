@@ -23,6 +23,7 @@ type commandOptions struct {
 	yes, recommended, progress, all, quiet                        bool
 	linkedOnly, noDefaultExcludes, discardLocal, keepLocal, force bool
 	targetOnly, watchStdin                                        bool
+	expectMissing, expectEmpty                                    bool
 	excludes                                                      []string
 	head, id, branch, repository, statsSession                    string
 }
@@ -138,7 +139,7 @@ func newCleanCommand() *cobra.Command {
 func newRemoveCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("remove PATH", "Preview or delete one linked worktree",
-		"Preview removal of one linked checkout. Pass --yes to delete it and its local\nfiles, including untracked and ignored files. Named branches are retained.\nDetached commits get a recovery branch only when no branch retains the commit.\nUse --keep-local to refuse local-file disposal. Use --force to explicitly\noverride a worktree lock. A missing checkout removes only its Git registration;\nprovide --repo when its owning repository cannot be found from the path.\nFlags may follow PATH. Use -- before a path beginning with a dash.",
+		"Preview removal of one linked checkout. Pass --yes to delete it and its local\nfiles, including untracked and ignored files, and override its worktree lock.\nNamed branches are retained. Detached commits get a recovery branch\nonly when no branch retains the commit. Use --keep-local to refuse local-file\ndisposal and lock overrides. --force is an explicit alias for the default\ncleanup policy, not an additional requirement. A missing checkout removes only\nits Git registration; provide --repo when its owning repository cannot be found\nfrom the path. Flags may follow PATH. Use -- before a path beginning with a dash.",
 		"  arbor remove /path/to/worktree\n  arbor remove /path/to/worktree --yes\n  arbor remove /path/to/worktree --keep-local --yes\n  arbor remove /missing/worktree --repo ~/code/project --force --yes\n  arbor remove --yes -- ./-old-session", flags)
 	cmd.Args = checkedArgs(cobra.ExactArgs(1))
 	cmd.ValidArgsFunction = cobra.FixedCompletions(nil, cobra.ShellCompDirectiveFilterDirs)
@@ -147,7 +148,7 @@ func newRemoveCommand() *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVarP(&flags.yes, "yes", "y", false, "Perform removal instead of previewing")
 	f.BoolVar(&flags.keepLocal, "keep-local", false, "Refuse removal if local files would be discarded")
-	f.BoolVarP(&flags.force, "force", "f", false, "Explicitly allow local-file disposal and overriding a worktree lock")
+	f.BoolVarP(&flags.force, "force", "f", false, "Explicit alias for default local-file disposal and lock override")
 	f.StringVar(&flags.repository, "repo", "", "Owning repository or Git common directory (for missing checkouts)")
 	_ = cmd.MarkFlagDirname("repo")
 	f.StringVar(&flags.head, "head", "", "Require this exact commit before removal")
@@ -156,7 +157,9 @@ func newRemoveCommand() *cobra.Command {
 	f.StringVar(&flags.id, "id", "", "Require this worktree identity")
 	f.StringVar(&flags.branch, "branch", "", "Require this branch")
 	f.StringVar(&flags.statsSession, "stats-session", "", "Group removal statistics into a cleanup session")
-	for _, name := range []string{"discard-local", "id", "branch", "stats-session"} {
+	f.BoolVar(&flags.expectMissing, "expect-missing", false, "Require the confirmed checkout to remain missing")
+	f.BoolVar(&flags.expectEmpty, "expect-empty", false, "Require the confirmed checkout to remain empty or missing")
+	for _, name := range []string{"discard-local", "id", "branch", "stats-session", "expect-missing", "expect-empty"} {
 		_ = f.MarkHidden(name)
 	}
 	return cmd

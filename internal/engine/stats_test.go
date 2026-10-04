@@ -87,6 +87,31 @@ func TestRemoteStatsRejectsUnknownFormat(t *testing.T) {
 	}
 }
 
+func TestRemoteStatsValidatesTimestampsWithoutEchoingRemoteData(t *testing.T) {
+	for _, field := range []string{"first", "last"} {
+		for _, stamp := range []string{"", "2026-10-04T14:12:30Z", "2026-10-04T14:12:30.123-04:00", "not-a-date", "2026-10-04T14:12:30Z\nforged output"} {
+			t.Run(field+"/"+strconv.Quote(stamp), func(t *testing.T) {
+				remote := stats.Report{Version: 1, Daily: []stats.Day{}}
+				if field == "first" {
+					remote.FirstCleanupAt = stamp
+				} else {
+					remote.LastCleanupAt = stamp
+				}
+				statsRemoteFixture(t, func(string) ([]byte, error) { return json.Marshal(remote) })
+				got, err := ReadStats(context.Background(), "stats-fixture-vps")
+				invalid := stamp == "not-a-date" || strings.Contains(stamp, "\n")
+				if invalid {
+					if err == nil || err.Error() != "remote Arbor returned an invalid statistics timestamp" || got.Version != 0 {
+						t.Fatalf("invalid timestamp was not safely rejected: %+v %v", got, err)
+					}
+				} else if err != nil || got.FirstCleanupAt != remote.FirstCleanupAt || got.LastCleanupAt != remote.LastCleanupAt {
+					t.Fatalf("valid timestamp was changed: %+v %v", got, err)
+				}
+			})
+		}
+	}
+}
+
 func TestRemoteRemovalForwardsOpaqueStatsSessionWithoutLocalRecording(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "statistics.json")
 	t.Setenv("ARBOR_STATS_PATH", file)

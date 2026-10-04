@@ -31,6 +31,21 @@ const {
   scanOptions,
 } = require("./backend.cjs");
 
+// Smoke tests must never inherit the user's preferences, cached scans, session
+// files, or CLI statistics, even when invoked without a dedicated test harness.
+// Keep this before app readiness and all app profile reads. Retain the private
+// profile for diagnosis; never delete or migrate the user's normal profile.
+if (process.env.ARBOR_SMOKE_TEST === "1") {
+  const profile = fs.mkdtempSync(
+    path.join(os.tmpdir(), "arbor-smoke-profile-"),
+  );
+  const session = path.join(profile, "session");
+  fs.mkdirSync(session, { mode: 0o700 });
+  app.setPath("userData", profile);
+  app.setPath("sessionData", session);
+  process.env.ARBOR_STATS_PATH = path.join(profile, "statistics.json");
+}
+
 let window,
   backend,
   preferences = validatePreferences({}),

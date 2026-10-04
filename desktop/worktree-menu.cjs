@@ -88,11 +88,15 @@ function terminalCommand(platform, directory, findExecutable) {
   return null;
 }
 
+function usesDiscardLocal(row, discardLocal) {
+  return discardLocal === true && !row.canRemove;
+}
+
 function removalConfirmationOptions(trees, discardLocal) {
   const shorten = (value, limit) => {
     const characters = Array.from(
       String(value || "").replace(
-        /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g,
+        /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g,
         " ",
       ),
     );
@@ -107,9 +111,10 @@ function removalConfirmationOptions(trees, discardLocal) {
   const existing = trees.filter((row) => !row.missing);
   const missing = trees.length - existing.length;
   const registrationsOnly = missing > 0 && !existing.length;
-  const dirty = discardLocal && existing.some((row) => row.dirty);
-  const ignored = discardLocal && existing.some((row) => row.ignored);
-  const discardsFiles = dirty || ignored;
+  // Consent follows the operation, not potentially stale scan metadata.
+  const discardsFiles = existing.some(
+    (row) => !row.empty && usesDiscardLocal(row, discardLocal),
+  );
   const notes = [
     registrationsOnly
       ? "Only Git worktree registrations will be removed; their folders are already missing. Git branches and commits are retained."
@@ -119,18 +124,13 @@ function removalConfirmationOptions(trees, discardLocal) {
     notes.push(
       `${missing} missing worktree ${missing === 1 ? "registration will" : "registrations will"} also be removed; no folders exist at those paths.`,
     );
-  if (dirty && ignored)
+  if (discardsFiles)
     notes.push(
-      "Uncommitted, untracked, and ignored files will be permanently discarded.",
+      "Any local files, including uncommitted, untracked, and ignored files, will be permanently discarded.",
     );
-  else if (dirty)
+  if (trees.some((row) => row.locked && usesDiscardLocal(row, discardLocal)))
     notes.push(
-      "Uncommitted and untracked files will be permanently discarded.",
-    );
-  else if (ignored) notes.push("Ignored files will be permanently discarded.");
-  if (discardLocal && existing.some((row) => row.locked))
-    notes.push(
-      "Git worktree locks on the selected folders will be overridden.",
+      "Git worktree locks on the selected entries will be overridden.",
     );
   if (existing.some((row) => row.detached))
     notes.push(
@@ -167,4 +167,9 @@ function removalConfirmationOptions(trees, discardLocal) {
   };
 }
 
-module.exports = { menuTarget, terminalCommand, removalConfirmationOptions };
+module.exports = {
+  menuTarget,
+  terminalCommand,
+  removalConfirmationOptions,
+  usesDiscardLocal,
+};

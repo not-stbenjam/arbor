@@ -2,6 +2,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { WorkspaceCache } = require("./workspace-cache.cjs");
+const { removalConfirmationOptions } = require("./worktree-menu.cjs");
 const {
   Backend,
   execute,
@@ -29,6 +31,49 @@ const selection = (backend, changes = {}) => ({
   recommendedOnly: true,
   revision: backend.getState().revision,
   ...changes,
+});
+
+test("cached manual cleanup binds consent and missing/empty expectations without rescanning", async () => {
+  for (const kind of ["locked", "detached", "missing", "empty"]) {
+    const cached = {
+      ...tree,
+      canRemove: false,
+      canDiscard: true,
+      recommended: false,
+      [kind]: true,
+      dirty: false,
+      ignored: false,
+    };
+    const cache = new WorkspaceCache();
+    const options = scanOptions({ root: "/work" });
+    cache.put(options, JSON.parse(report([cached])));
+    const calls = [];
+    const backend = new Backend({
+      cache,
+      run: async (args) => {
+        calls.push(args);
+        assert.equal(args[0], "remove", "cached activation must not rescan");
+        return JSON.stringify({ path: tree.path, removed: true });
+      },
+    });
+    await backend.activateWorkspace(options);
+    assert.equal(backend.state.cached, true);
+    await backend.remove(
+      selection(backend, { recommendedOnly: false, discardLocal: true }),
+      (rows, { discardLocal }) => {
+        const dialog = removalConfirmationOptions(rows, discardLocal);
+        if (kind === "locked" || kind === "detached") {
+          assert.match(dialog.detail, /Any local files.*permanently discarded/);
+          assert.equal(dialog.buttons[1], "Discard & Remove");
+        } else assert.doesNotMatch(dialog.detail, /permanently discarded/);
+        return true;
+      },
+    );
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].includes("--discard-local"));
+    assert.equal(calls[0].includes("--expect-missing"), kind === "missing");
+    assert.equal(calls[0].includes("--expect-empty"), kind === "empty");
+  }
 });
 
 test("scan returns busy state immediately, invokes CLI with exact arguments, and clones state", async () => {

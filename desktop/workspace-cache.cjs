@@ -46,6 +46,20 @@ function validReport(report) {
   );
 }
 
+function persistentReport(report) {
+  // A failed targeted inspection is live operation state, not a reusable
+  // snapshot. Never restore older permissive flags or an indefinitely blocked
+  // failure row. A later successful inspection can cache this workspace again.
+  if (report.worktrees.some((row) => row.retryInspection === true)) return null;
+  const snapshot = structuredClone(report);
+  for (const row of snapshot.worktrees) {
+    delete row.lastRemovalError;
+    delete row.retryInspection;
+    delete row.inspectionError;
+  }
+  return snapshot;
+}
+
 class WorkspaceCache {
   constructor({
     filename,
@@ -74,6 +88,8 @@ class WorkspaceCache {
       if (data.version !== 1 || !Array.isArray(data.entries)) return;
       for (const entry of data.entries.slice(-this.maxEntries)) {
         if (!entry || !entry.options || !validReport(entry.report)) continue;
+        const report = persistentReport(entry.report);
+        if (!report) continue;
         const options = identity(entry.options);
         const roots = [
           options.root,
@@ -85,7 +101,7 @@ class WorkspaceCache {
         this.entries.set(cacheKey(options), {
           options,
           roots,
-          report: entry.report,
+          report,
         });
       }
     } catch {
@@ -137,25 +153,29 @@ class WorkspaceCache {
       }
     }
     this.entries.delete(key);
+    const snapshot = persistentReport(report);
+    if (!snapshot) {
+      this.persist();
+      return;
+    }
     this.entries.set(key, {
       options: normalized,
       roots: [...roots].slice(0, 20),
-      report: structuredClone(report),
+      report: snapshot,
     });
     this.trim();
     this.persist();
   }
 
   removePaths(host, paths) {
-    const removed = paths.map((value) => path.posix.normalize(value));
+    const removed = new Set(paths.map((value) => path.posix.normalize(value)));
     for (const entry of this.entries.values()) {
       if (entry.options.host !== (host || "")) continue;
-      entry.report.worktrees = entry.report.worktrees.filter((row) => {
-        const target = path.posix.normalize(row.path);
-        return !removed.some(
-          (deleted) => target === deleted || target.startsWith(deleted + "/"),
-        );
-      });
+      // Removing a parent checkout does not remove nested Git registrations.
+      // Their own entries remain reviewable, even if their folders are missing.
+      entry.report.worktrees = entry.report.worktrees.filter(
+        (row) => !removed.has(path.posix.normalize(row.path)),
+      );
     }
     this.persist();
   }

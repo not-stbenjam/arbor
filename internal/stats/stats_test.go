@@ -108,6 +108,23 @@ func TestCorruptStatsStayRecoverable(t *testing.T) {
 	if err != nil || report.RemovedWorktrees != 1 || !strings.Contains(report.Warning, filepath.Base(backups[0])) {
 		t.Fatalf("recovery notice/totals missing: %+v %v", report, err)
 	}
+	// Merely rereading or retrying an already-recorded action does not swallow
+	// the notice. A new successful cleanup clears it, but preserves the backup.
+	if err := RecordRemovalBatch(Batch{ID: "after-corruption", Removals: []Removal{{SizeBytes: 20}}}); err != nil {
+		t.Fatal(err)
+	}
+	if report, err = Load(); err != nil || report.Warning == "" {
+		t.Fatalf("duplicate action swallowed recovery notice: %+v %v", report, err)
+	}
+	if err := RecordRemovalBatch(Batch{ID: "later-cleanup", Removals: []Removal{{SizeBytes: 30}}}); err != nil {
+		t.Fatal(err)
+	}
+	if report, err = Load(); err != nil || report.Warning != "" || report.RemovedWorktrees != 2 {
+		t.Fatalf("later successful cleanup kept stale warning: %+v %v", report, err)
+	}
+	if data, err = os.ReadFile(backups[0]); err != nil || string(data) != string(corrupt) {
+		t.Fatalf("acknowledging recovery changed backup: %s %v", data, err)
+	}
 }
 
 func TestFailedSaveDoesNotOverwriteExistingData(t *testing.T) {

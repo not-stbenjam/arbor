@@ -262,7 +262,20 @@ setTimeout(()=>process.stdout.write(JSON.stringify({root,worktrees,warnings:[],s
             Math.abs(geometry.buttonY - geometry.settingsY) < 150,
             "Statistics is near Settings",
           );
-          assert.match(geometry.text, /45/);
+          assert.equal(
+            await js(
+              "document.querySelector('[data-stat=\"removedWorktrees\"]').textContent",
+            ),
+            "45",
+            "remote worktree count must be exact, not matched by the recovered byte total",
+          );
+          assert.equal(
+            await js(
+              "document.querySelector('[data-stat=\"estimatedBytesReclaimed\"]').textContent",
+            ),
+            "45 MB",
+            "recovered space is shown in its own statistic",
+          );
           const statsCalls = calls().filter((args) => args[0] === "stats");
           assert.ok(statsCalls.length > 0);
           assert.ok(

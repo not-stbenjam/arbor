@@ -89,6 +89,8 @@ Statistics belong to the selected machine. Local app and CLI share one store; an
 
 Only aggregates and 90 days of daily totals are stored, with no worktree path history, in `arbor/statistics.json` under the operating system's user configuration directory. Writes are atomic and process-locked. Unreadable statistics are preserved in a recoverable `.corrupt-*` backup before recording new totals. Resetting preferences keeps statistics.
 
+On macOS the statistics file is `~/Library/Application Support/arbor/statistics.json`; on Linux it is `${XDG_CONFIG_HOME:-$HOME/.config}/arbor/statistics.json`. To start totals over, close Arbor and any CLI cleanup, then move that file aside as a backup. The desktop scan cache is `workspace-cache.json` in Electron's `Arbor` user-data directory (`~/Library/Application Support/Arbor` on macOS, normally `~/.config/Arbor` on Linux).
+
 ## CLI
 
 ```sh
@@ -131,7 +133,7 @@ arbor remove -- /absolute/path/to/worktree  # preview, including local-file warn
 arbor remove /absolute/path/to/worktree --yes
 arbor remove /absolute/path/to/worktree --keep-local -y  # refuse local-file disposal
 
-# Explicitly override a lock, including a stale registration whose folder is gone.
+# --force explicitly names the default removal policy, which also overrides locks.
 arbor remove /path/to/worktree --force --yes
 arbor remove /missing/worktree --repo /path/to/repository --force --yes
 
