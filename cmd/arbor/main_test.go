@@ -289,9 +289,18 @@ func TestCLIRemovalReportsActualCommitRetention(t *testing.T) {
 }
 
 func TestCLIHelpDocumentsRemovalPolicies(t *testing.T) {
-	for _, required := range []string{"--keep-local", "--discard-local", "Explicit alias", "--linked-only=false", "only when no branch retains the commit"} {
-		if !strings.Contains(help, required) {
-			t.Errorf("help omits %q", required)
+	for command, required := range map[string][]string{
+		"remove": {"--keep-local", "--force", "--repo", "only when no branch retains the commit"},
+		"list":   {"--linked-only=false", "--exclude"},
+	} {
+		var out, stderr bytes.Buffer
+		if err := execute(context.Background(), []string{command, "--help"}, &out, &stderr); err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range required {
+			if !strings.Contains(out.String(), text) {
+				t.Errorf("%s help omits %q", command, text)
+			}
 		}
 	}
 }

@@ -132,21 +132,32 @@ func discover(ctx context.Context, root string, excluded func(string) bool, prog
 func Scan(ctx context.Context, options Options) (Report, error) {
 	start := time.Now()
 	root, err := ResolveRoot(options.Root)
+	if err != nil && options.TargetOnly && os.IsNotExist(err) {
+		root, err = resolveMissingRoot(options.Root)
+	}
 	if err != nil {
 		return Report{}, err
 	}
 	st, err := os.Stat(root)
-	if err != nil {
+	missingTarget := options.TargetOnly && os.IsNotExist(err)
+	if err != nil && !missingTarget {
 		return Report{}, err
 	}
-	if !st.IsDir() {
+	if st != nil && !st.IsDir() {
 		return Report{}, errors.New("scan root must be a directory")
 	}
 	excluded, err := compileExcludes(root, options.Excludes)
 	if err != nil {
 		return Report{}, err
 	}
-	gitVersion, err := git(ctx, root, "--version")
+	lookupRoot := root
+	if options.TargetOnly && (missingTarget || options.Repository != "") {
+		lookupRoot, err = repositoryForTarget(ctx, root, options.Repository)
+		if err != nil {
+			return Report{}, err
+		}
+	}
+	gitVersion, err := git(ctx, lookupRoot, "--version")
 	if err != nil {
 		return Report{}, fmt.Errorf("Git is required: %w", err)
 	}
@@ -155,7 +166,7 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		return Report{}, fmt.Errorf("Git 2.36 or newer is required (found %s)", strings.TrimSpace(gitVersion))
 	}
 	report := Report{Root: root, ScannedAt: start, Worktrees: []Worktree{}, Warnings: []string{}, GitHub: options.GitHub, Fetched: options.Fetch}
-	paths := []string{root}
+	paths := []string{lookupRoot}
 	var warnings []string
 	if !options.TargetOnly {
 		progress := options.Progress
@@ -318,6 +329,10 @@ type repositoryDefault struct {
 }
 
 func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defaultCache *repositoryDefault) {
+	// Git's prunable marker also describes existing directories without .git.
+	// Classify the actual path, rather than treating every prunable entry as absent.
+	w.Missing = false
+	w.Empty = false
 	w.Blockers = []string{}
 	w.Problems = []string{}
 	w.PublishedRefs = []string{}
@@ -342,10 +357,30 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 	if st, err := os.Stat(w.Path); err != nil || !st.IsDir() {
 		w.Missing = true
 		block("Worktree directory is missing")
+		if os.IsNotExist(err) {
+			canonical, pathErr := resolveMissingRoot(w.Path)
+			if pathErr != nil || canonical != w.Path {
+				block("Worktree path could not be verified")
+			} else if len(w.Head) < 40 || gitText(ctx, w.CommonDir, "rev-parse", "--verify", w.Head+"^{commit}") != w.Head {
+				block("No commit to preserve")
+			} else {
+				annotateDiscard(w)
+			}
+		}
 		return
 	}
 	actual := gitText(ctx, w.Path, "rev-parse", "--show-toplevel")
 	if actual != w.Path {
+		if emptyCheckoutDirectory(w.Path) {
+			w.Empty = true
+			block("Empty checkout directory; only its stale registration remains")
+			if len(w.Head) < 40 || gitText(ctx, w.CommonDir, "rev-parse", "--verify", w.Head+"^{commit}") != w.Head {
+				block("No commit to preserve")
+			} else {
+				annotateDiscard(w)
+			}
+			return
+		}
 		block("Worktree path could not be verified")
 		return
 	}

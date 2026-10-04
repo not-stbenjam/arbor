@@ -180,6 +180,84 @@ test("confirmation describes only actual local-file categories", () => {
   assert.doesNotMatch(ignored.detail, /uncommitted/i);
 });
 
+test("bulk confirmation bounds long path previews and summarizes warnings once", () => {
+  const rows = Array.from({ length: 1000 }, (_, index) => ({
+    ...row,
+    path: `/work/${"long-folder/".repeat(100)}line\n${index}\tend`,
+    dirty: true,
+    ignored: true,
+    locked: true,
+    detached: true,
+    discardWarnings: Array(20).fill("Repeated per-worktree warning"),
+  }));
+  const options = removalConfirmationOptions(rows, true);
+  assert.equal(options.message, "Remove 1000 worktrees?");
+  assert.ok(options.detail.length < 1500);
+  assert.ok(options.detail.split("\n").length <= 12);
+  const previews = options.detail
+    .split("\n")
+    .filter((line) => line.startsWith("/work/"));
+  assert.equal(previews.length, 5);
+  assert.ok(previews.every((line) => Array.from(line).length <= 120));
+  assert.ok(previews.every((line) => !line.includes("\t")));
+  assert.match(options.detail, /and 995 more selected worktrees/);
+  assert.equal(options.detail.match(/permanently discarded/g)?.length, 1);
+  assert.equal(options.detail.match(/locks.*overridden/g)?.length, 1);
+  assert.equal(options.detail.match(/recovery branches/g)?.length, 1);
+  assert.doesNotMatch(options.detail, /Repeated per-worktree warning/);
+});
+
+test("confirmation keeps exact short previews without inventing warnings", () => {
+  const rows = Array.from({ length: 6 }, (_, index) => ({
+    ...row,
+    path: `/work/tree-${index}`,
+    discardWarnings: ["Ignored files will be discarded"],
+  }));
+  const options = removalConfirmationOptions(rows, true);
+  assert.equal(options.message, "Remove 6 worktrees?");
+  for (let index = 0; index < 5; index++)
+    assert.ok(options.detail.includes(`/work/tree-${index}`));
+  assert.doesNotMatch(options.detail, /tree-5/);
+  assert.match(options.detail, /and 1 more selected worktree$/);
+  assert.doesNotMatch(options.detail, /discarded|ignored|locks|recovery/i);
+  const single = removalConfirmationOptions(
+    [{ ...row, path: "/work/" + "a".repeat(1000) + "\nend" }],
+    false,
+  );
+  assert.ok(single.message.length < 100);
+  assert.doesNotMatch(single.message, /\n/);
+});
+
+test("missing-only confirmations remove registrations without claiming folder or data loss", () => {
+  const missing = {
+    ...row,
+    missing: true,
+    dirty: true,
+    ignored: true,
+    locked: true,
+  };
+  const single = removalConfirmationOptions([missing], true);
+  assert.equal(single.message, "Remove registration for “topic”?");
+  assert.equal(single.buttons[1], "Remove Registration");
+  assert.match(single.detail, /Only Git worktree registrations/);
+  assert.doesNotMatch(
+    single.detail,
+    /folders will be deleted|permanently discarded|overridden/,
+  );
+  const multiple = removalConfirmationOptions(
+    [missing, { ...missing, path: "/work/other" }],
+    true,
+  );
+  assert.equal(multiple.message, "Remove 2 missing worktree registrations?");
+  const mixed = removalConfirmationOptions([missing, row], true);
+  assert.match(
+    mixed.detail,
+    /1 missing worktree registration will also be removed/,
+  );
+  assert.match(mixed.detail, /folders will be deleted/);
+  assert.doesNotMatch(mixed.detail, /permanently discarded/);
+});
+
 test("failed inspections expose a targeted native retry without enabling stale deletion", () => {
   const failed = {
     ...state,

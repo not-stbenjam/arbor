@@ -12,12 +12,12 @@ The desktop app uses Electron with a native window, system typography, compact c
 
 Choose an asset from [Releases](https://github.com/not-stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.1.0`.
 
-| Platform | Desktop app | Standalone CLI |
-| --- | --- | --- |
+| Platform             | Desktop app                          | Standalone CLI                      |
+| -------------------- | ------------------------------------ | ----------------------------------- |
 | macOS, Apple Silicon | `arbor_VERSION_darwin_arm64.app.zip` | `arbor_VERSION_darwin_arm64.tar.gz` |
-| macOS, Intel | `arbor_VERSION_darwin_amd64.app.zip` | `arbor_VERSION_darwin_amd64.tar.gz` |
-| Linux, x86-64 | `arbor_VERSION_linux_amd64.AppImage` | `arbor_VERSION_linux_amd64.tar.gz` |
-| Linux, ARM64 | `arbor_VERSION_linux_arm64.AppImage` | `arbor_VERSION_linux_arm64.tar.gz` |
+| macOS, Intel         | `arbor_VERSION_darwin_amd64.app.zip` | `arbor_VERSION_darwin_amd64.tar.gz` |
+| Linux, x86-64        | `arbor_VERSION_linux_amd64.AppImage` | `arbor_VERSION_linux_amd64.tar.gz`  |
+| Linux, ARM64         | `arbor_VERSION_linux_arm64.AppImage` | `arbor_VERSION_linux_arm64.tar.gz`  |
 
 Linux also has `arbor_VERSION_linux_ARCH.desktop.tar.gz`, an extracted desktop distribution for environments without AppImage/FUSE support. Keep all of its files together.
 
@@ -57,7 +57,7 @@ mkdir -p "$HOME/.local/bin"
 install -m 755 arbor "$HOME/.local/bin/arbor"
 ```
 
-Add `$HOME/.local/bin` to your shell's `PATH` if needed. `arbor list`, `clean`, and `remove` do not require the desktop app. `arbor` or `arbor gui` launches an installed Arbor desktop app.
+Add `$HOME/.local/bin` to your shell's `PATH` if needed. `arbor list`, `clean`, and `remove` do not require the desktop app. Running `arbor` shows command help; `arbor gui` explicitly launches an installed Arbor desktop app.
 
 ### Verify downloads
 
@@ -77,28 +77,45 @@ Enter one directory name, path, or glob pattern per line. Patterns are case-sens
 
 Exclusions also omit registered worktrees in excluded subtrees. They never skip file checks during deletion. SSH exclusions are resolved on the remote machine.
 
-**Settings** stays pinned below the scrolling repository list. To start over, choose **Settings → Reset to defaults…** and confirm. Arbor stops any active scan, clears its saved settings and scan results, and reopens setup. It does not delete repositories, worktrees, or SSH configuration. Reset is unavailable while worktree cleanup is running.
+**Settings** stays pinned below the scrolling repository list. To start over, choose **Settings → Reset to defaults…** and confirm. Arbor stops any active scan, clears its saved settings and scan results, and reopens setup. It does not delete repositories, worktrees, SSH configuration, or cleanup statistics. Reset is unavailable while worktree cleanup is running.
+
+Arbor remembers each workspace's last scan across host switches and app restarts. Returning to a workspace restores its tree immediately; **Refresh** runs a new scan. Saved results show their original scan time, and deletion always rechecks the selected worktree before touching it.
+
+## Statistics
+
+Open **Statistics**, pinned beside Settings, for lifetime cleanup totals and 30-day charts: worktrees removed, estimated space recovered, cleanup sessions, largest checkout, and average checkout size. Successful deletions from both the desktop app and CLI count. Missing checkout registrations count as cleanups but recover zero bytes; disk space is an estimate, not a measurement of free space.
+
+Statistics belong to the selected machine. Local app and CLI share one store; an SSH host keeps its own totals, including cleanups run directly on that host. View them from the terminal with `arbor stats`, `arbor stats --json`, or `arbor stats --host my-vps`.
+
+Only aggregates and 90 days of daily totals are stored, with no worktree path history, in `arbor/statistics.json` under the operating system's user configuration directory. Writes are atomic and process-locked. Unreadable statistics are preserved in a recoverable `.corrupt-*` backup before recording new totals. Resetting preferences keeps statistics.
 
 ## CLI
 
 ```sh
-# Open the installed desktop app.
+# Show useful help without opening the app or scanning anything.
 arbor
+arbor help list
+arbor list --help
+
+# Explicitly open the installed desktop app.
 arbor gui --path "$HOME/git"
 
 # Discover local worktrees. The default path is your home directory.
 arbor list --path "$HOME/git"
 arbor list --path "$HOME/git" --json
 arbor list --path "$HOME/git" --recommended
+arbor list -p "$HOME/git" -q  # quiet: omit human progress
 
 # Add an exclusion, or replace the default exclusion list.
 arbor list --path "$HOME/git" --exclude archives
 arbor list --path "$HOME/git" --no-default-excludes --exclude node_modules
+arbor clean -p "$HOME/git" --exclude 'archives,old'  # commas are literal
 
 # Quote globs so Arbor—not your shell—matches them, including on SSH hosts.
 arbor list --path "$HOME" --exclude '~/.codex*/.tmp'
 arbor list --host my-vps --exclude '**/build'
 
+# Human scans show progress on stderr. JSON output is quiet unless requested.
 # Stream machine-readable progress to stderr; the final JSON stays on stdout.
 arbor list --path "$HOME/git" --json --progress
 
@@ -111,15 +128,38 @@ arbor clean --path "$HOME/git" --fetch --github --yes
 
 # Remove an eligible worktree; its local branch is retained.
 arbor remove -- /absolute/path/to/worktree  # preview, including local-file warnings
-arbor remove --yes -- /absolute/path/to/worktree
+arbor remove /absolute/path/to/worktree --yes
+arbor remove /absolute/path/to/worktree --keep-local -y  # refuse local-file disposal
+
+# Explicitly override a lock, including a stale registration whose folder is gone.
+arbor remove /path/to/worktree --force --yes
+arbor remove /missing/worktree --repo /path/to/repository --force --yes
 
 # Delete all linked worktrees beneath a folder, including unmerged/local work.
 arbor clean --path /absolute/path/to/old-sessions --all       # preview
 arbor clean --path /absolute/path/to/old-sessions --all --yes # execute
 arbor version
+arbor --version
 ```
 
-Run `arbor help` for details. Put flags before positional paths. `--path` scopes discovery and cleanup: only linked worktrees inside that folder appear. `arbor list --linked-only=false` additionally includes primary checkouts and other registered worktrees for diagnostics, not deletion.
+The CLI uses Cobra for command-specific help, argument validation, typo suggestions, and shell completion. Run `arbor help COMMAND` or `arbor COMMAND --help` for flags and examples. Help never scans or launches the desktop. Flags can appear before or after a positional worktree path; use `--` before a path beginning with `-`. Short forms include `-p` for `--path`, `-y` for `--yes`, and `-q` for `--quiet`.
+
+`--path` scopes discovery and cleanup: only linked worktrees inside that folder appear. `arbor list --linked-only=false` additionally includes primary checkouts and other registered worktrees for diagnostics, not deletion. Repeat `--exclude` to add multiple rules; each argument is one literal pattern, so commas are not separators. Both `list` and `clean` accept exclusions.
+
+Human-readable scans report progress on stderr and explicitly say when no worktrees match. `--quiet` suppresses progress. `--json` writes only the result to stdout; add `--progress` for newline-delimited `@arbor-progress ` JSON events on stderr. Removal and cleanup still preview by default, including per-path local-file warnings; `--yes` is required to delete anything.
+
+### Shell completion
+
+Generate completion for Bash, Zsh, Fish, or PowerShell:
+
+```sh
+arbor completion bash
+arbor completion zsh
+arbor completion fish
+arbor completion powershell
+```
+
+Run `arbor completion SHELL --help` for installation instructions for your shell. Generating completion does not scan repositories or require the desktop app.
 
 ## SSH hosts
 
@@ -142,6 +182,8 @@ Recommendations require evidence of a merge and a fully inspected, removable wor
 Manual Delete can remove linked worktrees with local changes, ignored files, a Git lock, a detached HEAD, or a default branch checkout. The desktop shows one confirmation with the selected paths and any local-file disposal warning. Folder deletion applies to the worktrees matching the current filters, including collapsed children. **Delete merged** is one-click cleanup of recommendations, without another confirmation. The CLI shows a preview unless `--yes` is supplied; `arbor remove --yes` confirms disposal of that checkout's local files. `arbor clean` removes only recommendations unless `--all` is explicitly supplied. `--keep-local` makes a manual CLI removal refuse local-file disposal.
 
 Removal uses Git's worktree removal command and retains named branches. Detached commits not already reachable from a local or remote-tracking branch are saved on an `arbor/retained/…` recovery branch; CLI results include its name. Arbor checks the exact target again before deletion, including its commit and branch. It never deletes primary repositories or follows a changed path. Nested repositories, submodules, sparse indexes, in-progress Git operations, and unreadable/incomplete checkouts still require resolving the specific problem reported by Git or Arbor.
+
+Missing checkout registrations, including locked ones, can be removed individually; Arbor does not run a global prune. An empty leftover directory with no Git pointer can also be removed explicitly, but only while it remains empty. Neither case removes unrelated registrations. For a missing path outside its repository, supply `--repo` so the CLI can locate the registration without a broad scan.
 
 Successful deletions disappear from the existing list immediately; cleanup does not launch a new full scan. A failed deletion stays visible with its error and refreshes only that worktree so it can be retried. If that inspection also fails, its context menu offers **Retry Inspection**. A full refresh is explicit. Quitting cancels a scan; during deletion, Arbor can finish the current worktree and quit without starting the remaining deletions.
 

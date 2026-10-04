@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld(
   "arbor",
   Object.freeze({
     getState: () => ipcRenderer.invoke("arbor:get-state"),
+    getStats: () => ipcRenderer.invoke("arbor:get-stats"),
+    activateWorkspace: (options) =>
+      ipcRenderer.invoke("arbor:activate-workspace", options),
     scan: (options) => ipcRenderer.invoke("arbor:scan", options),
     completeSetup: (options) =>
       ipcRenderer.invoke("arbor:complete-setup", options),

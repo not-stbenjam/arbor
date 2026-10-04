@@ -4,6 +4,7 @@ const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const os = require("node:os");
 const { StringDecoder } = require("node:string_decoder");
+const { WorkspaceCache } = require("./workspace-cache.cjs");
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
 const HOST = /^[A-Za-z0-9_][A-Za-z0-9_.@:\[\]-]*$/;
@@ -339,7 +340,9 @@ class Backend {
     host = "",
     options,
     setupRequired = false,
+    cache = new WorkspaceCache(),
   }) {
+    this.cache = cache;
     this.children = new Set();
     this.operation = null;
     this.partialPaths = new Map();
@@ -359,6 +362,7 @@ class Backend {
       canCancelScan: false,
       version,
       revision: null,
+      cached: false,
       githubAvailable,
       platform,
     };
@@ -439,6 +443,41 @@ class Backend {
     };
   }
 
+  async activateWorkspace(value = {}) {
+    if (this.disposed) throw new Error("Arbor is closing");
+    if (this.state.setupRequired)
+      throw new Error("Complete setup before scanning");
+    const options = scanOptions(value);
+    if (this.state.busy) {
+      if (this.operation !== "scan")
+        throw new Error("An operation is already running");
+      this.cancelScan();
+      await this.pending;
+    }
+    if (this.disposed) throw new Error("Arbor is closing");
+    if (this.state.busy) throw new Error("An operation is already running");
+    const report = this.cache.get(options);
+    if (!report) return this.scan(options);
+    this.options = options;
+    this.partialPaths.clear();
+    Object.assign(this.state, {
+      report,
+      root: report.root,
+      host: options.host,
+      options: { ...options },
+      busy: false,
+      error: "",
+      revision: randomUUID(),
+      cached: true,
+      progress: null,
+      partialWorktrees: [],
+      cancelled: false,
+      cancelRequested: false,
+      canCancelScan: false,
+    });
+    return this.getState();
+  }
+
   scan(value = {}) {
     if (this.disposed) throw new Error("Arbor is closing");
     if (this.state.setupRequired)
@@ -456,6 +495,7 @@ class Backend {
       cancelled: false,
       cancelRequested: false,
       canCancelScan: true,
+      cached: false,
     });
     this.beginProgress();
     this.operation = "scan";
@@ -464,6 +504,7 @@ class Backend {
     this.pending = this.readReport(options)
       .then((report) => {
         if (this.disposed || this.state.cancelRequested) return;
+        this.cache.put(options, report);
         Object.assign(this.state, {
           report,
           root: report.root,
@@ -474,7 +515,8 @@ class Backend {
         if (!this.disposed && !this.state.cancelRequested)
           this.state.error = error.message;
       })
-      .finally(() => {
+      .finally(async () => {
+        await this.cache.pending;
         this.state.busy = false;
         this.operation = null;
         this.state.canCancelScan = false;
@@ -508,6 +550,7 @@ class Backend {
         "Wait for the current operation to stop before resetting",
       );
     this.options = scanOptions();
+    this.cache.clear();
     this.partialPaths.clear();
     this.scanController = null;
     Object.assign(this.state, {
@@ -524,6 +567,7 @@ class Backend {
       cancelRequested: false,
       canCancelScan: false,
       revision: null,
+      cached: false,
     });
     return this.getState();
   }
@@ -537,6 +581,7 @@ class Backend {
       "--path",
       row.path,
     ];
+    if (row.commonDir) args.push("--repo", row.commonDir);
     if (this.options.host) args.push("--host", this.options.host);
     if (this.options.github) args.push("--github");
     const controller = new AbortController();
@@ -607,7 +652,9 @@ class Backend {
         this.markInspectionFailure(row, error);
         this.state.error = `Could not inspect ${row.path}: ${error.message}`;
       })
-      .finally(() => {
+      .finally(async () => {
+        if (!this.disposed) this.cache.put(this.options, this.state.report);
+        await this.cache.pending;
         this.state.busy = false;
         this.operation = null;
         this.state.progress = null;
@@ -671,7 +718,8 @@ class Backend {
     this.beginProgress("removing");
     this.state.progress.total = selected.length;
     const options = { ...this.options },
-      results = [];
+      results = [],
+      statsSession = randomUUID();
     const perform = async () => {
       try {
         const manual =
@@ -696,6 +744,8 @@ class Backend {
             "remove",
             "--yes",
             "--json",
+            "--stats-session",
+            statsSession,
             "--head",
             w.head,
             "--id",
@@ -703,6 +753,7 @@ class Backend {
             "--branch",
             w.branch,
           ];
+          if (w.commonDir) args.push("--repo", w.commonDir);
           if (options.host) args.push("--host", options.host);
           if (w.pr?.merged) args.push("--github");
           args.push(
@@ -725,6 +776,8 @@ class Backend {
             this.state.report.worktrees = this.state.report.worktrees.filter(
               (entry) => entry.path !== w.path,
             );
+            this.cache.removePaths(options.host, [w.path]);
+            this.cache.put(options, this.state.report);
           } catch (error) {
             const outcome = {
               path: w.path,
@@ -760,6 +813,8 @@ class Backend {
           error: this.state.error,
         };
       } finally {
+        this.cache.put(options, this.state.report);
+        await this.cache.pending;
         this.state.busy = false;
         this.operation = null;
         this.state.progress = null;

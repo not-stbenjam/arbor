@@ -1,0 +1,61 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/not-stbenjam/arbor/internal/worktree"
+)
+
+// Human status never shares stdout with command results or the JSON protocol.
+// Scan serializes progress callbacks. Rate limiting keeps redirected logs small.
+type scanStatus struct {
+	out           io.Writer
+	enabled       bool
+	started, last time.Time
+	stage         string
+}
+
+func newScanStatus(out io.Writer, enabled bool) *scanStatus {
+	return &scanStatus{out: out, enabled: enabled, started: time.Now()}
+}
+
+func (s *scanStatus) start(root, host string) {
+	if !s.enabled {
+		return
+	}
+	if root == "" {
+		root = "~"
+	}
+	target := printable(root)
+	if host != "" {
+		target = printable(host) + ":" + target
+	}
+	fmt.Fprintln(s.out, "Scanning", target+"…")
+}
+
+func (s *scanStatus) update(event worktree.Progress) {
+	if !s.enabled {
+		return
+	}
+	now := time.Now()
+	if event.Stage == s.stage && now.Sub(s.last) < time.Second {
+		return
+	}
+	s.stage, s.last = event.Stage, now
+	switch event.Stage {
+	case "connecting":
+		fmt.Fprintln(s.out, "Connecting to", printable(event.Path)+"…")
+	case "inspect":
+		fmt.Fprintf(s.out, "Inspecting worktrees: %d/%d · %s\n", event.Completed, event.Total, printable(event.Path))
+	default:
+		fmt.Fprintf(s.out, "Discovering repositories: %d found · %s\n", event.Discovered, printable(event.Path))
+	}
+}
+
+func (s *scanStatus) finish(report worktree.Report) {
+	if s.enabled {
+		fmt.Fprintf(s.out, "Scan complete: %d worktree(s) in %s.\n", len(report.Worktrees), time.Since(s.started).Round(time.Millisecond))
+	}
+}

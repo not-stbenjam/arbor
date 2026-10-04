@@ -115,6 +115,8 @@ test("recommended removal binds identity, host and GitHub evidence, then updates
     "remove",
     "--yes",
     "--json",
+    "--stats-session",
+    calls[1][4],
     "--head",
     tree.head,
     "--id",
@@ -129,6 +131,7 @@ test("recommended removal binds identity, host and GitHub evidence, then updates
     "--",
     tree.path,
   ]);
+  assert.match(calls[1][4], /^[0-9a-f-]{36}$/);
   assert.equal(calls.length, 2);
   assert.deepEqual(result.report.worktrees, []);
   assert.equal(result.results[0].removed, true);
@@ -1066,4 +1069,35 @@ test("finish-current quit cancels read-only failure inspection without retrying 
   assert.equal(result.report.worktrees[0].retryInspection, true);
   assert.equal(calls.length, 3);
   assert.equal(backend.getState().busy, false);
+});
+
+test("missing worktree deletion and targeted retry forward the repository hint as one argument", async () => {
+  const missing = {
+    ...tree,
+    commonDir: "/code/repo's data/.git",
+    missing: true,
+    locked: true,
+    canRemove: false,
+    canDiscard: true,
+    recommended: false,
+  };
+  const calls = [];
+  const backend = new Backend({
+    run: async (args) => {
+      calls.push(args);
+      if (args[0] === "remove") throw new Error("Fixture removal failure");
+      return report([missing]);
+    },
+  });
+  backend.scan({ host: "vps", root: "/work" });
+  await backend.pending;
+  await backend.remove(
+    selection(backend, { discardLocal: true, recommendedOnly: false }),
+    async () => true,
+  );
+  assert.equal(calls.length, 3);
+  assert.equal(calls[1][calls[1].indexOf("--repo") + 1], missing.commonDir);
+  assert.equal(calls[1].includes("--discard-local"), true);
+  assert.equal(calls[2][calls[2].indexOf("--repo") + 1], missing.commonDir);
+  assert.equal(calls[2].includes("--target-only"), true);
 });

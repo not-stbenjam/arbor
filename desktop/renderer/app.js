@@ -40,6 +40,7 @@
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/>',
     moon: '<path d="M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11Z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    chart: '<path d="M4 3v18h17M9 16v-4m5 4V8m5 8V5"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
   };
   const icon = (name, extra = "") =>
@@ -396,7 +397,7 @@
       ? `${size(sizeOf(list))} on disk`
       : "";
     $("#scan-time").textContent = state.report
-      ? `Scanned ${ago(state.report.scannedAt).toLowerCase()}`
+      ? `${state.cached ? "Saved scan" : "Scanned"} ${ago(state.report.scannedAt).toLowerCase()}`
       : "";
     $("#scan-time").title = state.report
       ? `${fullDate(state.report.scannedAt)} · ${state.report.durationMs} ms`
@@ -525,8 +526,8 @@
           ? state.cancelled
             ? "Scan incomplete"
             : "Checking…"
-          : `${branchName(w)}${w.repo ? ` · ${w.repo}` : ""}`;
-        return `<tr class="worktree-row${selection.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" aria-level="${entry.depth + 1}" aria-selected="${selection.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}" aria-label="${esc(w.path)}"><span class="path-parent">${esc(entry.pathPrefix.replace(/\/$/, "") + "/")}</span><span class="path-leaf">${pathLabel}</span></span><span class="worktree-context" title="${esc(context)}">${esc(context)}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${blocked() || !state.revision ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
+          : `${w.missing ? "Missing checkout · " : w.empty ? "Empty checkout · " : ""}${branchName(w)}${w.repo ? ` · ${w.repo}` : ""}`;
+        return `<tr class="worktree-row${selection.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" aria-level="${entry.depth + 1}" aria-selected="${selection.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}" aria-label="${esc(w.path)}"><span class="path-parent">${esc(entry.pathPrefix.replace(/\/$/, "") + "/")}</span><span class="path-leaf">${pathLabel}</span></span><span class="worktree-context" title="${esc(context)}">${esc(context)}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending || w.missing ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${blocked() || !state.revision ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
       })
       .join("");
     $("#table-scroll").scrollTop = scroll;
@@ -707,19 +708,29 @@
     }
     return true;
   }
-  async function scan(options) {
-    if (blocked()) return;
+  async function scan(options, activate = false) {
+    if (
+      activate
+        ? !connected || removing || state.setupRequired || resettingPreferences
+        : blocked()
+    )
+      return;
     options = {
       ...options,
       excludes: options.excludes || [...desiredExcludes],
     };
     clientError = "";
     dismissedError = "";
+    const generation = ++pollGeneration;
+    clearTimeout(pollTimer);
     const oldHost = state.host;
     state.busy = true;
     render();
     try {
-      const next = await window.arbor.scan(options);
+      const next = await (activate
+        ? window.arbor.activateWorkspace(options)
+        : window.arbor.scan(options));
+      if (generation !== pollGeneration) return;
       desiredGitHub = !!options.github;
       desiredFetch = !!options.fetch;
       desiredExcludes = [...options.excludes];
@@ -744,9 +755,11 @@
       clearTimeout(pollTimer);
       pollTimer = setTimeout(poll, 500);
     } catch (error) {
+      if (generation !== pollGeneration) return;
       state.busy = false;
       showError(error.message);
       render();
+      pollTimer = setTimeout(poll, 700);
     }
   }
   function refresh() {
@@ -787,13 +800,90 @@
       .join("");
     if (!$("#machine-dialog").open) $("#machine-dialog").showModal();
   }
+  const statisticCount = (value) =>
+    Number.isFinite(value) && value >= 0 ? value : 0;
+  function statisticsChart(days, field, label, format) {
+    const maximum = Math.max(
+      1,
+      ...days.map((day) => statisticCount(day[field])),
+    );
+    const bars = days
+      .map((day, i) => {
+        const value = statisticCount(day[field]),
+          height = (value / maximum) * 74;
+        return `<rect class="statistics-bar${value ? "" : " empty"}" x="${i * 10 + 2}" y="${80 - Math.max(2, height)}" width="6" height="${Math.max(2, height)}" rx="2"><title>${esc(day.date)}: ${esc(format(value))}</title></rect>`;
+      })
+      .join("");
+    const total = days.reduce(
+      (sum, day) => sum + statisticCount(day[field]),
+      0,
+    );
+    return `<section class="statistics-chart-card"><div class="statistics-chart-heading"><h3>${esc(label)}</h3><strong>${esc(format(total))}</strong></div><svg class="statistics-chart" data-testid="statistics-chart" viewBox="0 0 300 86" role="img" aria-label="${esc(label)} in the last 30 days: ${esc(format(total))}"><path class="statistics-grid" d="M0 6h300M0 43h300M0 80h300"/>${bars}</svg><div class="statistics-axis"><span>30 days ago</span><span>Today</span></div></section>`;
+  }
+  let statisticsGeneration = 0;
+  async function openStatistics() {
+    const generation = ++statisticsGeneration;
+    const content = $("#statistics-content"),
+      dialog = $("#statistics-dialog");
+    content.innerHTML = '<p class="statistics-loading">Loading statistics…</p>';
+    if (!dialog.open) dialog.showModal();
+    try {
+      const { host, report } = await window.arbor.getStats();
+      if (
+        generation !== statisticsGeneration ||
+        !dialog.open ||
+        host !== state.host
+      )
+        return;
+      const removed = statisticCount(report.removedWorktrees),
+        bytes = statisticCount(report.estimatedBytesReclaimed);
+      const missing = statisticCount(report.missingRegistrations);
+      const dayMap = new Map(report.daily.map((day) => [day.date, day]));
+      const today = new Date();
+      const days = Array.from({ length: 30 }, (_, i) => {
+        const date = new Date(
+          Date.UTC(
+            today.getUTCFullYear(),
+            today.getUTCMonth(),
+            today.getUTCDate() - 29 + i,
+          ),
+        )
+          .toISOString()
+          .slice(0, 10);
+        return dayMap.get(date) || { date };
+      });
+      const card = (value, label) =>
+        `<div class="statistics-metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`;
+      content.innerHTML = `<div class="statistics-scope">${icon(host ? "server" : "monitor")}<span>${esc(host || "This computer")}</span><span class="statistics-lifetime">All time</span></div>
+        <div class="statistics-hero"><div><span class="statistics-eyebrow">A little more breathing room</span><strong data-stat="estimatedBytesReclaimed">${esc(size(bytes))}</strong><span>estimated space recovered</span></div><div class="statistics-removed"><strong data-stat="removedWorktrees">${removed.toLocaleString()}</strong><span>worktrees cleaned up</span></div></div>
+        <div class="statistics-metrics">${card(statisticCount(report.cleanupSessions).toLocaleString(), "Cleanup sessions")}${card(size(report.largestWorktreeBytes), "Largest checkout")}${card(size(removed > missing ? bytes / (removed - missing) : 0), "Average checkout")}</div>
+        <div class="statistics-charts">${statisticsChart(days, "removedWorktrees", "Worktrees cleaned up", (n) => n.toLocaleString())}${statisticsChart(days, "estimatedBytesReclaimed", "Space recovered", size)}</div>
+        ${!removed ? '<p class="statistics-empty">Your next cleanup starts the story. Successful deletions from the app and CLI will appear here.</p>' : `<div class="statistics-detail"><span>Last cleanup</span><strong>${esc(fullDate(report.lastCleanupAt))}</strong></div><div class="statistics-detail"><span>Missing registrations cleaned up</span><strong>${missing.toLocaleString()}</strong></div><div class="statistics-detail"><span>Detached commits retained</span><strong>${statisticCount(report.detachedCommitsRetained).toLocaleString()}</strong></div>`}
+        <p class="statistics-note">Space is estimated from checkout sizes at deletion, not a measurement of free disk space. Missing checkouts count as zero bytes. Charts use UTC dates.</p>
+        ${report.warning ? `<p class="statistics-warning">${esc(report.warning)}</p>` : ""}`;
+      $("#statistics-dialog .statistics-footer").textContent =
+        `Desktop + CLI · Stored ${host ? "on this SSH host" : "on this computer"} · No worktree path history`;
+    } catch (error) {
+      if (generation !== statisticsGeneration || !dialog.open) return;
+      content.innerHTML = `<p class="statistics-warning">${esc(error.message || "Statistics could not be loaded.")}</p>`;
+    }
+  }
   function switchHost(host) {
     $("#machine-dialog").close();
     if (host === state.host) return;
     const root = host
       ? prefs.hosts.find((h) => h.host === host)?.root || "~"
       : prefs.roots[0] || "";
-    scan({ root, host, github: false, fetch: false });
+    scan(
+      {
+        root,
+        host,
+        github: desiredGitHub,
+        fetch: desiredFetch,
+        excludes: [...desiredExcludes],
+      },
+      true,
+    );
   }
   async function remove(list, recommendedOnly, options = {}) {
     if (blocked() || !state.revision || !list.length) return;
@@ -1045,6 +1135,7 @@
     deleteWorktrees(selected);
   };
   $("#settings-button").onclick = openSettings;
+  $("#statistics-button").onclick = openStatistics;
   $("#scan-options-button").onclick = openSettings;
   $("#machine-button").onclick = openMachines;
   $("#add-host").onclick = () => {
@@ -1142,6 +1233,7 @@
     }
     if (action === "refresh") refresh();
     if (action === "settings") openSettings();
+    if (action === "statistics") openStatistics();
     if (action === "focus-search") {
       $("#search").focus();
       $("#search").select();

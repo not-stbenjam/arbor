@@ -43,11 +43,30 @@ func remove(ctx context.Context, snapshot Worktree, expectedHead string, recomme
 	if snapshot.OutsideRoot {
 		return errors.New("worktree is outside the scan folder")
 	}
-	resolved, err := filepath.EvalSymlinks(snapshot.Path)
+	resolved, err := resolveMissingRoot(snapshot.Path)
 	if err != nil || resolved != snapshot.Path {
 		return errors.New("worktree path changed; scan again")
 	}
-	common := gitText(ctx, snapshot.Path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	pathInfo, pathErr := os.Lstat(snapshot.Path)
+	missing := os.IsNotExist(pathErr)
+	if pathErr != nil && !missing {
+		return fmt.Errorf("cannot inspect worktree path: %w", pathErr)
+	}
+	if snapshot.Missing && !missing {
+		return errors.New("worktree directory appeared after the scan; inspect it again")
+	}
+	if snapshot.Empty && !missing && !emptyCheckoutDirectory(snapshot.Path) {
+		return errors.New("checkout is no longer an empty directory; inspect it again")
+	}
+	common := ""
+	if missing || snapshot.Empty {
+		common, err = repositoryForTarget(ctx, snapshot.Path, snapshot.CommonDir)
+		if err != nil {
+			return err
+		}
+	} else {
+		common = gitText(ctx, snapshot.Path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	}
 	if resolved, err := filepath.EvalSymlinks(common); err == nil {
 		common = resolved
 	}
@@ -61,7 +80,7 @@ func remove(ctx context.Context, snapshot Worktree, expectedHead string, recomme
 	}
 	lock.Close()
 	defer os.Remove(lockPath)
-	raw, err := git(ctx, snapshot.Path, "worktree", "list", "--porcelain", "-z")
+	raw, err := git(ctx, common, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return err
 	}
@@ -83,6 +102,9 @@ func remove(ctx context.Context, snapshot Worktree, expectedHead string, recomme
 		return errors.New("worktree commit or branch changed; scan again")
 	}
 	inspect(ctx, current, Options{GitHub: snapshot.PR != nil && snapshot.PR.Merged})
+	if snapshot.Empty && !current.Empty && !current.Missing {
+		return errors.New("checkout is no longer an empty directory; inspect it again")
+	}
 	if current.Head != expectedHead {
 		return errors.New("worktree commit changed during validation; scan again")
 	}
@@ -96,19 +118,39 @@ func remove(ctx context.Context, snapshot Worktree, expectedHead string, recomme
 	if current.Detached && discardLocal {
 		// Most detached tool sessions point at an existing branch commit. Avoid
 		// creating a permanent recovery ref for each of those disposable checkouts.
-		refs, err := git(ctx, current.Path, "for-each-ref", "--contains", expectedHead, "--format=%(refname)", "refs/heads/", "refs/remotes/")
+		refs, err := git(ctx, common, "for-each-ref", "--contains", expectedHead, "--format=%(refname)", "refs/heads/", "refs/remotes/")
 		if err != nil {
 			return fmt.Errorf("could not check detached commit retention: %w", err)
 		}
 		if strings.TrimSpace(string(refs)) == "" {
 			branch := RecoveryBranch(*current)
-			if _, err := git(ctx, current.Path, "branch", "--", branch, expectedHead); err != nil {
+			if _, err := git(ctx, common, "branch", "--", branch, expectedHead); err != nil {
 				return fmt.Errorf("could not preserve detached commit: %w", err)
 			}
 			result.RetainedBranch = branch
 		}
-	} else if current.Branch == "" || gitText(ctx, current.Path, "rev-parse", "--verify", "refs/heads/"+current.Branch) != expectedHead {
+	} else if current.Branch == "" || gitText(ctx, common, "rev-parse", "--verify", "refs/heads/"+current.Branch) != expectedHead {
 		return errors.New("branch no longer preserves this commit")
+	}
+	if current.Empty {
+		if !discardLocal {
+			return errors.New("empty checkout removal requires explicit local cleanup consent")
+		}
+		if err := removeEmptyCheckout(current.Path, pathInfo); err != nil {
+			return err
+		}
+		missing = true
+	}
+	// A missing registration must stay missing. Never reinterpret an entry that
+	// was replaced by a directory or symlink as consent to delete its contents.
+	if missing {
+		canonical, err := resolveMissingRoot(current.Path)
+		if err != nil || canonical != current.Path {
+			return errors.New("worktree path changed during validation")
+		}
+		if _, err := os.Lstat(current.Path); !os.IsNotExist(err) {
+			return errors.New("worktree directory appeared during validation; inspect it again")
+		}
 	}
 	args := []string{"worktree", "remove"}
 	if discardLocal {
@@ -118,6 +160,6 @@ func remove(ctx context.Context, snapshot Worktree, expectedHead string, recomme
 		}
 	}
 	args = append(args, "--", current.Path)
-	_, err = git(ctx, current.Path, args...)
+	_, err = git(ctx, common, args...)
 	return err
 }

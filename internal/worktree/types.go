@@ -13,6 +13,8 @@ type Options struct {
 	// TargetOnly resolves one exact registered checkout, without a discovery walk.
 	// Removal still performs its own complete, fresh safety inspection.
 	TargetOnly bool `json:"-"`
+	// Repository locates a missing target's Git registration without discovery.
+	Repository string `json:"-"`
 	// Progress is optional. Scan serializes callbacks, including inspection workers.
 	Progress func(Progress) `json:"-"`
 }
@@ -58,6 +60,7 @@ type Worktree struct {
 	Locked          bool         `json:"locked"`
 	LockReason      string       `json:"lockReason"`
 	Missing         bool         `json:"missing"`
+	Empty           bool         `json:"empty"`
 	OutsideRoot     bool         `json:"outsideRoot"`
 	Dirty           bool         `json:"dirty"`
 	ChangedFiles    int          `json:"changedFiles"`

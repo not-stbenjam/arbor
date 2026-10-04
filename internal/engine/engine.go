@@ -72,6 +72,9 @@ func Scan(ctx context.Context, host string, options worktree.Options) (worktree.
 	if options.TargetOnly {
 		args = append(args, "--target-only")
 	}
+	if options.Repository != "" {
+		args = append(args, "--repo", options.Repository)
+	}
 	args = append(args, "--linked-only="+strconv.FormatBool(options.LinkedOnly))
 	if options.Excludes != nil {
 		args = append(args, "--no-default-excludes")
@@ -112,6 +115,12 @@ func RemoveWithOptions(ctx context.Context, host string, w worktree.Worktree, he
 }
 
 func RemoveWithResult(ctx context.Context, host string, w worktree.Worktree, head string, recommendedOnly, discardLocal bool) (result worktree.RemovalResult, err error) {
+	return RemoveWithSession(ctx, host, w, head, recommendedOnly, discardLocal, "")
+}
+
+// RemoveWithSession groups successful removals in a single cleanup session on
+// the target host without changing removal eligibility or target validation.
+func RemoveWithSession(ctx context.Context, host string, w worktree.Worktree, head string, recommendedOnly, discardLocal bool, sessionID string) (result worktree.RemovalResult, err error) {
 	result.Path = w.Path
 	defer func() {
 		if err != nil {
@@ -128,6 +137,12 @@ func RemoveWithResult(ctx context.Context, host string, w worktree.Worktree, hea
 		return result, errors.New("worktree is protected; scan again to see why")
 	}
 	args := []string{"remove", "--json", "--yes", "--head", head, "--id", w.ID, "--branch", w.Branch}
+	if sessionID != "" {
+		args = append(args, "--stats-session", sessionID)
+	}
+	if w.CommonDir != "" {
+		args = append(args, "--repo", w.CommonDir)
+	}
 	if w.PR != nil && w.PR.Merged {
 		args = append(args, "--github")
 	}

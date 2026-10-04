@@ -1566,9 +1566,27 @@ dialog::backdrop {
   border-radius: 4px;
   white-space: nowrap;
 }
-.row-action:hover:not(:disabled) {
+.row-action[data-delete],
+.row-action[data-folder-delete],
+#remove-selected,
+#cleanup-button {
   background: var(--red-bg);
   color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, var(--border));
+}
+.row-action[data-delete]:hover:not(:disabled),
+.row-action[data-folder-delete]:hover:not(:disabled),
+#remove-selected:hover:not(:disabled),
+#cleanup-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--red) 12%, var(--red-bg));
+  border-color: var(--red);
+}
+.row-action[data-delete]:focus-visible,
+.row-action[data-folder-delete]:focus-visible,
+#remove-selected:focus-visible,
+#cleanup-button:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
 }
 .folder-delete {
   font-size: 10px;

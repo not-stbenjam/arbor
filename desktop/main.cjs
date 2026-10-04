@@ -21,6 +21,7 @@ const {
   removalConfirmationOptions,
 } = require("./worktree-menu.cjs");
 const { pathToFileURL } = require("node:url");
+const { WorkspaceCache } = require("./workspace-cache.cjs");
 const {
   Backend,
   execute,
@@ -96,6 +97,7 @@ function menu() {
           click: () => sendAction("refresh"),
         },
         { label: "Add SSH Host…", click: () => sendAction("add-host") },
+        { label: "Statistics…", click: () => sendAction("statistics") },
         ...(!mac
           ? [
               {
@@ -184,6 +186,20 @@ function handle(channel, handler) {
 
 function registerIPC() {
   handle("arbor:get-state", () => backend.getState());
+  handle("arbor:get-stats", async () => {
+    const host = backend.state.host || "";
+    const args = ["stats", "--json"];
+    if (host) args.push("--host", host);
+    const report = JSON.parse(await backend.run(args, { timeout: 30000 }));
+    if (!report || report.version !== 1 || !Array.isArray(report.daily))
+      throw new Error("Arbor returned invalid statistics");
+    return { host, report };
+  });
+  handle("arbor:activate-workspace", (options) => {
+    guardReset();
+    if (setupCompleting) throw new Error("Setup is being saved");
+    return backend.activateWorkspace(options);
+  });
   handle("arbor:inspect-worktree", (value) => {
     guardReset();
     return backend.inspectWorktree(value);
@@ -370,7 +386,7 @@ function registerIPC() {
         title: "Reset Arbor?",
         message: "Reset Arbor to its defaults?",
         detail:
-          "Saved SSH hosts, scan folders, exclusion rules, and appearance settings will be reset. The setup wizard will reopen without starting a scan. Repositories and worktrees will not be changed or deleted. Any running scan will be stopped.",
+          "Saved SSH hosts, scan folders, exclusion rules, and appearance settings will be reset. The setup wizard will reopen without starting a scan. Repositories and worktrees will not be changed or deleted. Statistics are kept. Any running scan will be stopped.",
         buttons: ["Cancel", "Reset Arbor"],
         defaultId: 0,
         cancelId: 0,
@@ -387,9 +403,11 @@ function registerIPC() {
         await backend.pending;
       }
       const defaults = await savePreferences(() => validatePreferences({}));
+      const state = backend.reset();
+      await backend.cache.pending;
       return {
         cancelled: false,
-        state: backend.reset(),
+        state,
         preferences: defaults,
       };
     } finally {
@@ -778,8 +796,12 @@ app
         : preferences.scan.fetch,
       excludes: preferences.scan.excludes,
     });
+    const workspaceCache = await WorkspaceCache.open(
+      path.join(app.getPath("userData"), "workspace-cache.json"),
+    );
     backend = new Backend({
       binary,
+      cache: workspaceCache,
       version: `v${app.getVersion()}`,
       options,
       setupRequired: !explicitLaunch && !preferences.setupCompleted,
@@ -792,7 +814,10 @@ app
         backend.state.githubAvailable = true;
       })
       .catch(() => {});
-    if (!backend.state.setupRequired) backend.scan(options);
+    if (!backend.state.setupRequired) {
+      if (explicitLaunch) backend.scan(options);
+      else await backend.activateWorkspace(options);
+    }
     app.on("activate", () => {
       if (!window) {
         createWindow();
@@ -804,7 +829,7 @@ app
             !backend.state.setupRequired &&
             !backend.state.busy
           )
-            backend.scan(backend.options);
+            backend.activateWorkspace(backend.options).catch(() => {});
         });
       }
     });

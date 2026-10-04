@@ -89,12 +89,36 @@ function terminalCommand(platform, directory, findExecutable) {
 }
 
 function removalConfirmationOptions(trees, discardLocal) {
-  const dirty = discardLocal && trees.some((row) => row.dirty);
-  const ignored = discardLocal && trees.some((row) => row.ignored);
+  const shorten = (value, limit) => {
+    const characters = Array.from(
+      String(value || "").replace(
+        /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g,
+        " ",
+      ),
+    );
+    if (characters.length <= limit) return characters.join("");
+    const start = Math.floor((limit - 1) / 2);
+    return (
+      characters.slice(0, start).join("") +
+      "…" +
+      characters.slice(-(limit - start - 1)).join("")
+    );
+  };
+  const existing = trees.filter((row) => !row.missing);
+  const missing = trees.length - existing.length;
+  const registrationsOnly = missing > 0 && !existing.length;
+  const dirty = discardLocal && existing.some((row) => row.dirty);
+  const ignored = discardLocal && existing.some((row) => row.ignored);
   const discardsFiles = dirty || ignored;
   const notes = [
-    "The selected worktree folders will be deleted. Git branches and commits are retained.",
+    registrationsOnly
+      ? "Only Git worktree registrations will be removed; their folders are already missing. Git branches and commits are retained."
+      : "The selected worktree folders will be deleted. Git branches and commits are retained.",
   ];
+  if (missing && !registrationsOnly)
+    notes.push(
+      `${missing} missing worktree ${missing === 1 ? "registration will" : "registrations will"} also be removed; no folders exist at those paths.`,
+    );
   if (dirty && ignored)
     notes.push(
       "Uncommitted, untracked, and ignored files will be permanently discarded.",
@@ -104,28 +128,41 @@ function removalConfirmationOptions(trees, discardLocal) {
       "Uncommitted and untracked files will be permanently discarded.",
     );
   else if (ignored) notes.push("Ignored files will be permanently discarded.");
-  if (discardLocal && trees.some((row) => row.locked))
+  if (discardLocal && existing.some((row) => row.locked))
     notes.push(
       "Git worktree locks on the selected folders will be overridden.",
     );
-  if (trees.some((row) => row.detached))
+  if (existing.some((row) => row.detached))
     notes.push(
       "Detached commits will be retained; recovery branches are created only if needed.",
     );
+  const preview = trees.slice(0, 5).map((row) => shorten(row.path, 120));
+  if (trees.length > preview.length)
+    preview.push(
+      `and ${trees.length - preview.length} more selected ${trees.length - preview.length === 1 ? "worktree" : "worktrees"}`,
+    );
+  const name = shorten(
+    path.basename(trees[0]?.path || "") || trees[0]?.branch || "worktree",
+    80,
+  );
   return {
-    title: discardsFiles
-      ? "Discard local data and remove?"
-      : "Remove worktree?",
+    title: registrationsOnly
+      ? `Remove missing worktree registration${trees.length === 1 ? "" : "s"}?`
+      : discardsFiles
+        ? "Discard local data and remove?"
+        : "Remove worktree?",
     message:
       trees.length === 1
-        ? `Remove “${path.basename(trees[0].path) || trees[0].branch || "worktree"}”?`
-        : `Remove ${trees.length} worktrees?`,
-    detail: `${notes.join("\n")}\n\n${trees.map((row) => `${row.path}${discardLocal && row.discardWarnings?.length ? "\n" + row.discardWarnings.join("\n") : ""}`).join("\n\n")}`,
+        ? `Remove ${registrationsOnly ? "registration for " : ""}“${name}”?`
+        : `Remove ${trees.length} ${registrationsOnly ? "missing worktree registrations" : "worktrees"}?`,
+    detail: `${notes.join("\n")}\n\n${preview.join("\n")}`,
     buttons: [
       "Cancel",
-      discardsFiles
-        ? "Discard & Remove"
-        : "Remove Worktree" + (trees.length > 1 ? "s" : ""),
+      registrationsOnly
+        ? "Remove Registration" + (trees.length > 1 ? "s" : "")
+        : discardsFiles
+          ? "Discard & Remove"
+          : "Remove Worktree" + (trees.length > 1 ? "s" : ""),
     ],
   };
 }

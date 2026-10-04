@@ -10,7 +10,7 @@ import (
 func annotateDiscard(w *Worktree) {
 	w.CanDiscard = false
 	w.DiscardWarnings = nil
-	if w.Main || w.Bare || w.OutsideRoot || w.Missing || len(w.Problems) > 0 {
+	if w.Main || w.Bare || w.OutsideRoot || len(w.Problems) > 0 {
 		return
 	}
 	for _, blocker := range w.Blockers {
@@ -21,6 +21,10 @@ func annotateDiscard(w *Worktree) {
 			w.DiscardWarnings = append(w.DiscardWarnings, "Ignored files will be deleted, including any local configuration or build output.")
 		case "Locked worktree":
 			w.DiscardWarnings = append(w.DiscardWarnings, "The Git worktree lock will be overridden.")
+		case "Worktree directory is missing":
+			w.DiscardWarnings = append(w.DiscardWarnings, "Only this missing worktree's Git registration will be removed; branches and commits are retained.")
+		case "Empty checkout directory; only its stale registration remains":
+			w.DiscardWarnings = append(w.DiscardWarnings, "Only the empty directory and its stale Git registration will be removed; branches and commits are retained.")
 		case "Detached HEAD; create a branch to retain its commits":
 			w.DiscardWarnings = append(w.DiscardWarnings, "The detached commit will be retained; a recovery branch is created only if needed.")
 		case "Default branch", "Protected branch name":

@@ -91,6 +91,9 @@ jobs:
       - name: Test first-launch setup and live scan results
         if: runner.os == 'Linux'
         run: xvfb-run -a timeout 60s node_modules/.bin/electron scripts/test-desktop-flow.cjs --no-sandbox
+      - name: Test workspace caching and cleanup statistics
+        if: runner.os == 'Linux'
+        run: xvfb-run -a timeout 60s node_modules/.bin/electron scripts/test-desktop-workspaces.cjs --no-sandbox
       - name: Test closing during scans and cleanup
         if: runner.os == 'Linux'
         run: xvfb-run -a timeout 60s node_modules/.bin/electron scripts/test-desktop-close.cjs --no-sandbox
