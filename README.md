@@ -158,7 +158,74 @@ The CLI uses Cobra for command-specific help, argument validation, typo suggesti
 
 `--path` scopes discovery and cleanup: only linked worktrees inside that folder appear. `arbor list --linked-only=false` additionally includes primary checkouts and other registered worktrees for diagnostics, not deletion. Repeat `--exclude` to add multiple rules; each argument is one literal pattern, so commas are not separators. Both `list` and `clean` accept exclusions.
 
-Human-readable output names the scanned folder once and lists each worktree's path beneath it, with branch, repository, last activity, size, and status, and explicitly says when no worktrees match. Long branch names keep both ends; `--json` has every value in full. Scans that take longer than a moment report progress on stderr; `--quiet` suppresses it. `--json` writes only the result to stdout; add `--progress` for newline-delimited `@arbor-progress ` JSON events on stderr. Removal and cleanup preview by default, with the total size on disk and, per path, what `--force` would discard; `--yes` is required to delete anything, and never discards local files by itself. Scan warnings and skipped worktrees from `clean` and `remove` always go to stderr, including with `--json`, so an incomplete scan never looks like a folder with nothing to clean; a JSON preview also carries the scan warnings as `warnings`.
+Human-readable output names the scanned folder once and lists each worktree's path beneath it, with branch, repository, last activity, size, and status, and explicitly says when no worktrees match. Long branch names keep both ends; `--json` has every value in full. Human scans announce their start and completion on stderr, with additional progress when they take longer than a moment; `--quiet` suppresses it. `--json` writes only the result to stdout; add `--progress` for newline-delimited `@arbor-progress ` JSON events on stderr. Removal and cleanup preview by default, with the total size on disk and, per path, what `--force` would discard; `--yes` is required to delete anything, and never discards local files by itself. Scan warnings and skipped worktrees from `clean` and `remove` always go to stderr, including with `--json`, so an incomplete scan never looks like a folder with nothing to clean; a JSON preview also carries the scan warnings as `warnings`.
+
+### Scripting and exit status
+
+Use `--json` rather than parsing the human table. There is no interactive CLI
+confirmation: `clean` and `remove` exit after a preview; Enter does not approve
+it. Adding `--yes` runs a new inspection and selection. A previous preview is
+not a saved deletion plan, and newly recommended worktrees can join a later
+`clean --yes`. For a particular reviewed checkout, `remove PATH --head COMMIT
+--recommended-only --yes` requires that commit and a fresh recommendation.
+
+| Invocation with `--json` | stdout on success |
+| --- | --- |
+| `list` | Object: `root`, `scannedAt`, `durationMs`, `worktrees`, `warnings`, `github`, `fetched` |
+| `clean` or `remove PATH`, without `--yes` | Object: `dryRun: true`, `worktrees`, `warnings`, `requiresForce` |
+| `clean --yes` | Array of removal results, including failures; empty when nothing matches |
+| `remove PATH --yes` | One removal result object |
+| `stats` | Statistics object with `version`, lifetime counters, `daily` entries and optional timestamps/`warning` |
+
+A removal result has `path` and `removed`, with `error` on failure and optional
+`retainedBranch` when a recovery branch was created. A partially failed batch
+can still print valid JSON before exiting unsuccessfully. Validation or scan
+failure can leave stdout empty: check the exit status before parsing it.
+
+Worktree objects carry the table's full `path`, `branch`, `repo`, `activityAt`
+and `sizeBytes`. `recommended` is the cleanup decision; `merged` alone is not.
+`mergeReason` and `defaultRef` explain merge evidence; `fresh`, `locked`,
+`lockReason`, `dirty`, `changedFiles`, `ignored`, `detached`, `missing` and
+`empty` explain common exceptions. `canRemove`, `canDiscard`, `losses`,
+`discardWarnings`, `blockers` and `problems` describe removal constraints.
+Identity and commit metadata are `id`, `commonDir`, `head`, `subject`, `author`
+and `commitAt`. Other diagnostics include `main`, `bare`, `outsideRoot`,
+`upstream`, `ahead`, `behind`, `published`, `publishedRefs`, `githubState` and
+optional `pr` (`number`, `url`, `title`, `state`, `merged`). Times are RFC 3339
+strings; unavailable times can be the zero date (`0001-01-01T00:00:00Z`).
+Collection fields can be empty or null; consumers should tolerate both and
+ignore unknown fields. The scan/removal format has no schema-version field;
+check scripts when upgrading this alpha. A missing checkout's size is not
+reclaimable space.
+
+Exit status is **0** for success (including no matches and previews), **1** for
+usage, scan or removal errors (including partial deletion), and **130** when
+interrupted. Scan warnings can accompany status 0. For unattended work, inspect
+`list`/preview `warnings` and each worktree's `problems`; a successful exit alone
+does not prove a complete scan. JSON `list` carries warnings in stdout; cleanup
+also prints scan warnings to stderr. `--quiet` hides human progress, not results
+or warnings. `--progress` explicitly enables framed JSON events on stderr.
+Output has no ANSI color escapes, including in a terminal; `NO_COLOR` needs no
+special handling.
+
+For example, with `jq` installed, save and check a report before producing
+NUL-separated paths for `xargs -0` or `fzf --read0` (paths may contain newlines):
+
+```sh
+arbor list --path "$HOME/git" --json > worktrees.json &&
+  jq -e '(.warnings | length) == 0 and all(.worktrees[]; (.problems | length) == 0)' worktrees.json >/dev/null &&
+  jq -j '.worktrees[] | select(.recommended) | .path + "\u0000"' worktrees.json
+```
+
+There is no built-in age filter, sort flag, or NUL-output mode. To select merged
+recommendations older than 30 days, compare `activityAt` with a cutoff in a
+script, then re-inspect each candidate and remove it with `--head` and
+`--recommended-only`. Neither flag pins activity time: an age test in a script
+is not atomic with deletion. Do not schedule that workflow against worktrees
+being used concurrently. `clean --yes` itself has no 30-day condition.
+Use an absolute CLI path and an explicit scan path in cron; keep stderr in its
+log. The CLI has no man page; command help is available offline with
+`arbor help COMMAND`.
 
 ### Shell completion
 
@@ -193,7 +260,7 @@ Recommendations require evidence of a merge and a fully inspected, removable wor
 
 One remote decides what is merged: `upstream` when the repository has one, otherwise `origin`. Its default branch is the one it names as its HEAD, or else its `main`, `master`, or `trunk`. **Fetch** also asks that remote again, so a renamed default branch stops deciding what is merged. When that remote cannot say, nothing in the repository is recommended and a scan warning says why: an `upstream` that was added and never fetched, a default branch that has been pruned from this clone, or one this clone does not fetch at all. Another remote's branches, a local branch, or a pull request do not answer for it. In the last case, or when the remote's answer could not be written where Git keeps it, Arbor records the branch's name in the repository's own Git configuration (`arbor.<remote>.head`), because Git keeps no selector for a branch that is not there. The record only withholds: while it is there, later scans and removals recommend nothing in that repository, even after the branch has been fetched, until a scan with **Fetch** on has asked the remote again. A repository with no such remote, and a bare clone, which keeps `origin`'s branches as its own, use their own `main`, `master`, or `trunk`. A merged pull request counts only when it was merged into the deciding remote's default branch on GitHub: one merged into your fork's own branch has not landed upstream. A linked checkout of the branch GitHub names as the default is protected as one, whatever local refs say.
 
-A worktree created in the last 24 hours whose HEAD has never moved is **New**, not recommended: its branch is an ancestor of the default branch only because it still points at its starting commit, and it may be a checkout you or a coding tool just started using. It becomes a recommendation once its HEAD has moved to merged work or it has sat untouched for a day, and can be deleted manually at any time. This is a narrow guard for a checkout that was only just created, not a test of whether a worktree is in use: any movement of HEAD counts, including a pull or rebase that adds no commits of your own. A repository that keeps no HEAD reflog offers no creation time, so the rule does not apply there.
+A worktree created in the last 24 hours whose HEAD has never moved is **New**, not recommended: its branch is an ancestor of the default branch only because it still points at its starting commit, and it may be a checkout you or a coding tool just started using. It becomes a recommendation once its HEAD has moved to merged work or its creation is at least a day old, and can be deleted manually at any time. This is a narrow guard for a checkout that was only just created, not a test of whether a worktree is in use: any movement of HEAD counts, including a pull or rebase that adds no commits of your own. A repository that keeps no HEAD reflog offers no creation time, so the rule does not apply there.
 
 Remote-tracking refs are local snapshots: the CLI's `published` metadata means a remote-tracking ref contains the current commit; it does not prove the remote currently has it. Use **Fetch** to refresh refs and **GitHub** to query PR status. Failed network checks do not count as merge evidence.
 
