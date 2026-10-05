@@ -271,7 +271,7 @@ function createFixture(directory) {
       // was created three days ago and holds nothing the default branch
       // lacks, which is what Arbor recommends deleting.
       //   at         where, relative to the test folder (beside the repository)
-      //   branch     its branch (the worktree's name)
+      //   branch     its branch (the worktree's name, made fit for a branch)
       //   from       what it starts from (the default branch)
       //   detached   check out a commit rather than a branch
       //   hoursOld   how long ago it was created (72); 0 is "just now"
@@ -286,7 +286,8 @@ function createFixture(directory) {
       //   missing    delete its folder behind Git's back
       worktree(name, options = {}) {
         const {
-          branch: topic = name,
+          // A folder may be named what a branch may not.
+          branch: topic = name.replace(/[^A-Za-z0-9._/-]+/g, "-").replace(/^-+|-+$/g, ""),
           from = branch,
           detached = false,
           hoursOld = 72,
@@ -328,7 +329,11 @@ function createFixture(directory) {
         }
         // Files Git has just written would make the worktree look used a
         // moment ago; date them as old as the worktree itself.
-        if (hoursOld > 0) backdate(target, hoursOld);
+        if (hoursOld > 0) {
+          backdate(target, hoursOld);
+          // Git's own record of the worktree is dated too.
+          backdate(git(target, "rev-parse", "--absolute-git-dir"), hoursOld);
+        }
         if (modified)
           fs.appendFileSync(path.join(target, "README.md"), "\nedited, not committed\n");
         if (untracked)
