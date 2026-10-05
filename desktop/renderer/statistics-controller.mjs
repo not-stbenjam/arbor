@@ -8,25 +8,117 @@ const dayLabel = new Intl.DateTimeFormat(undefined, {
   day: "numeric",
   timeZone: "UTC",
 });
-function statisticsChart(days, field, label, format) {
+// The top of a chart's scale: a round value at or above the largest day
+// whose half is round too, so the line across the middle can be labelled. A
+// size is rounded in the unit it is shown in, 16 GB rather than
+// 17,179,869,184, and its half is never less than one of that unit.
+export function scaleTop(maximum, whole) {
+  let unit = 1;
+  if (!whole) while (maximum >= unit * 1024 && unit < 1024 ** 4) unit *= 1024;
+  const half = maximum / unit / 2;
+  const steps = whole ? [1, 2, 3, 4, 5, 6, 8] : [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8];
+  for (let power = 1; ; power *= 10) {
+    const step = steps.find((value) => value * power >= half);
+    if (step) return 2 * step * power * unit;
+  }
+}
+// What one day's bar stands for, in words.
+const counted = (value) =>
+  value
+    ? `${value.toLocaleString()} ${value === 1 ? "worktree" : "worktrees"} deleted`
+    : "Nothing deleted";
+const recovered = (value) => (value ? `${size(value)} recovered` : "Nothing recovered");
+const CHARTS = {
+  removedWorktrees: {
+    label: "Worktrees deleted",
+    whole: true,
+    format: (n) => n.toLocaleString(),
+    say: counted,
+  },
+  estimatedBytesReclaimed: {
+    label: "Space recovered",
+    whole: false,
+    format: size,
+    say: recovered,
+  },
+};
+const dayName = (days, index) =>
+  index === days.length - 1 ? "Today" : dayLabel.format(new Date(days[index].date));
+function statisticsChart(days, field) {
+  const { label, whole, format } = CHARTS[field];
   const maximum = Math.max(1, ...days.map((day) => statisticCount(day[field])));
+  const top = scaleTop(maximum, whole);
   // A day with nothing recorded draws nothing; a stub would read as a value.
   const bars = days
     .map((day, i) => {
       const value = statisticCount(day[field]);
       if (!value) return "";
-      const height = Math.max(2, (value / maximum) * 74);
-      return `<rect class="statistics-bar" x="${i * 10 + 2}" y="${80 - height}" width="6" height="${height}" rx="2"><title>${esc(dayLabel.format(new Date(day.date)))}: ${esc(format(value))}</title></rect>`;
+      const height = Math.max(2, (value / top) * 74);
+      return `<rect class="statistics-bar" x="${i * 10 + 2}" y="${80 - height}" width="6" height="${height}" rx="2"/>`;
     })
     .join("");
   const total = days.reduce((sum, day) => sum + statisticCount(day[field]), 0);
-  return `<section class="statistics-chart-card"><div class="statistics-chart-heading"><h4>${esc(label)}</h4><strong>${esc(format(total))}</strong></div><svg class="statistics-chart" data-testid="statistics-chart" viewBox="0 0 300 86" role="img" aria-label="${esc(label)} in the last 30 days: ${esc(format(total))}"><path class="statistics-grid" d="M0 6h300M0 43h300M0 80h300"/>${bars}</svg><div class="statistics-axis"><span>${esc(dayLabel.format(new Date(days[0].date)))}</span><span>Today</span></div></section>`;
+  // The plot is one stop for the keyboard. Arrow keys walk its days, each
+  // read out beneath it and to a screen reader, as pointing at a day does.
+  return `<section class="statistics-chart-card"><div class="statistics-chart-heading"><h4>${esc(label)}</h4><strong>${esc(format(total))}</strong></div><div class="statistics-plot" data-chart="${field}" tabindex="0" role="slider" aria-orientation="horizontal" aria-label="${esc(label)}, day by day" aria-valuemin="1" aria-valuemax="${days.length}" aria-valuenow="${days.length}" aria-valuetext="${esc(label)} in the last 30 days: ${esc(format(total))}. Use the arrow keys to read each day."><svg class="statistics-chart" data-testid="statistics-chart" viewBox="0 0 300 86" aria-hidden="true"><rect class="statistics-day" y="0" width="10" height="86" visibility="hidden"/><path class="statistics-grid" d="M0 6h300M0 43h300M0 80h300"/>${bars}</svg><div class="statistics-scale" aria-hidden="true"><span>${esc(format(top))}</span><span>${esc(format(top / 2))}</span><span>0</span></div></div><div class="statistics-axis"><span>${esc(dayLabel.format(new Date(days[0].date)))}</span><span class="statistics-readout"></span><span>Today</span></div></section>`;
 }
 
 // Each opening owns its request; closed dialogs and switched hosts cannot be overwritten.
 export function createStatisticsController({ document, api, getHost }) {
   const $ = (selector) => document.querySelector(selector);
   let statisticsGeneration = 0;
+  // The thirty days the charts are drawing, for reading one of them out.
+  let charted = [];
+  // Shows which day of a chart is being read, or none.
+  function readDay(plot, index) {
+    const { say, format } = CHARTS[plot.dataset.chart];
+    const marker = plot.querySelector(".statistics-day"),
+      readout = plot.parentElement.querySelector(".statistics-readout");
+    if (index === null || !charted[index]) {
+      delete plot.dataset.day;
+      marker.setAttribute("visibility", "hidden");
+      readout.textContent = "";
+      return;
+    }
+    const day = dayName(charted, index),
+      value = statisticCount(charted[index][plot.dataset.chart]);
+    plot.dataset.day = index;
+    marker.setAttribute("x", index * 10);
+    marker.setAttribute("visibility", "visible");
+    // Under its chart the figure needs no more words than the chart's own
+    // heading gives it. Read aloud, away from the heading, it is a sentence.
+    readout.textContent = `${day}: ${format(value)}`;
+    plot.setAttribute("aria-valuenow", index + 1);
+    plot.setAttribute("aria-valuetext", `${day}: ${say(value)}`);
+  }
+  const plotOf = (event) => event.target.closest?.(".statistics-plot");
+  $("#statistics-content").addEventListener("keydown", (event) => {
+    const plot = plotOf(event);
+    if (!plot) return;
+    const last = charted.length - 1,
+      at = plot.dataset.day === undefined ? null : Number(plot.dataset.day);
+    const next = {
+      ArrowLeft: at === null ? last : Math.max(0, at - 1),
+      ArrowRight: at === null ? last : Math.min(last, at + 1),
+      Home: 0,
+      End: last,
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    readDay(plot, next);
+  });
+  $("#statistics-content").addEventListener("pointermove", (event) => {
+    const plot = plotOf(event);
+    if (!plot) return;
+    const box = plot.querySelector("svg").getBoundingClientRect();
+    const index = Math.floor(((event.clientX - box.left) / box.width) * charted.length);
+    readDay(plot, index >= 0 && index < charted.length ? index : null);
+  });
+  $("#statistics-content").addEventListener("pointerout", (event) => {
+    const plot = plotOf(event);
+    // The pointer has left the plot, not moved between two of its parts.
+    if (plot && !plot.contains(event.relatedTarget)) readDay(plot, null);
+  });
   async function openStatistics() {
     const generation = ++statisticsGeneration,
       requestedHost = getHost();
@@ -60,6 +152,7 @@ export function createStatisticsController({ document, api, getHost }) {
           .slice(0, 10);
         return dayMap.get(date) || { date };
       });
+      charted = days;
       const card = (value, label) =>
         `<div class="statistics-metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`;
       const scope = `<div class="statistics-scope">${icon(host !== "" ? "server" : "monitor")}<span>${esc(host === null ? "All hosts" : host || "This computer")}</span></div>`;
@@ -75,7 +168,7 @@ export function createStatisticsController({ document, api, getHost }) {
         <div class="statistics-hero"><div><span class="statistics-eyebrow">All time</span><strong data-stat="estimatedBytesReclaimed">${esc(size(bytes))}</strong><span>estimated space recovered</span></div><div class="statistics-removed"><strong data-stat="removedWorktrees">${removed.toLocaleString()}</strong><span>worktrees deleted</span></div></div>
         <div class="statistics-metrics">${card(statisticCount(report.cleanupSessions).toLocaleString(), "Cleanups")}${card(size(report.largestWorktreeBytes), "Largest worktree")}${card(size(removed > missing ? bytes / (removed - missing) : 0), "Average worktree")}</div>
         <h3 class="statistics-period">Last 30 days</h3>
-        <div class="statistics-charts">${statisticsChart(days, "removedWorktrees", "Worktrees deleted", (n) => n.toLocaleString())}${statisticsChart(days, "estimatedBytesReclaimed", "Space recovered", size)}</div>
+        <div class="statistics-charts">${statisticsChart(days, "removedWorktrees")}${statisticsChart(days, "estimatedBytesReclaimed")}</div>
         <div class="statistics-detail"><span>Last cleanup</span><strong>${esc(fullDate(report.lastCleanupAt))}</strong></div><div class="statistics-detail"><span>Missing worktree registrations removed</span><strong>${missing.toLocaleString()}</strong></div><div class="statistics-detail"><span>Detached commits kept</span><strong>${statisticCount(report.detachedCommitsRetained).toLocaleString()}</strong></div>
         <p class="statistics-note">Space is estimated from each worktree's size when it was deleted, not measured as free disk space. Days are counted in UTC.</p>`;
       $("#statistics-dialog .statistics-footer").textContent =

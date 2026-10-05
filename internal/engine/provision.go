@@ -115,7 +115,48 @@ func (p *provisioner) prepare(ctx context.Context, host, version string) (string
 	if strings.TrimSpace(string(installed)) != "arbor "+version {
 		return "", errors.New("remote Arbor did not report the expected version after installation")
 	}
+	p.prune(ctx, host, version)
 	return binary, nil
+}
+
+// prune removes the builds of earlier releases that Arbor left on host, now
+// that this one is installed there. Only a later release clears an earlier
+// one away, so two computers on different releases do not undo each other's
+// installation, and only folders named as a release are touched. Failing to
+// tidy is not a failure of the operation that was asked for.
+func (p *provisioner) prune(ctx context.Context, host, version string) {
+	listing, err := p.command(ctx, 30*time.Second, host, `ls -1 "$HOME"/.cache/arbor/bin 2>/dev/null || true`, nil)
+	if err != nil || len(listing) > 1<<16 {
+		return
+	}
+	var stale []string
+	for _, name := range strings.Split(string(listing), "\n") {
+		if earlierRelease(name, version) {
+			stale = append(stale, `"$HOME"/`+quote(".cache/arbor/bin/"+name))
+		}
+	}
+	if len(stale) > 0 {
+		_, _ = p.command(ctx, 30*time.Second, host, "rm -rf -- "+strings.Join(stale, " "), nil)
+	}
+}
+
+// earlierRelease reports whether name is a release before version. Builds of
+// the same numbered release, such as its candidates, are not earlier.
+func earlierRelease(name, version string) bool {
+	a, b := releaseVersion.FindStringSubmatch(name), releaseVersion.FindStringSubmatch(version)
+	if a == nil || b == nil {
+		return false
+	}
+	for i := 1; i <= 3; i++ {
+		// A longer number is a larger one: neither has leading zeros.
+		if len(a[i]) != len(b[i]) {
+			return len(a[i]) < len(b[i])
+		}
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
 }
 
 // installScript receives the executable on standard input and publishes it at

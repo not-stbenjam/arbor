@@ -125,10 +125,46 @@
   font-weight: 600;
   white-space: nowrap;
 }
+/* The plot and, in a margin to its right, what its lines stand for. The
+   labels sit level with the top, middle and bottom lines of the drawing. */
+.statistics-plot {
+  position: relative;
+  padding-right: 46px;
+  border-radius: 4px;
+}
+.statistics-plot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
 .statistics-chart {
   display: block;
   width: 100%;
   overflow: visible;
+}
+.statistics-scale > span {
+  position: absolute;
+  right: 0;
+  width: 40px;
+  transform: translateY(-50%);
+  color: var(--secondary);
+  font-size: 10px;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.statistics-scale > span:nth-child(1) {
+  top: 6.98%;
+}
+.statistics-scale > span:nth-child(2) {
+  top: 50%;
+}
+.statistics-scale > span:nth-child(3) {
+  top: 93.02%;
+}
+/* The day being read, by arrow key or under the pointer. */
+.statistics-day {
+  fill: var(--hover);
 }
 .statistics-grid {
   fill: none;
@@ -141,9 +177,21 @@
 .statistics-axis {
   display: flex;
   justify-content: space-between;
+  gap: 8px;
   color: var(--secondary);
   font-size: 11px;
   margin-top: 6px;
+  padding-right: 46px;
+}
+.statistics-axis > span {
+  white-space: nowrap;
+}
+.statistics-readout {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
 }
 .statistics-detail {
   display: flex;

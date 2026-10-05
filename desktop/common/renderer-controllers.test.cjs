@@ -529,7 +529,13 @@ test("setup owns draft machine roots, steps, and duplicate submission guard", as
 });
 
 function dialogFixture({ deferredClose = false } = {}) {
-  const content = { innerHTML: "" },
+  const content = {
+      innerHTML: "",
+      listeners: {},
+      addEventListener(name, fn) {
+        this.listeners[name] = fn;
+      },
+    },
     footer = { textContent: "" },
     listeners = {};
   const dialog = {
@@ -2246,6 +2252,123 @@ test("scan progress redraws only when it changes, keeps the keyboard on Stop, an
   assert.deepEqual(focused, ["stop", "refresh"]);
   assert.equal(element("#announcement").textContent, "Finished.");
   fixture.workspace.dispose();
+});
+
+test("a chart's scale is round, labelled, and never below its tallest day", async () => {
+  const { scaleTop, createStatisticsController } = await import(
+    "../renderer/statistics-controller.mjs"
+  );
+  const GB = 1024 ** 3,
+    MB = 1024 ** 2;
+  // Counts: a whole number whose half is whole too.
+  for (const [most, top] of [[1, 2], [2, 2], [3, 4], [12, 12], [13, 16], [17, 20], [55, 60], [214, 400], [900, 1000]])
+    assert.equal(scaleTop(most, true), top, `count ${most}`);
+  // Sizes: round in the unit they are shown in.
+  for (const [most, top] of [[14.6 * GB, 16 * GB], [2.1 * GB, 3 * GB], [900 * MB, 1000 * MB], [1.2 * GB, 2 * GB], [300, 300], [1, 2]])
+    assert.equal(scaleTop(most, false), top, `size ${most}`);
+  for (const most of [1, 7, 99, 1023, 1025, 5e5, 3.3 * GB, 6e13]) {
+    assert.ok(scaleTop(most, false) >= most);
+    assert.ok(scaleTop(most, false) < most * 2.6, `not needlessly tall: ${most}`);
+  }
+
+  const today = new Date();
+  const day = (ago) =>
+    new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - ago))
+      .toISOString()
+      .slice(0, 10);
+  const fixture = dialogFixture();
+  await createStatisticsController({
+    document: fixture.document,
+    getHost: () => "",
+    api: {
+      getStats: async () => ({
+        host: "",
+        report: {
+          ...statsReport(14),
+          daily: [
+            { date: day(3), removedWorktrees: 13, estimatedBytesReclaimed: 14.6 * GB },
+            { date: day(0), removedWorktrees: 1, estimatedBytesReclaimed: 300 * MB },
+          ],
+        },
+      }),
+    },
+  }).open();
+  const markup = fixture.content.innerHTML;
+  // The lines of each chart say what they stand for.
+  assert.match(markup, /class="statistics-scale" aria-hidden="true"><span>16<\/span><span>8<\/span><span>0<\/span>/);
+  assert.match(markup, /class="statistics-scale" aria-hidden="true"><span>16 GB<\/span><span>8 GB<\/span><span>0<\/span>/);
+  // Bars are drawn against the scale: thirteen of sixteen is not full height.
+  assert.match(markup, /<rect class="statistics-bar" x="262" y="19\.875" width="6" height="60\.125"/);
+
+  // The plot is one stop for the keyboard; arrow keys read out each day.
+  const plot = (field) => {
+    const attributes = {},
+      marker = { attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } },
+      readout = { textContent: "" };
+    return {
+      dataset: { chart: field },
+      attributes,
+      marker,
+      readout,
+      setAttribute: (name, value) => (attributes[name] = value),
+      querySelector: () => marker,
+      parentElement: { querySelector: () => readout },
+    };
+  };
+  const counts = plot("removedWorktrees");
+  const press = (target, key) => {
+    let prevented = false;
+    fixture.content.listeners.keydown({
+      key,
+      target: { closest: () => target },
+      preventDefault: () => (prevented = true),
+    });
+    return prevented;
+  };
+  assert.equal(press(counts, "ArrowLeft"), true);
+  // Under its heading the figure is enough; read aloud it is a sentence.
+  assert.equal(counts.readout.textContent, "Today: 1");
+  assert.equal(counts.attributes["aria-valuetext"], "Today: 1 worktree deleted");
+  assert.equal(counts.attributes["aria-valuenow"], 30);
+  assert.equal(counts.marker.attributes.x, 290);
+  press(counts, "ArrowLeft");
+  assert.match(counts.readout.textContent, /: 0$/);
+  assert.match(counts.attributes["aria-valuetext"], /: Nothing deleted$/);
+  press(counts, "ArrowLeft");
+  press(counts, "ArrowLeft");
+  assert.match(counts.readout.textContent, /: 13$/);
+  assert.match(counts.attributes["aria-valuetext"], /: 13 worktrees deleted$/);
+  assert.equal(counts.marker.attributes.visibility, "visible");
+  press(counts, "Home");
+  assert.equal(counts.attributes["aria-valuenow"], 1);
+  press(counts, "ArrowLeft");
+  assert.equal(counts.attributes["aria-valuenow"], 1, "it stops at the first day");
+  press(counts, "End");
+  press(counts, "ArrowRight");
+  assert.equal(counts.attributes["aria-valuenow"], 30, "and at today");
+  assert.equal(press(counts, "a"), false, "other keys are left alone");
+  assert.equal(press(null, "ArrowLeft"), false, "and so are keys outside a plot");
+  const sizes = plot("estimatedBytesReclaimed");
+  press(sizes, "End");
+  assert.equal(sizes.readout.textContent, "Today: 300 MB");
+  assert.equal(sizes.attributes["aria-valuetext"], "Today: 300 MB recovered");
+  press(sizes, "ArrowLeft");
+  assert.match(sizes.attributes["aria-valuetext"], /: Nothing recovered$/);
+  // Pointing at a day reads it out too, and leaving the plot clears it.
+  const box = { left: 100, width: 300 };
+  const point = (target, clientX) =>
+    fixture.content.listeners.pointermove({
+      clientX,
+      target: { closest: () => ({ ...target, querySelector: (selector) => (selector === "svg" ? { getBoundingClientRect: () => box } : target.marker) }) },
+    });
+  point(counts, 100 + 26.5 * 10);
+  assert.match(counts.readout.textContent, /: 13$/);
+  fixture.content.listeners.pointerout({
+    relatedTarget: null,
+    target: { closest: () => ({ ...counts, contains: () => false }) },
+  });
+  assert.equal(counts.readout.textContent, "");
+  assert.equal(counts.marker.attributes.visibility, "hidden");
 });
 
 test("statistics with a host missing never claim there have been no cleanups", async () => {

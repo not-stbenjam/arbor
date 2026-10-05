@@ -297,6 +297,16 @@ a {
 .nav-item.active .count {
   color: var(--selected-ink);
 }
+/* Green is what Delete recommended would delete: Merged on a row, and here
+   how many such rows there are to look at. */
+.count.ready,
+.nav-item.active .count.ready {
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--green-bg);
+  color: var(--green);
+  font-weight: 600;
+}
 .sidebar-section-title {
   display: flex;
   justify-content: space-between;

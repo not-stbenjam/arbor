@@ -25,7 +25,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.x'
@@ -37,13 +37,13 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.x'
           cache: false
       - run: bash scripts/package.sh "$ARBOR_VERSION"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-cli
           path: dist/arbor_*
@@ -70,12 +70,12 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.x'
           cache: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -109,7 +109,7 @@ jobs:
       - name: Test native macOS close lifecycle
         if: runner.os == 'macOS'
         run: node_modules/.bin/electron scripts/test-desktop-close.cjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
@@ -125,7 +125,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: release-*
           path: dist
@@ -133,7 +133,7 @@ jobs:
       - name: Generate combined checksums
         working-directory: dist
         run: sha256sum arbor_*.tar.gz arbor_*.app.zip arbor_*.AppImage > "arbor_${ARBOR_VERSION}_checksums.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: arbor-${{ env.ARBOR_VERSION }}
           path: dist/arbor_*

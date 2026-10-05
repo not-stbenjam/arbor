@@ -36,6 +36,8 @@ export function createPreferencesController({
   };
   let loadGeneration = 0;
   let editingHost = "";
+  // Save & scan has been pressed and the backend has not yet answered.
+  let submitting = false;
   // Unsaved edits, kept per host while Settings is open, so looking at
   // another host's options does not throw away the ones being changed.
   const drafts = new Map();
@@ -133,7 +135,8 @@ export function createPreferencesController({
     const editingState = context.hosts.find(
       (source) => source.host === editingHost,
     );
-    $("#settings-save").disabled = context.blocked || !!editingState?.busy;
+    $("#settings-save").disabled =
+      context.blocked || !!editingState?.busy || submitting;
     $("#scan-options-button").disabled = context.setupRequired;
     $("#reset-preferences").disabled =
       !context.connected ||
@@ -147,7 +150,9 @@ export function createPreferencesController({
       ? "Cleanup in progress…"
       : editingState?.busy
         ? "Scanning…"
-        : "Save & scan";
+        : submitting
+          ? "Starting scan…"
+          : "Save & scan";
     $('#host-form button[type="submit"]').disabled = context.blocked;
     $("#settings-progress").hidden = !editingState?.busy;
     $("#settings-progress").textContent = editingState?.busy
@@ -327,9 +332,9 @@ export function createPreferencesController({
       notify(error.message, true);
     }
   };
-  $("#settings-form").onsubmit = (event) => {
+  $("#settings-form").onsubmit = async (event) => {
     event.preventDefault();
-    if ($("#settings-save").disabled) return;
+    if ($("#settings-save").disabled || submitting) return;
     const host = editingHost;
     const scan = {
       root: $("#scan-root").value.trim(),
@@ -338,6 +343,25 @@ export function createPreferencesController({
       fetch: $("#scan-fetch").checked,
       excludes: readExcludes($("#scan-excludes")),
     };
+    // The dialog stays until the scan is taken up. One that is refused, for
+    // a folder that does not exist, say, is put right here, with everything
+    // else still as it was typed.
+    fieldError("#settings-error");
+    submitting = true;
+    renderStatus(context);
+    let outcome;
+    try {
+      outcome = await onScan(scan);
+    } finally {
+      submitting = false;
+      renderStatus(context);
+    }
+    if (outcome?.error) {
+      fieldError("#settings-error", outcome.error);
+      return;
+    }
+    // Closed, or moved to another host, while the scan was being asked for.
+    if (!$("#settings-dialog").open || editingHost !== host) return;
     drafts.delete(host);
     // Save & scan applies the host on screen. Another host edited in the
     // same sitting is shown next instead of being dropped unseen.
@@ -349,7 +373,6 @@ export function createPreferencesController({
         `Scanning ${hostName(host)} with its new settings. ${hostName(pending.host)} still has unsaved changes.`,
       );
     } else $("#settings-dialog").close();
-    return onScan(scan);
   };
   $("#host-form").onsubmit = async (event) => {
     event.preventDefault();

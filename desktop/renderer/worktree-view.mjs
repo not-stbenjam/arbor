@@ -126,6 +126,9 @@ export function createWorktreeView({
       repositories = new Map(repos.map((entry) => [entry.id, entry]));
     $("#all-count").textContent = list.length;
     $("#recommended-count").textContent = ready.length;
+    // Green is what Delete recommended would delete: here, how many there
+    // are, as on each of their rows.
+    $("#recommended-count").classList.toggle("ready", ready.length > 0);
     $("#repo-count").textContent = repos.length;
     const signature = JSON.stringify([repos, repo]);
     if (signature !== repoSignature) {

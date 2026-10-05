@@ -19,7 +19,7 @@ jobs:
         go: ['1.24.x', '1.26.x']
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go }}
@@ -35,13 +35,13 @@ jobs:
     name: Portable CLI packages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.x'
           cache: false
       - run: make package VERSION=dev
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: arbor-cli
           path: dist/arbor_*
@@ -68,12 +68,12 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.x'
           cache: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -108,7 +108,7 @@ jobs:
       - name: Test native macOS close lifecycle
         if: runner.os == 'macOS'
         run: node_modules/.bin/electron scripts/test-desktop-close.cjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: arbor-desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: |

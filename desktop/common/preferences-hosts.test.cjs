@@ -8,8 +8,10 @@ async function fixture() {
   );
   const elements = new Map(),
     calls = [],
-    // Set `save` to a message to make the next saves fail with it.
-    failure = { save: "" };
+    // Set `save` to a message to make the next saves fail with it, and `scan`
+    // to make the next scans be refused with it. `scanning` holds a scan
+    // unanswered until it is called.
+    failure = { save: "", scan: "", scanning: null };
   const element = (selector) => {
     if (!elements.has(selector))
       elements.set(selector, {
@@ -49,7 +51,11 @@ async function fixture() {
       },
     },
     notify: (...args) => calls.push(["notice", ...args]),
-    onScan: (value) => calls.push(["scan", value]),
+    onScan: async (value) => {
+      calls.push(["scan", value]);
+      if (failure.scanning) await new Promise((answer) => (failure.scanning = answer));
+      return failure.scan ? { error: failure.scan } : {};
+    },
     onHostChange: (value) => calls.push(["filter", value]),
     onSetup() {},
     onReset() {},
@@ -171,7 +177,7 @@ test("explicit session-only hosts remain selectable and settings never silently 
   assert.equal(f.element("#scan-root").value, "/remote/session");
   assert.equal(f.element("#scan-excludes").value, "remote-only");
   assert.equal(f.element("#choose-folder").hidden, true);
-  f.element("#settings-form").onsubmit({ preventDefault() {} });
+  await f.element("#settings-form").onsubmit({ preventDefault() {} });
   assert.equal(f.calls.at(-1)[0], "scan");
   assert.equal(f.calls.at(-1)[1].host, "adhoc");
 });
@@ -198,7 +204,7 @@ test("All-host settings edit a specific machine independently and gate only its 
   assert.equal(f.element("#choose-folder").hidden, true);
   assert.equal(f.element("#settings-save").disabled, true);
   assert.equal(f.element("#settings-progress").hidden, false);
-  f.element("#settings-form").onsubmit({ preventDefault() {} });
+  await f.element("#settings-form").onsubmit({ preventDefault() {} });
   assert.deepEqual(f.calls, [], "busy machine cannot submit another scan");
   f.controller.renderStatus({
     ...f.status,
@@ -208,7 +214,7 @@ test("All-host settings edit a specific machine independently and gate only its 
   f.element("#scan-excludes").value = "~/.codex*/.tmp\nfolder,with,commas";
   f.element("#theme-select").value = "dark";
   f.element("#theme-select").onchange();
-  f.element("#settings-form").onsubmit({ preventDefault() {} });
+  await f.element("#settings-form").onsubmit({ preventDefault() {} });
   assert.deepEqual(
     f.calls.filter(([name]) => name === "save").map(([, value]) => value.theme),
     ["dark"],
@@ -352,7 +358,7 @@ test("settings keep each host's unsaved edits, and say when appearance could not
 
   // Save & scan applies the host on screen. The other edited host is shown
   // next, still edited, instead of being dropped unseen.
-  submit();
+  await submit();
   assert.deepEqual(
     f.calls.filter(([name]) => name === "scan").map(([, scan]) => [scan.host, scan.root]),
     [["vps", "/draft-remote"]],
@@ -364,7 +370,7 @@ test("settings keep each host's unsaved edits, and say when appearance could not
     f.element("#settings-note").textContent,
     "Scanning Build server with its new settings. This computer still has unsaved changes.",
   );
-  submit();
+  await submit();
   assert.deepEqual(
     f.calls.filter(([name]) => name === "scan").map(([, scan]) => [scan.host, scan.root]),
     [
@@ -396,4 +402,64 @@ test("settings keep each host's unsaved edits, and say when appearance could not
   f.failure.save = "";
   await f.element("#theme-select").onchange();
   assert.equal(f.element("#settings-error").hidden, true);
+});
+
+test("Settings stays open until its scan is taken up, and a refused scan is put right there", async () => {
+  const f = await fixture();
+  f.controller.renderStatus({
+    ...f.status,
+    hosts: f.status.hosts.map((source) => ({ ...source, busy: false })),
+  });
+  const submit = () =>
+    f.element("#settings-form").onsubmit({ preventDefault() {} });
+  const scans = () => f.calls.filter(([name]) => name === "scan").length;
+  f.controller.openSettings();
+  f.element("#scan-root").value = "/no/such/folder";
+  f.element("#scan-excludes").value = "typed-with-care";
+
+  // While the backend has not answered, the dialog is still there and a
+  // second press starts nothing.
+  f.failure.scanning = true;
+  f.failure.scan = "scan folder does not exist: /no/such/folder";
+  const asked = submit();
+  assert.equal(f.element("#settings-dialog").open, true);
+  assert.equal(f.element("#settings-save").disabled, true);
+  assert.equal(f.element("#settings-save").textContent, "Starting scan…");
+  await submit();
+  assert.equal(scans(), 1);
+  f.failure.scanning();
+  f.failure.scanning = null;
+  await asked;
+
+  // Refused: the reason is in the dialog, which keeps everything typed.
+  assert.equal(f.element("#settings-dialog").open, true);
+  assert.equal(
+    f.element("#settings-error").textContent,
+    "scan folder does not exist: /no/such/folder",
+  );
+  assert.equal(f.element("#settings-error").hidden, false);
+  assert.equal(f.element("#scan-root").value, "/no/such/folder");
+  assert.equal(f.element("#scan-excludes").value, "typed-with-care");
+  assert.equal(f.element("#settings-save").disabled, false);
+  assert.equal(f.element("#settings-save").textContent, "Save & scan");
+
+  // Corrected and taken up: the error goes and the dialog closes.
+  f.failure.scan = "";
+  f.element("#scan-root").value = "/local/fixed";
+  await submit();
+  assert.equal(scans(), 2);
+  assert.equal(f.element("#settings-error").hidden, true);
+  assert.equal(f.element("#settings-dialog").open, false);
+
+  // Closed while the question was out: it is not closed or cleared again
+  // when the answer comes.
+  f.controller.openSettings();
+  f.element("#scan-root").value = "/local/again";
+  f.failure.scanning = true;
+  const late = submit();
+  f.element("#settings-dialog").close();
+  f.failure.scanning();
+  f.failure.scanning = null;
+  await late;
+  assert.equal(f.element("#settings-dialog").open, false);
 });

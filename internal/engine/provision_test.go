@@ -202,6 +202,7 @@ func TestDownloadVerifiesChecksumAndCachesByPlatform(t *testing.T) {
 func TestPrepareInstallsMatchingReleaseAndRechecksRemote(t *testing.T) {
 	requests, probes, installs := 0, 0, 0
 	installed := false
+	var cleared []string
 	p := &provisioner{client: releaseClient(t, &requests, false), releaseBase: "https://releases.invalid"}
 	p.run = func(ctx context.Context, host, command string, input io.Reader) ([]byte, error) {
 		if host != "user@remote" {
@@ -225,6 +226,13 @@ func TestPrepareInstallsMatchingReleaseAndRechecksRemote(t *testing.T) {
 			}
 			installed = true
 			return nil, nil
+		case strings.HasPrefix(command, "ls -1 "):
+			// Earlier releases, this one, a later one, a candidate of this one,
+			// and things that are not Arbor's.
+			return []byte("v1.2.2\nv0.9.10\nv1.2.3\nv1.10.0\nv1.2.3-rc.1\nnotes\nv1.2\n$(reboot)\n\n"), nil
+		case strings.HasPrefix(command, "rm -rf -- "):
+			cleared = append(cleared, command)
+			return nil, nil
 		case strings.Contains(command, "--version"):
 			if !strings.Contains(command, "linux_arm64") {
 				t.Fatalf("wrong remote binary: %s", command)
@@ -246,6 +254,69 @@ func TestPrepareInstallsMatchingReleaseAndRechecksRemote(t *testing.T) {
 	}
 	if requests != 2 || installs != 1 || probes != 2 {
 		t.Fatalf("warm cache must recheck remote without download/upload: requests=%d installs=%d probes=%d", requests, installs, probes)
+	}
+	// Installing clears away the earlier releases it finds, once, and nothing
+	// else: not a later release, not this one or its candidates, and nothing
+	// that is not named as a release.
+	want := `rm -rf -- "$HOME"/'.cache/arbor/bin/v1.2.2' "$HOME"/'.cache/arbor/bin/v0.9.10'`
+	if len(cleared) != 1 || cleared[0] != want {
+		t.Fatalf("cleared %q, want %q", cleared, want)
+	}
+}
+
+func TestEarlierReleaseComparesNumbersNotText(t *testing.T) {
+	for _, tc := range []struct {
+		name, version string
+		earlier       bool
+	}{
+		{"v0.1.9", "v0.1.10", true},
+		{"v0.1.10", "v0.1.9", false},
+		{"v0.9.0", "v0.10.0", true},
+		{"v1.0.0", "v0.99.99", false},
+		{"v0.1.18", "v0.1.18", false},
+		{"v0.1.18-rc.1", "v0.1.18", false},
+		{"v0.1.17-rc.1", "v0.1.18", true},
+		{"v0.1.17+build.5", "v0.1.18", true},
+		{"0.1.17", "v0.1.18", false},
+		{"v0.1", "v0.1.18", false},
+		{"v0.1.17/../..", "v0.1.18", false},
+		{"", "v0.1.18", false},
+		{"v0.1.17", "dev", false},
+	} {
+		if got := earlierRelease(tc.name, tc.version); got != tc.earlier {
+			t.Errorf("earlierRelease(%q, %q) = %v", tc.name, tc.version, got)
+		}
+	}
+}
+
+func TestFailingToClearEarlierReleasesDoesNotFailTheInstallation(t *testing.T) {
+	for _, failing := range []string{"ls -1 ", "rm -rf -- "} {
+		p := &provisioner{binaries: map[string][]byte{"v1.2.3/linux/arm64": []byte("cached executable")}}
+		installed := false
+		p.run = func(_ context.Context, _, command string, _ io.Reader) ([]byte, error) {
+			switch {
+			case command == "uname -s && uname -m":
+				return []byte("Linux\narm64\n"), nil
+			case strings.Contains(command, "mktemp"):
+				installed = true
+				return nil, nil
+			case strings.HasPrefix(command, failing):
+				return nil, errors.New("connection lost")
+			case strings.HasPrefix(command, "ls -1 "):
+				return []byte("v1.0.0\n"), nil
+			case strings.Contains(command, "--version"):
+				if installed {
+					return []byte("arbor v1.2.3"), nil
+				}
+				return nil, nil
+			default:
+				t.Fatalf("unexpected SSH command: %s", command)
+				return nil, nil
+			}
+		}
+		if _, err := p.prepare(context.Background(), "host", "v1.2.3"); err != nil {
+			t.Fatalf("when %q fails: %v", failing, err)
+		}
 	}
 }
 

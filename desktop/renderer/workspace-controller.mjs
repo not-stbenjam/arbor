@@ -152,8 +152,11 @@ export function createWorkspaceController({
         pollTimer = setTimeout(poll, hasActivity() ? 700 : 3000);
     }
   }
+  // Resolves once the backend has taken the scan up or refused it. A refusal
+  // is returned as well as shown, for whoever asked to say so where the
+  // request was made.
   async function scan(options) {
-    if (blocked()) return;
+    if (blocked()) return {};
     options = structuredClone(options);
     clientError = "";
     dismissedError = "";
@@ -165,7 +168,7 @@ export function createWorkspaceController({
     publish();
     try {
       const next = await api.scan(options);
-      if (generation !== pollGeneration) return;
+      if (generation !== pollGeneration) return {};
       if (next.hostFilter !== oldHost) onHostChange();
       updateState(next);
       const host = options.host || "";
@@ -175,15 +178,17 @@ export function createWorkspaceController({
         queuedPreferences.delete(host);
         await onScanAccepted(options);
       }
-      if (generation !== pollGeneration) return;
+      if (generation !== pollGeneration) return {};
       clearTimeout(pollTimer);
       pollTimer = setTimeout(poll, 500);
+      return {};
     } catch (error) {
-      if (generation !== pollGeneration) return;
+      if (generation !== pollGeneration) return {};
       state.busy = false;
       showError(error.message);
       publish();
       pollTimer = setTimeout(poll, 700);
+      return { error: error.message };
     }
   }
   async function hostCommand(method, host = filter()) {
