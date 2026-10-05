@@ -133,17 +133,20 @@ async function contrast(t, root = "body") {
     const lum = rgb => rgb.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
     const results = [];
     for (const e of document.querySelector(selector).querySelectorAll('*')) {
-      if (!e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || e.closest('.sr-only') || ![...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+      const field = e.matches('input:not([type=checkbox]):not([type=radio]), textarea, select');
+      if (!e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || e.closest('.sr-only') || (!field && ![...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()))) continue;
+      const text = field ? (e.selectedOptions?.[0]?.textContent || e.value || e.placeholder || '') : e.textContent;
+      if (!text.trim()) continue;
       const r = e.getBoundingClientRect();
       if (!r.width || !r.height || r.bottom <= 0 || r.top >= innerHeight) continue;
       const chain = []; for (let p = e; p; p = p.parentElement) chain.unshift(p);
       let bg = [255,255,255], opacity = 1;
       for (const p of chain) { const s = getComputedStyle(p); opacity *= Number(s.opacity); bg = mix(rgba(s.backgroundColor), bg); }
-      const s = getComputedStyle(e), ink = rgba(s.color);
+      const s = getComputedStyle(e, field && !e.value && e.placeholder ? '::placeholder' : null), ink = rgba(s.color);
       const fg = mix(ink, bg, ink[3] * opacity), a = lum(fg), b = lum(bg);
       const ratio = (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
       const large = parseFloat(s.fontSize) >= 24 || (parseFloat(s.fontSize) >= 18.66 && Number(s.fontWeight) >= 700);
-      results.push({ element: e.id ? `#${e.id}` : `${e.tagName.toLowerCase()}.${[...e.classList].join('.')}`, text: e.textContent.trim().slice(0,80), ratio: +ratio.toFixed(2), minimum: large ? 3 : 4.5, disabled: !!e.closest(':disabled'), foreground: s.color, background: bg });
+      results.push({ element: e.id ? `#${e.id}` : `${e.tagName.toLowerCase()}.${[...e.classList].join('.')}`, text: text.trim().slice(0,80), ratio: +ratio.toFixed(2), minimum: large ? 3 : 4.5, disabled: !!e.closest(':disabled'), foreground: s.color, background: bg });
     }
     return results;
   }, root);

@@ -21,13 +21,15 @@ scenario({
     assert.equal(messages.at(-1),'Finished.');
     assert.ok(messages.every((m,i)=>i===0||m!==messages[i-1]),'unchanged scan stage is not repeated');
     await t.settled();
-    await t.press('/');await t.type('delete-0000');
-    await t.until(async()=>await t.count('.worktree-row')===1,'one result');
+    await t.press('/');await t.type('delete-000');
+    await t.until(async()=>await t.count('.worktree-row')===10,'ten results');
     await t.click('#cleanup-button'); await t.until(()=>t.js("document.querySelector('#cleanup-dialog').open"),'review');
     await t.click('#cleanup-confirm');
-    await t.until(async()=>/Deleted 1 worktree/.test(await t.text('#toast-region')),'deletion result');
+    await t.until(async()=>await t.attribute('#cleanup-button','aria-busy')==='true','busy state is exposed');
+    await t.until(async()=>/Deleted 10 worktrees/.test(await t.text('#toast-region')),'deletion result');
     assert.equal(await t.attribute('#toast-region','aria-live'),'polite');
     await t.settled();
-    assert.equal(t.fixture.exists(t.world.paths[0]),false);
+    assert.equal(await t.attribute('#cleanup-button','aria-busy'),'false');
+    for(const [i,p] of t.world.paths.entries()) assert.equal(t.fixture.exists(p),i>=10);
   }],
 });
