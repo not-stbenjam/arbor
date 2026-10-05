@@ -10,7 +10,7 @@ scenario({
     const repo = f.repository("projects/alpha");
     const definitions = {
       merged: {}, shipped: { commits: 1, merged: true, pushed: true },
-      squash: { commits: 1, merged: "squash" },
+      squash: { commits: 2, merged: "squash" }, rebased: { commits: 2, merged: "rebase" },
       unpushed: { commits: 1 }, pushed: { commits: 1, pushed: true },
       modified: { modified: true }, untracked: { untracked: true },
       ignored: { ignored: { "local.log": "private configuration" } },
@@ -32,6 +32,8 @@ scenario({
       const expected = {
         merged: ["Merged", /All commits are in origin\/main\. Clean/],
         shipped: ["Merged", /its branch is kept/],
+        squash: ["Merged", /^All changes are in origin\/main, as one commit \(squashed\)\. Clean/],
+        rebased: ["Merged", /^All commits are in origin\/main, as copies \(rebased or cherry-picked\)\. Clean/],
         modified: ["1 changed file", /^Uncommitted or untracked files\. Deleting this worktree discards them\.$/],
         untracked: ["1 changed file", /Deleting this worktree discards them/],
         ignored: ["Ignored files", /discards its ignored files, such as local configuration or build output/],
@@ -55,31 +57,30 @@ scenario({
         assert.equal(registered(t, tree.repository, tree.path), true);
       }
       assert.match(await t.text(await t.row(t.world.detached.path)), /Detached HEAD/);
-      assert.equal(await t.text("#recommended-count"), "4");
-      assert.equal(await t.text("#all-count"), "15");
+      assert.equal(await t.text("#recommended-count"), "6");
+      assert.equal(await t.text("#all-count"), "16");
       assert.equal(await t.text("#repo-count"), "3");
       assert.equal((await t.state()).report.worktrees.some((row) => row.path === t.world.outside.path), false);
       assert.equal(t.fixture.exists(t.world.outside.path), true);
       // Publication is not a merge: neither branch is marked Merged.
       assert.equal((await t.worktree(t.world.pushed.path)).published, true);
       assert.equal((await t.worktree(t.world.unpushed.path)).published, false);
-      assert.equal((await t.worktree(t.world.squash.path)).recommended, false, "offline ancestry cannot prove a squash merge");
     });
     await t.step("Recommended and repository views count only their rows", async () => {
       await t.click('[data-view="recommended"]');
-      assert.equal(await t.count(".worktree-row"), 4);
-      assert.equal(await t.text("#visible-count"), "4 of 15");
+      assert.equal(await t.count(".worktree-row"), 6);
+      assert.equal(await t.text("#visible-count"), "6 of 16");
       assert.equal(await t.visible("#recommendation-note"), true);
       const repositories = await t.texts("#repo-list .repo-item");
-      assert.ok(repositories.some((text) => /alpha/.test(text) && /13/.test(text)));
-      for (const [index, [name, count]] of [["alpha", 13], ["local", 1], ["trunk-repo", 1]].entries()) {
+      assert.ok(repositories.some((text) => /alpha/.test(text) && /14/.test(text)));
+      for (const [index, [name, count]] of [["alpha", 14], ["local", 1], ["trunk-repo", 1]].entries()) {
         await t.click(`#repo-list .repo-item:nth-child(${index + 1})`);
         assert.equal(await t.count(".worktree-row"), count);
         assert.ok((await t.text("#view-title")).startsWith(name));
-        assert.equal(await t.text("#visible-count"), `${count} of 15`);
+        assert.equal(await t.text("#visible-count"), `${count} of 16`);
       }
       await t.click('[data-view="all"]');
-      assert.equal(await t.count(".worktree-row"), 15);
+      assert.equal(await t.count(".worktree-row"), 16);
       assert.deepEqual(t.messages, []);
       assert.equal(t.fixture.statistics(), null);
     });

@@ -219,6 +219,14 @@ test("deletion progress carries a file and coherent counts, and drops what is ma
   );
   // Each part is optional; a scan's events carry none of them.
   assert.deepEqual(progressEvent(base), base);
+  // The command-line program does not say a count of none, so a total alone
+  // is the start of a deletion: none of that many gone yet.
+  assert.deepEqual(progressEvent({ ...base, current: "a.log", filesTotal: 4 }), {
+    ...base,
+    current: "a.log",
+    files: 0,
+    filesTotal: 4,
+  });
   // A count that cannot be true, or a name that is not text, is left out
   // without discarding the rest of the event.
   for (const bad of [

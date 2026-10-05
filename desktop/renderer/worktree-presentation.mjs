@@ -280,7 +280,10 @@ export function renderTreeRows(
         return `<tr class="directory-row" data-directory-path="${esc(node.path)}" data-host="${esc(node.host || "")}" aria-level="${entry.depth + 1}" aria-expanded="${expanded}">${folderCheck(key, node.path)}<td colspan="3" class="directory-cell"><div class="directory-line">${indentation(entry.depth)}<button class="directory-toggle" data-toggle-directory="${esc(key)}" aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${esc(node.path)}">${icon(expanded ? "chevron-down" : "chevron-right")}${icon("folder")}<span title="${esc(node.path)}">${esc(entry.label)}</span></button><span class="directory-count">${count}</span></div></td><td class="action-cell"><div class="row-actions"><button class="row-action folder-delete" data-folder-delete="${esc(key)}" title="Delete the ${count} shown under this folder. The folder itself is kept." aria-label="Delete the ${count} under ${esc(node.path)}; the folder is kept" ${disabled ? "disabled" : ""}>Delete…</button></div></td></tr>`;
       }
       const w = entry.worktree;
-      const rowDisabled = disabled || !canDelete(w);
+      // A row Arbor could not make sense of cannot be deleted at all, and
+      // its button says so rather than inviting a click that explains it.
+      const refused = !w.pending && !w.canRemove && !w.canDiscard;
+      const rowDisabled = disabled || refused || !canDelete(w);
       // A row's buttons are for the pointer. The keyboard reaches the same
       // actions from the row itself, with Delete and Enter, so Tab moves
       // through folders rather than through two buttons for every worktree.
@@ -296,9 +299,11 @@ export function renderTreeRows(
       // (A missing folder has no files to lose; what Git kept for its
       // submodules it still can.)
       const lost = w.pending ? [] : w.missing ? graveLosses(w) : lossesOf(w);
-      const deleteTitle = lost.length
-        ? ` title="Not a clean delete. It would discard ${esc(lost.map((name) => LOSSES[name].text).join("; "))}. Asks first."`
-        : "";
+      const deleteTitle = refused
+        ? ` title="Cannot be deleted: ${esc((w.blockers || []).concat(w.problems || []).join("; ") || "Arbor could not check this folder")}."`
+        : lost.length
+          ? ` title="Not a clean delete. It would discard ${esc(lost.map((name) => LOSSES[name].text).join("; "))}. Asks first."`
+          : "";
       const context = w.pending
         ? cancelled
           ? "Scan incomplete"

@@ -214,8 +214,9 @@ a {
   text-overflow: ellipsis;
 }
 .workspace {
+  --sidebar-width: 208px;
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100vh;
 }
 .sidebar {
@@ -1225,14 +1226,20 @@ dialog::backdrop {
   background: var(--selected);
   color: var(--selected-ink);
 }
+/* Over the names at the foot of the list, not over the Delete buttons at
+   its right edge: what was just deleted is usually followed by the next. */
 .toast-region {
   position: fixed;
   bottom: 39px;
-  right: 16px;
+  left: calc(208px + 16px);
   display: grid;
   gap: 7px;
   z-index: 20;
-  max-width: min(410px, calc(100vw - 32px));
+  max-width: min(410px, calc(100vw - 208px - 150px));
+}
+/* The bar that acts on a selection has its count and its buttons there. */
+body:has(#selection-bar:not([hidden])) .toast-region {
+  bottom: 78px;
 }
 .toast {
   background: var(--surface);
@@ -1277,7 +1284,10 @@ dialog::backdrop {
 }
 @media (max-width: 1100px) {
   .workspace {
-    grid-template-columns: 185px minmax(0, 1fr);
+    --sidebar-width: 185px;
+  }
+  .toast-region {
+    left: calc(185px + 16px);
   }
   .toolbar,
   .pathbar,

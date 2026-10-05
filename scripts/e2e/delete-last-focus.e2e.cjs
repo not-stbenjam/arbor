@@ -1,9 +1,9 @@
 "use strict";
 
-const { scenario, assert } = require("../harness.cjs");
+const { scenario, assert } = require("./harness.cjs");
 
 scenario({
-  name: "last deletion drops keyboard focus",
+  name: "deleting the last row leaves the keyboard somewhere",
   timeout: 30,
   setup(f) {
     const tree = f.repository("projects/repo").worktree("last");

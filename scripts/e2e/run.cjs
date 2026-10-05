@@ -44,33 +44,58 @@ if (!scenarios.length) {
 }
 
 const electron = path.join(root, "node_modules", ".bin", "electron");
-// On Linux each run gets a virtual display, so no window appears on the
-// desktop of whoever is running the tests; --show uses the real one.
+// On Linux each run gets a virtual display of its own, so no window appears
+// on the desktop of whoever is running the tests and no scenario's window
+// takes the keyboard from another's; --show uses the real display.
 const display = !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
-const virtual = !spawnSync("xvfb-run", ["--help"]).error;
+const virtual = !spawnSync("Xvfb", ["-help"]).error;
 const headless = process.platform === "linux" && virtual && !(show && display);
 if (process.platform === "linux" && !virtual && !display) {
-  console.error("No display: install xvfb, or run inside a desktop session.");
+  console.error("No display: install Xvfb, or run inside a desktop session.");
   process.exit(1);
 }
 
-function run(file) {
+// Starts a virtual display. The server picks a number nobody else has and
+// says which, so two starting at once cannot choose the same one.
+function screen() {
+  return new Promise((resolve, reject) => {
+    const server = spawn(
+      "Xvfb",
+      ["-displayfd", "3", "-screen", "0", "1280x1024x24", "-nolisten", "tcp"],
+      { stdio: ["ignore", "ignore", "ignore", "pipe"] },
+    );
+    let said = "";
+    server.stdio[3].on("data", (data) => {
+      said += data;
+      if (said.includes("\n"))
+        resolve({ name: `:${said.trim()}`, stop: () => server.kill() });
+    });
+    server.once("error", reject);
+    server.once("exit", (code) => reject(new Error(`Xvfb ended with ${code}`)));
+  });
+}
+
+async function run(file) {
   const name = path.relative(__dirname, file);
-  const command = headless ? "xvfb-run" : electron;
-  const prefix = headless ? ["-a", electron] : [];
+  const shown = headless ? await screen() : null;
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(command, [...prefix, file, "--no-sandbox"], {
+    const child = spawn(electron, [file, "--no-sandbox"], {
       cwd: root,
-      env: { ...process.env, ...(keep ? { ARBOR_E2E_KEEP: "1" } : {}) },
+      env: {
+        ...process.env,
+        ...(shown ? { DISPLAY: shown.name } : {}),
+        ...(keep ? { ARBOR_E2E_KEEP: "1" } : {}),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
     child.stdout.on("data", (data) => (output += data));
     child.stderr.on("data", (data) => (output += data));
-    child.on("close", (code) =>
-      resolve({ name, code, output, seconds: (Date.now() - started) / 1000 }),
-    );
+    child.on("close", (code) => {
+      shown?.stop();
+      resolve({ name, code, output, seconds: (Date.now() - started) / 1000 });
+    });
   });
 }
 

@@ -1,10 +1,10 @@
 "use strict";
 
-const { scenario, assert } = require("../harness.cjs");
-const { gate, release } = require("../list-helpers.cjs");
+const { scenario, assert } = require("./harness.cjs");
+const { gate, release } = require("./list-helpers.cjs");
 
 scenario({
-  name: "deletion omits initial file count",
+  name: "deletion counts its files from none",
   timeout: 30,
   setup(f) {
     const tree = f.repository("projects/repo").worktree("held", { ignored: { "a.log": "keep until confirmed" } });

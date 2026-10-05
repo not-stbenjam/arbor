@@ -26,6 +26,7 @@ export function createWorktreeView({
     descending = false;
   let selection = { ids: new Set(), cursor: "" };
   let rowSignature = "",
+    emptyMarkup = null,
     repoSignature = "",
     directoryRows = [],
     filtered = [],
@@ -50,13 +51,16 @@ export function createWorktreeView({
       .querySelectorAll("[data-delete], [data-folder-delete]")
       .forEach((button) => {
         const row = rows.get(button.dataset.delete);
-        button.disabled = unavailable || (!!row && !workspace.canDelete(row));
+        button.disabled =
+          unavailable ||
+          (!!row && (!workspace.canDelete(row) || (!row.pending && !deletable(row))));
       });
   }
   // Whether a row could ever be deleted, as distinct from whether anything
   // can be deleted this instant: a scan or another deletion only postpones it.
-  const deletable = (row) =>
-    !row.pending && (row.canRemove || row.canDiscard);
+  function deletable(row) {
+    return !row.pending && (row.canRemove || row.canDiscard);
+  }
   // Where the keyboard goes when what it was on is gone: the list while it
   // has rows, otherwise the next thing there is to do.
   function focusList() {
@@ -276,7 +280,14 @@ export function createWorktreeView({
     // so the list behind it makes no claim about what was found.
     $("#empty-state").hidden =
       filtered.length > 0 || workspace.snapshot.setupRequired;
-    if (!filtered.length) $("#empty-state").innerHTML = emptyState();
+    // Written only when it changes: whoever is on one of its buttons would
+    // otherwise be left on nothing each time the list is drawn again.
+    const empty = filtered.length ? "" : emptyState();
+    if (empty !== emptyMarkup) {
+      const held = !!$("#empty-state").contains?.(document.activeElement);
+      $("#empty-state").innerHTML = emptyMarkup = empty;
+      if (held && !filtered.length) focusList();
+    }
     const scroll = $("#table-scroll").scrollTop;
     const focus = focusedControl();
     $("#worktree-list").innerHTML = renderTreeRows(directoryRows, {

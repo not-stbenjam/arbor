@@ -1,9 +1,9 @@
 "use strict";
 
-const { scenario, assert } = require("../harness.cjs");
+const { scenario, assert } = require("./harness.cjs");
 
 scenario({
-  name: "blocked row offers enabled Delete",
+  name: "a row that cannot be deleted does not offer to be",
   timeout: 30,
   setup(f) {
     const tree = f.repository("projects/repo").worktree("replaced", { missing: true });

@@ -276,7 +276,8 @@ function createFixture(directory) {
       //   detached   check out a commit rather than a branch
       //   hoursOld   how long ago it was created (72); 0 is "just now"
       //   commits    commits of its own, not in the default branch (0)
-      //   merged     merge those commits into the default branch: true or "squash"
+      //   merged     merge those commits into the default branch: true, "squash"
+      //              (as one new commit) or "rebase" (as a new copy of each)
       //   pushed     push its branch to origin
       //   modified   change a tracked file without committing
       //   untracked  files Git does not know: true, or name -> content/size
@@ -323,6 +324,10 @@ function createFixture(directory) {
           if (merged === "squash") {
             git(folder, "merge", "-q", "--squash", topic);
             gitWith(when, folder, "commit", "-q", "-m", `${name} (squashed)`);
+          } else if (merged === "rebase") {
+            // The default branch moves first, so the copies are new commits.
+            gitWith(when, folder, "commit", "-q", "--allow-empty", "-m", "Meanwhile");
+            gitWith(when, folder, "cherry-pick", `${from}..${topic}`);
           } else
             gitWith(when, folder, "merge", "-q", "--no-ff", "-m", `Merge ${name}`, topic);
           if (origin) git(folder, "push", "-q", "origin", branch);

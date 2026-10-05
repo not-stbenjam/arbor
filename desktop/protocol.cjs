@@ -237,13 +237,16 @@ function progressEvent(value) {
   // While a folder is deleted: a file going about now and how many are gone.
   // Each is optional, and one that is malformed is left out, not passed on.
   if (boundedText(value.current)) result.current = value.current;
+  // The command-line program leaves a count of none unsaid, so a total with
+  // no count beside it means none have gone yet.
+  const files = value.files ?? 0;
   if (
-    [value.files, value.filesTotal].every(
+    [files, value.filesTotal].every(
       (count) => Number.isSafeInteger(count) && count >= 0,
     ) &&
-    value.files <= value.filesTotal
+    files <= value.filesTotal
   ) {
-    result.files = value.files;
+    result.files = files;
     result.filesTotal = value.filesTotal;
   }
   return result;
