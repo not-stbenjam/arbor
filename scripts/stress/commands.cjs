@@ -23,6 +23,17 @@ main(() => scenario("commands", async (f) => {
     assert.ok(f.exists(a.path)); assert.ok(f.exists(b.path));
   }
   json(f.cli("remove", a.path, "--head", repo.head(), "--repo", repo.path, "--recommended-only", "--json"));
+  const snapshot = list(f).worktrees.find((w) => w.path === a.path);
+  json(f.cli("remove", a.path, "--json", "--id", snapshot.id, "--branch", snapshot.branch, "--stats-session=valid_session", "--keep-local"));
+  json(f.cli("remove", b.path, "--json", "--discard-local", "--acknowledge=operation", "--acknowledge=nested", "--acknowledge=submodules"));
+  assert.equal(json(f.cli("list", "--path", a.path, "--target-only", "--repo", repo.path, "--json")).worktrees.length, 1);
+  for (const extra of [["--head=wrong"], ["--id=wrong"], ["--branch="], ["--stats-session=bad space"], ["--expect-missing"], ["--expect-empty"], ["--repo=-missing"]]) assert.notEqual(f.cli("remove", a.path, "--yes", ...extra).status, 0);
+  for (const exclude of ["", ".", "..", "["]) assert.notEqual(f.cli("list", "--path", f.root, "--exclude", exclude).status, 0);
+  const dashRepo = f.repository("-scan", { remote: false });
+  dashRepo.worktree("dash-inside", { at: "-scan/linked" });
+  assert.equal(json(f.cli("list", "--path=-scan", "--json")).worktrees.length, 1);
+  const watched = f.run(f.env.ARBOR_CLI_PATH, ["list", "--path", f.root, "--watch-stdin", "--json"], { input: "" });
+  assert.equal(watched.status, 130); assert.match(watched.stderr, /interrupted/);
   const dash = repo.worktree("-dash", { at: "-dash", branch: "dash" });
   json(f.cli("remove", "--json", "--", "-dash")); assert.ok(f.exists(dash.path));
   // Linux lookup is executable-relative and PATH-based. Both are fixture-only.

@@ -1,8 +1,10 @@
 "use strict";
+const crypto = require("node:crypto");
 const { main, scenario, assert, fs, path, quote, ok } = require("./helpers.cjs");
 main(() => scenario("readonly", async (f) => {
   const repo = f.repository("projects/repo", { files: { ".gitattributes": "README.md diff=probe filter=probe\n" } });
   const w = repo.worktree("target", { commits: 1 });
+  repo.commit("default branch advances"); repo.git("push", "-q", "origin", "main");
   const log = f.path("helpers.log");
   const helper = (name, tail = ":") => f.tool(`probe-${name}`, `printf '%s\\n' ${quote(name)} >> ${quote(log)}\n${tail}`);
   repo.git("config", "core.fsmonitor", helper("fsmonitor"));
@@ -20,10 +22,21 @@ main(() => scenario("readonly", async (f) => {
 
   f.git(w.path, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "filter.probe.clean=cat", "update-index", "--refresh");
   fs.rmSync(log, { force: true });
+  function snapshot(directory) {
+    const entries = [];
+    function visit(file) {
+      const info = fs.lstatSync(file);
+      if (info.isDirectory()) for (const name of fs.readdirSync(file).sort()) visit(path.join(file, name));
+      else entries.push([path.relative(directory, file), info.mode, info.isSymbolicLink() ? fs.readlinkSync(file) : crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")]);
+    }
+    visit(directory); return entries;
+  }
+  const before = snapshot(f.root);
   for (const args of [["list", "--path", f.root, "--json"], ["clean", "--path", f.root, "--json"], ["stats", "--json"]]) {
     ok(f.cli(...args));
     const ran = fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [];
     console.log(`${args[0]} helpers: ${JSON.stringify(ran)}`); assert.deepEqual(ran, []);
+    assert.deepEqual(snapshot(f.root), before, "read-only operation changed repository content");
   }
   assert.equal(f.statistics(), null);
 }));

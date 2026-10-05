@@ -18,6 +18,18 @@ main(async () => {
     for (const w of trees) assert.equal(json(f.cli("remove", w.path, "--yes", "--json")).removed, true);
     assert.ok(f.exists(repo.path));
   });
+  await scenario("repository-branch-names", async (f) => {
+    const names = ["space name", "quote'\"", "back\\slash", "dollar$(x)", "semi;colon", "line\nbreak", "-leading", "glob[*]?", "emoji🌳", "עברית", "x".repeat(255)];
+    for (let i = 0; i < names.length; i++) {
+      const repo = f.repository(`projects/${names[i]}`, { remote: false });
+      // Git adds .lock to loose ref names, so a branch component is at
+      // most 250 bytes even though a directory can use all 255.
+      const candidate = names[i].slice(0, 250);
+      const valid = f.run("git", ["check-ref-format", "--branch", candidate]).status === 0;
+      repo.worktree(`tree-${i}`, { branch: valid ? candidate : `topic-${i}` });
+    }
+    assert.equal(list(f).worktrees.length, names.length);
+  });
   await scenario("layouts", async (f) => {
     const repo = f.repository("projects/repo");
     const outer = repo.worktree("outer"), nested = repo.worktree("nested", { at: "projects/outer/nested" });
@@ -29,6 +41,15 @@ main(async () => {
     const report = list(f); assert.ok(report.warnings.some((w) => w.includes("broken")));
     const parent = report.worktrees.find((w) => w.path === outer.path); assert.ok(parent.losses.includes("nested"));
     assert.notEqual(f.cli("remove", outer.path, "--yes").status, 0); assert.ok(f.exists(nested.path));
+    const large = repo.worktree("large");
+    const largeFile = path.join(large.path, "large.log");
+    const fd = fs.openSync(largeFile, "w"); fs.ftruncateSync(fd, 2 ** 32); fs.closeSync(fd);
+    assert.ok(list(f).worktrees.find((w) => w.path === large.path).sizeBytes >= 2 ** 32);
+    assert.notEqual(f.cli("remove", large.path, "--yes").status, 0);
+    assert.equal(fs.statSync(largeFile).size, 2 ** 32);
+    const missing = repo.worktree("missing", { missing: true });
+    assert.equal(json(f.cli("remove", missing.path, "--repo", repo.path, "--force", "--yes", "--json")).removed, true);
+    assert.equal(f.statistics().missingRegistrations, 1);
     const head = f.git(detached.path, "rev-parse", "HEAD");
     const removal = json(f.cli("remove", detached.path, "--force", "--yes", "--json"));
     assert.ok(removal.retainedBranch); assert.equal(repo.head(removal.retainedBranch), head);

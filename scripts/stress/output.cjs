@@ -1,5 +1,5 @@
 "use strict";
-const { main, scenario, assert, fs, path, json, ok, start } = require("./helpers.cjs");
+const { main, scenario, assert, fs, path, json, ok, start, quote } = require("./helpers.cjs");
 main(() => scenario("output", async (f) => {
   const repo = f.repository("projects/repo");
   const w = repo.worktree("target");
@@ -31,6 +31,10 @@ main(() => scenario("output", async (f) => {
     console.log(`closed fd ${closed}: exit ${r.stdout.trim()}`);
     assert.ok(Number.isInteger(Number(r.stdout.trim())));
   }
+  const headed = f.run("bash", ["-o", "pipefail", "-c", `${quote(f.env.ARBOR_CLI_PATH)} list -p ${quote(f.root)} | head -1`]);
+  assert.ok([0, 1, 141].includes(headed.status), JSON.stringify(headed));
+  assert.equal(headed.stdout.trim().split("\n").length, 1);
+  assert.ok(f.exists(w.path)); console.log(`head -1 pipeline exit=${headed.status}`);
   const pipe = start(f, ["completion", "bash"]);
   pipe.child.stdout.destroy();
   const closed = await pipe.done; assert.ok(closed.status !== null || closed.signal === "SIGPIPE");
@@ -39,4 +43,14 @@ main(() => scenario("output", async (f) => {
   const removed = json(f.cli("remove", w.path, "--yes", "--json")); assert.deepEqual(removed, { path: w.path, removed: true });
   assert.deepEqual(json(f.cli("clean", "-p", f.root, "--yes", "--json")), []);
   assert.equal(json(f.cli("stats", "--json")).removedWorktrees, 1);
+  const good = repo.worktree("partial-a"), bad = repo.worktree("partial-b");
+  const git = f.run("sh", ["-c", "command -v git"]).stdout.trim();
+  f.tool("git", `case "$*" in *'worktree remove'*${quote(bad.path)}*) echo 'injected failure' >&2; exit 1;; esac\nexec ${quote(git)} "$@"`);
+  const partial = f.cli("clean", "-p", f.root, "--yes", "--json");
+  assert.notEqual(partial.status, 0);
+  const outcomes = JSON.parse(partial.stdout);
+  assert.equal(outcomes.find((r) => r.path === good.path).removed, true);
+  assert.equal(outcomes.find((r) => r.path === bad.path).removed, false);
+  assert.ok(outcomes.find((r) => r.path === bad.path).error);
+  assert.equal(f.statistics().removedWorktrees, 2);
 }));

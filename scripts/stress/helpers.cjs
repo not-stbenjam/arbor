@@ -35,7 +35,7 @@ function start(f, args, options = {}) {
   child.stderr.on("data", (s) => { stderr += s; options.output?.(String(s), true, child); });
   child.stdin.on("error", () => {});
   child.stdin.end(options.input || "");
-  const kill = (signal = "SIGKILL") => { try { process.kill(-child.pid, signal); } catch (e) { if (e.code !== "ESRCH") throw e; } };
+  const kill = (signal = "SIGKILL") => { if (!child.pid) return; try { process.kill(-child.pid, signal); } catch (e) { if (e.code !== "ESRCH") throw e; } };
   const timer = setTimeout(() => kill(), options.timeout || 120000);
   const done = new Promise((resolve, reject) => {
     child.on("error", reject);
@@ -59,6 +59,9 @@ function integrity(f, repo) {
   }
   visit(path.join(repo.path, ".git"));
   if (f.statistics()) assert.equal(f.statistics().version, 1);
+  // Persistent flock files are intentional. Prove no process still owns them.
+  const locks = [path.join(repo.path, ".git", "arbor-cleanup.flock"), f.env.ARBOR_STATS_PATH + ".lock"].filter((p) => fs.existsSync(p));
+  if (locks.length) ok(f.run("python3", ["-c", "import fcntl,sys\nfor name in sys.argv[1:]:\n with open(name,'r+') as f: fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)\n", ...locks]));
 }
 function main(test) { test().catch((error) => { console.error(error); process.exitCode = 1; }); }
 module.exports = { ...fixture, assert, fs, path, quote, scenario, ok, json, list, entry, random, start, integrity, main };
