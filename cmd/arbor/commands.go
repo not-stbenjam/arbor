@@ -74,7 +74,7 @@ func addConnectionFlags(cmd *cobra.Command, flags *commandOptions, withPath bool
 		_ = cmd.MarkFlagDirname("path")
 	}
 	f.StringVar(&flags.common.host, "host", "", "SSH host alias or user@hostname")
-	f.BoolVar(&flags.common.github, "github", false, "Check GitHub pull requests using gh credentials on the target host")
+	f.BoolVar(&flags.common.github, "github", false, "Also ask GitHub which pull requests were merged, using gh credentials on the target host")
 	f.BoolVar(&flags.common.fetch, "fetch", false, "Fetch remote refs before inspection (uses the network)")
 }
 

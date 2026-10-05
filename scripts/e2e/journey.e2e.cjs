@@ -13,6 +13,7 @@ scenario({
     const worktrees = {
       merged: alpha.worktree("merged"),
       shipped: alpha.worktree("shipped", { commits: 2, merged: true, pushed: true }),
+      squashed: alpha.worktree("squashed", { commits: 3, merged: "squash" }),
       wip: alpha.worktree("wip", { commits: 1, modified: true }),
       scratch: alpha.worktree("scratch", { untracked: true }),
       today: alpha.worktree("today", { hoursOld: 0 }),
@@ -36,17 +37,20 @@ scenario({
         assert.match(said("merged"), /Merged/);
         assert.match(said("wip"), /1 changed file/);
         assert.match(said("today"), /New/);
-        assert.equal(await t.text("#recommended-count"), "2");
+        assert.match(said("squashed"), /Merged/);
+        assert.equal(await t.text("#recommended-count"), "3");
       });
 
       await t.step("the review names what would go, and why", async () => {
-        assert.match(await t.text("#cleanup-button"), /Delete recommended \(2\)/);
+        assert.match(await t.text("#cleanup-button"), /Delete recommended \(3\)/);
         await t.click("#cleanup-button");
         await t.until(() => t.js("document.querySelector('#cleanup-dialog').open"), "the review");
         const listed = await t.texts("#cleanup-list .cleanup-item");
-        assert.equal(listed.length, 2);
+        assert.equal(listed.length, 3);
         assert.ok(listed.some((text) => text.includes("merged") && text.includes(paths.merged)));
-        assert.ok(listed.every((text) => /commits are in/.test(text)), listed.join("\n"));
+        const why = (name) => listed.find((text) => text.includes(paths[name]));
+        assert.match(why("shipped"), /All commits are in origin\/main/);
+        assert.match(why("squashed"), /All changes are in origin\/main, as one commit \(squashed\)/);
         assert.equal(await t.focused(), "button#cleanup-cancel.button");
       });
 
@@ -54,21 +58,21 @@ scenario({
         await t.click("#cleanup-confirm");
         await t.until(async () => (await t.state()).report?.worktrees.length === 3, "three rows left");
         await t.settled();
-        for (const name of ["merged", "shipped"])
+        for (const name of ["merged", "shipped", "squashed"])
           assert.equal(t.fixture.exists(paths[name]), false, `${name} is gone`);
         for (const name of ["wip", "scratch", "today"])
           assert.equal(t.fixture.exists(paths[name]), true, `${name} is kept`);
         assert.equal(t.fixture.read("projects/notes.txt"), "not a worktree\n");
         assert.equal(t.fixture.git(t.world.repository, "rev-parse", "HEAD"), t.fixture.git(t.world.repository, "rev-parse", "main"));
         // The branches stay; only the checkouts went.
-        for (const name of ["merged", "shipped"])
+        for (const name of ["merged", "shipped", "squashed"])
           assert.ok(t.fixture.git(t.world.repository, "rev-parse", `refs/heads/${name}`));
         assert.equal(t.fixture.git(t.world.repository, "worktree", "list").split("\n").length, 4);
         const removals = t.fixture.cliCalls().filter((args) => args[0] === "remove");
-        assert.equal(removals.length, 2);
+        assert.equal(removals.length, 3);
         assert.ok(removals.every((args) => args.includes("--recommended-only")));
         assert.deepEqual(t.messages, [], "the review was the only question");
-        assert.equal(t.fixture.statistics().removedWorktrees, 2);
+        assert.equal(t.fixture.statistics().removedWorktrees, 3);
       });
 
       await t.step("a worktree with changes asks before it is deleted, and can be refused", async () => {

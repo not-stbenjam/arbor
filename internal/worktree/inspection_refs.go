@@ -81,6 +81,8 @@ func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefa
 		w.Merged = err == nil
 		if w.Merged {
 			w.MergeReason = "All commits are in " + w.DefaultRef
+		} else if reason := inspectEquivalent(ctx, w); reason != "" {
+			w.Merged, w.MergeReason = true, reason
 		}
 		defaultBranch := strings.TrimPrefix(w.DefaultRef, "refs/heads/")
 		if strings.HasPrefix(w.DefaultRef, "refs/remotes/") {

@@ -24,11 +24,16 @@ func commandEnv() []string {
 }
 
 func run(ctx context.Context, timeout time.Duration, name string, args ...string) (string, error) {
+	return runWith(ctx, timeout, nil, name, args...)
+}
+
+// runWith also sets the given variables, after the inherited ones are cleared.
+func runWith(ctx context.Context, timeout time.Duration, env []string, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = 2 * time.Second
-	cmd.Env = commandEnv()
+	cmd.Env = append(commandEnv(), env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	data, err := cmd.Output()

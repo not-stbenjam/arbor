@@ -86,7 +86,7 @@ function run(file) {
           .split("\n")
           .filter((line) => line.trim() && !/^\[\d+:\d+\/|dbus|GLib|Gtk-|libEGL|MESA|vaInitialize/.test(line));
         console.log(
-          `${result.code === 0 ? "PASS" : "FAIL"}  ${name}  ${result.seconds.toFixed(1)}s`,
+          `${result.code === 0 ? "PASS" : "FAIL"}  ${result.name}  ${result.seconds.toFixed(1)}s`,
         );
         if (result.code !== 0 || process.env.ARBOR_E2E_VERBOSE)
           console.log(lines.map((line) => `      ${line}`).join("\n"));
