@@ -19,9 +19,12 @@ func testGit(t *testing.T, dir string, args ...string) string {
 	return testGitEnv(t, dir, nil, args...)
 }
 
+// After a commit, Git tidies the repository in the background, and holds a
+// lock file there for a moment after the command has returned. A fixture
+// must not change under a test that looks at its files twice.
 func testGitEnv(t *testing.T, dir string, env []string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-C", dir}, args...)...)
+	cmd := exec.Command("git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "-C", dir}, args...)...)
 	cmd.Env = append(append(commandEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"), env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
