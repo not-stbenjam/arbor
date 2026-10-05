@@ -384,7 +384,7 @@ func TestFetchRefreshesTheRemoteDefaultBranch(t *testing.T) {
 // branch. What was merged into the old one is then no evidence, and the scan
 // says why nothing is recommended rather than only going quiet.
 func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalFixtureDir(t) // warnings name the canonical path
 	seed := testRepo(t, filepath.Join(t.TempDir(), "seed"))
 	testGit(t, seed, "branch", "trunk")
 	remote := filepath.Join(t.TempDir(), "remote.git")
@@ -423,7 +423,7 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 // otherwise the origin. When it cannot say, nothing else answers for it.
 func TestOnlyTheDecidingRemoteSaysWhatIsMerged(t *testing.T) {
 	fixture := func(t *testing.T) (root, repo, wt string) {
-		root = t.TempDir()
+		root = canonicalFixtureDir(t) // warnings name the canonical path
 		repo = testRepo(t, filepath.Join(root, "repo"))
 		wt = testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 		testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
@@ -548,7 +548,7 @@ func TestLocalDefaultBranchNames(t *testing.T) {
 // A warning that only names a repository leaves its owner guessing. Git said
 // why it refused; that one line belongs in the warning.
 func TestUninspectableRepositoryWarningSaysWhy(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalFixtureDir(t) // warnings name the canonical path
 	broken := filepath.Join(root, "broken")
 	if err := os.Mkdir(broken, 0700); err != nil {
 		t.Fatal(err)
