@@ -15,7 +15,9 @@
     "start": "electron .",
     "desktop:package": "node scripts/build-desktop.cjs",
     "desktop:dir": "node scripts/build-desktop.cjs --dir",
-    "test:desktop": "node --test desktop/*.test.cjs desktop/common/*.test.cjs"
+    "test:desktop": "node --test desktop/*.test.cjs desktop/common/*.test.cjs",
+    "pretest:e2e": "node scripts/build-desktop.cjs --prepare",
+    "test:e2e": "node scripts/e2e/run.cjs"
   },
   "devDependencies": {
     "electron": "44.5.1",
