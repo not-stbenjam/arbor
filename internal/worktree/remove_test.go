@@ -351,7 +351,8 @@ func TestRemovalIsReportedFileByFile(t *testing.T) {
 // The last look through a folder counts what the progress will count down
 // from, and finds a repository the inspection did not account for.
 func TestSurveyCountsFilesAndFindsRepositories(t *testing.T) {
-	root := t.TempDir()
+	// A removal only ever looks through a canonical path.
+	root := canonicalFixtureDir(t)
 	testWrite(t, filepath.Join(root, ".git"), "gitdir: elsewhere\n")
 	testWrite(t, filepath.Join(root, "tracked.txt"), "x")
 	for _, dir := range []string{"vendor/library", "src"} {
@@ -395,7 +396,9 @@ func TestSurveyCountsFilesAndFindsRepositories(t *testing.T) {
 func TestSubmoduleStorageIsALossEvenWithoutTheFolder(t *testing.T) {
 	local := []string{"-c", "protocol.file.allow=always"}
 	fixture := func(t *testing.T) (root, repo, wt, storage string) {
-		root = t.TempDir()
+		// The folder is deleted below, and a path that no longer exists
+		// cannot be resolved afterwards to the one a scan reports.
+		root = canonicalFixtureDir(t)
 		library := testRepo(t, filepath.Join(root, "library"))
 		repo = testRepo(t, filepath.Join(root, "repo"))
 		testGit(t, repo, append(local, "submodule", "add", library, "vendor/library")...)
@@ -569,7 +572,9 @@ func TestRemoveCatchesWhatChangesDuringTheLastLook(t *testing.T) {
 // folder by hand leaves all of that behind, and removing the registration
 // then removes it. That is an unfinished operation, folder or no folder.
 func TestUnfinishedOperationIsALossEvenWithoutTheFolder(t *testing.T) {
-	root := t.TempDir()
+	// The folder is deleted below, and a path that no longer exists cannot
+	// be resolved afterwards to the one a scan reports.
+	root := canonicalFixtureDir(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 	testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
