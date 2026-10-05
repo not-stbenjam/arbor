@@ -688,6 +688,9 @@ export function createWorktreeView({
       $("#search").focus();
       $("#search").select();
     },
+    // Puts the keyboard in the list, or on what there is to do when the
+    // list is empty.
+    focus: focusList,
     // What the list currently shows after the view, repository, and search
     // filters, including rows inside collapsed folders.
     get filtered() {

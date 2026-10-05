@@ -163,6 +163,7 @@ async function bootstrap() {
     document,
     workspace,
     shown: () => trees,
+    onDeleting: () => trees.focus(),
   });
   chrome = createWorkspaceView({
     document,

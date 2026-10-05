@@ -950,30 +950,48 @@ dialog::backdrop {
   flex: none;
 }
 /* The review Delete recommended opens: each worktree it would delete, and
-   under its name why Arbor recommends it. */
+   under its name why Arbor recommends it. The explanation and the list
+   scroll together between a fixed heading and fixed buttons, so however
+   little room there is, the buttons are never all that is left to see. */
 .cleanup-dialog {
   width: min(560px, calc(100vw - 40px));
+  overflow-y: auto;
+}
+.cleanup-body {
+  flex: 1 1 auto;
+  min-height: 72px;
+  overflow-y: auto;
+}
+/* With hardly any height, as in the smallest window at more than twice the
+   size, the review is one page that scrolls: the heading, the whole list,
+   and the buttons after it rather than instead of it. */
+@media (max-height: 300px) {
+  .cleanup-body {
+    flex: none;
+    overflow-y: visible;
+  }
+}
+.cleanup-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .cleanup-lead {
-  flex: none;
-  margin: 0;
   padding: 13px 20px 14px;
   border-bottom: 1px solid var(--line);
   font-size: 12px;
   line-height: 1.55;
+}
+.cleanup-lead > p {
+  margin: 0;
+}
+.cleanup-lead > p + p {
+  margin-top: 6px;
   color: var(--secondary);
 }
 .cleanup-list {
-  flex: 1 1 auto;
-  min-height: 0;
   margin: 0;
   padding: 0;
-  overflow-y: auto;
   list-style: none;
-}
-.cleanup-list:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 .cleanup-item {
   display: flex;
@@ -989,63 +1007,88 @@ dialog::backdrop {
   flex: none;
   width: 14px;
   height: 14px;
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--tertiary);
 }
+/* Nothing here is cut short: a long name, branch, reason or path wraps. The
+   review is where they are read, and they can be selected to copy. */
 .cleanup-copy {
   display: grid;
   flex: 1 1 auto;
   gap: 2px;
   min-width: 0;
-}
-.cleanup-copy > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 .cleanup-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
+  line-height: 18px;
 }
 .cleanup-context,
-.cleanup-size {
+.cleanup-path {
   font-size: 11px;
+  line-height: 16px;
   color: var(--secondary);
 }
-.cleanup-size {
-  flex: none;
-  padding-top: 1px;
-  font-variant-numeric: tabular-nums;
+/* A path fills its line before it breaks, wherever that falls. */
+.cleanup-path {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  word-break: break-all;
+}
+.cleanup-reason,
+.cleanup-changed {
+  font-size: 12px;
+  line-height: 17px;
 }
 .cleanup-reason {
-  font-size: 11px;
   color: var(--green);
 }
-/* A worktree that changed while the list was being read keeps its place and
-   its height; only what is said about it changes. */
-.cleanup-changed {
-  display: none;
+.cleanup-size,
+.cleanup-kept {
+  flex: none;
+  min-width: 52px;
+  padding-top: 2px;
   font-size: 11px;
+  text-align: right;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+/* A worktree that changed while the list was being read keeps its place.
+   What is said about it changes: why it is kept, where its reason was, and
+   Kept where its size was. */
+.cleanup-changed,
+.cleanup-kept {
+  display: none;
   color: var(--orange);
 }
-.cleanup-item.changed .cleanup-reason {
+.cleanup-kept {
+  font-weight: 600;
+}
+.cleanup-item.changed .cleanup-reason,
+.cleanup-item.changed .cleanup-size {
   display: none;
 }
-.cleanup-item.changed .cleanup-changed {
+.cleanup-item.changed .cleanup-changed,
+.cleanup-item.changed .cleanup-kept {
   display: block;
 }
 .cleanup-item.changed .cleanup-name {
   color: var(--secondary);
-  text-decoration: line-through;
 }
+/* With little room, what is being agreed to takes a line of its own above
+   the buttons. */
 .cleanup-footer {
+  flex-wrap: wrap;
   align-items: center;
 }
 .cleanup-total {
+  flex: 1 1 auto;
   min-width: 0;
-  margin-right: auto;
   font-size: 11px;
   color: var(--secondary);
+  overflow-wrap: anywhere;
 }
 .field-label {
   display: block;

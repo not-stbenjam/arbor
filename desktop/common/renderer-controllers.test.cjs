@@ -1615,7 +1615,8 @@ test("the review lists what Delete recommended would delete and why, and deletes
   // The list is drawn once; afterwards its items are only marked.
   const dialog = element("#cleanup-dialog"),
     list = element("#cleanup-list");
-  const items = () =>
+  let marks = {};
+  list.querySelectorAll = () =>
     [...list.innerHTML.matchAll(/data-review="([^"]*)"/g)].map(([, id]) => {
       marks[id] ||= new Set();
       return {
@@ -1626,18 +1627,20 @@ test("the review lists what Delete recommended would delete and why, and deletes
         },
       };
     });
-  let marks = {};
-  list.querySelectorAll = items;
+  let handed = 0;
   const review = createCleanupController({
     document,
     workspace: fixture.workspace,
     shown: () => shown,
+    onDeleting: () => handed++,
   });
   const text = (selector) => element(selector).textContent;
-  const names = () =>
-    [...list.innerHTML.matchAll(/class="cleanup-name"[^>]*>([^<]*)</g)].map(
-      ([, name]) => name,
-    );
+  const cells = (name) =>
+    [
+      ...list.innerHTML.matchAll(
+        new RegExp(`class="cleanup-${name}">(.*?)</span>`, "g"),
+      ),
+    ].map(([, value]) => value.replace(/<\/?bdi>/g, ""));
   const changed = () =>
     Object.keys(marks).filter((id) => marks[id].has("changed"));
 
@@ -1647,25 +1650,23 @@ test("the review lists what Delete recommended would delete and why, and deletes
   review.open();
   assert.equal(dialog.open, true);
   assert.deepEqual(removed, [], "opening the review deletes nothing");
-  // What: exactly the recommendations shown, by name, with where and how big.
-  assert.deepEqual(names(), ["a", "b"]);
-  assert.match(list.innerHTML, /title="\/local\/trees\/a"/);
-  assert.match(list.innerHTML, /class="cleanup-context">topic\/a · api</);
-  assert.match(list.innerHTML, /class="cleanup-size">2 KB</);
+  // What: exactly the recommendations shown, by name, with what each is,
+  // where it is and how big.
+  assert.deepEqual(cells("name"), ["a", "b"]);
+  assert.deepEqual(cells("context"), ["topic/a · api", "topic/b · api"]);
+  assert.deepEqual(cells("path"), ["/local/trees/a", "/local/trees/b"]);
+  assert.deepEqual(cells("size"), ["1 KB", "2 KB"]);
   // Why: each one's own evidence, with Git's ref names in plain form.
-  assert.match(list.innerHTML, /class="cleanup-reason">All commits are in origin\/main</);
-  assert.match(
-    list.innerHTML,
-    /class="cleanup-reason">GitHub PR #7 merged this exact commit into main</,
-  );
+  assert.deepEqual(cells("reason"), [
+    "All commits are in origin/main",
+    "GitHub PR #7 merged this exact commit into main",
+  ]);
   assert.equal(text("#cleanup-title"), "Delete these 2 recommended worktrees?");
-  assert.equal(
-    text("#cleanup-total"),
-    "2 worktrees on this computer · about 3 KB",
-  );
+  assert.equal(text("#cleanup-total"), "About 3 KB to recover · This computer");
   assert.equal(text("#cleanup-confirm"), "Delete 2 worktrees");
   assert.equal(element("#cleanup-confirm").disabled, false);
   assert.deepEqual(changed(), []);
+  assert.equal(text("#cleanup-status"), "");
 
   // Cancel closes it and deletes nothing.
   element("#cleanup-cancel").onclick();
@@ -1673,8 +1674,8 @@ test("the review lists what Delete recommended would delete and why, and deletes
   assert.deepEqual(removed, []);
 
   // The list that was read is the list that is agreed to. A worktree whose
-  // commit moves while it is open is marked and left alone, and one that
-  // becomes a recommendation meanwhile is not added.
+  // commit moves while it is open is marked and kept, and one that becomes a
+  // recommendation meanwhile is not added.
   review.open();
   const drawn = list.innerHTML;
   shown = {
@@ -1689,50 +1690,87 @@ test("the review lists what Delete recommended would delete and why, and deletes
     "Delete 1 of these 2 recommended worktrees?",
   );
   assert.equal(text("#cleanup-confirm"), "Delete 1 worktree");
-  assert.equal(text("#cleanup-total"), "1 worktree on this computer · about 2 KB");
+  assert.equal(text("#cleanup-total"), "About 2 KB to recover · This computer");
+  // Whoever is on Cancel cannot see the row being marked, so it is said.
+  assert.equal(
+    text("#cleanup-status"),
+    "1 worktree changed and is kept. 1 worktree would be deleted.",
+  );
+  // Kept is kept: changing back does not put it in line to be deleted again.
+  shown = { ...shown, filtered: [all[0], all[1]] };
+  review.render();
+  assert.deepEqual(changed(), ["a"]);
+  assert.equal(text("#cleanup-confirm"), "Delete 1 worktree");
   await element("#cleanup-confirm").onclick();
   assert.equal(dialog.open, false);
   assert.equal(removed.length, 1);
   assert.deepEqual(removed[0].items, [{ id: "b", head: "b" }]);
   assert.equal(removed[0].recommendedOnly, true);
+  // Closing gives the keyboard back to a button that deleting disables.
+  assert.equal(handed, 1);
 
-  // One that stops being a recommendation is left alone in the same way, and
-  // when none is left there is nothing to agree to.
+  // Anything the review says about a worktree is part of what was agreed to.
+  // The same folder at the same commit on another branch, or merged for
+  // another reason, is kept in the same way, and so is one that is no longer
+  // a recommendation. When none is left there is nothing to agree to.
+  const kinds = [
+    { branch: "topic/renamed" },
+    { mergeReason: "All commits are in refs/remotes/upstream/main" },
+    { repo: "other" },
+    { recommended: false },
+  ];
+  for (const change of kinds) {
+    shown = { filtered: all, filtering: false };
+    marks = {};
+    review.open();
+    assert.equal(text("#cleanup-status"), "", "a new review starts unsaid");
+    shown = { ...shown, filtered: [all[0], { ...all[1], ...change }] };
+    review.render();
+    assert.deepEqual(changed(), ["b"], JSON.stringify(change));
+    assert.equal(text("#cleanup-confirm"), "Delete 1 worktree");
+    element("#cleanup-cancel").onclick();
+  }
+  // A size measured again is not a change.
   shown = { filtered: all, filtering: false };
-  marks = {};
   review.open();
-  shown = { ...shown, filtered: [all[0], { ...all[1], recommended: false }] };
+  marks = {};
+  shown = { ...shown, filtered: [{ ...all[0], sizeBytes: 4096 }, all[1]] };
   review.render();
-  assert.deepEqual(changed(), ["b"]);
-  assert.equal(text("#cleanup-confirm"), "Delete 1 worktree");
+  assert.deepEqual(changed(), []);
+  assert.equal(text("#cleanup-total"), "About 6 KB to recover · This computer");
   shown = { ...shown, filtered: [] };
   review.render();
   assert.deepEqual(changed().sort(), ["a", "b"]);
   assert.equal(text("#cleanup-title"), "These worktrees have changed");
+  assert.match(text("#cleanup-total"), /^Close this list and open it again/);
+  assert.equal(text("#cleanup-confirm"), "Delete");
   assert.equal(element("#cleanup-confirm").disabled, true);
+  assert.equal(
+    text("#cleanup-status"),
+    "2 worktrees changed and are kept. Nothing would be deleted.",
+  );
   await element("#cleanup-confirm").onclick();
   assert.equal(removed.length, 1, "a disabled answer deletes nothing");
-  // They can change back before it is answered.
-  shown = { filtered: all, filtering: false };
-  review.render();
-  assert.deepEqual(changed(), []);
-  assert.equal(element("#cleanup-confirm").disabled, false);
+  assert.equal(handed, 1);
   element("#cleanup-cancel").onclick();
 
   // A filter narrows the review as it narrows the list, and says so. One
   // worktree is asked about as one.
   shown = { filtered: [all[1], all[2]], filtering: true };
   review.open();
-  assert.deepEqual(names(), ["b"]);
+  assert.deepEqual(cells("name"), ["b"]);
   assert.equal(text("#cleanup-title"), "Delete this recommended worktree?");
   assert.equal(
     text("#cleanup-total"),
-    "1 worktree shown in this view · about 2 KB",
+    "About 2 KB to recover · Only what the list is showing",
   );
   // Opening it again while it is open changes nothing.
   shown = { filtered: all, filtering: false };
   review.open();
-  assert.deepEqual(names(), ["b"]);
+  assert.deepEqual(cells("name"), ["b"]);
+  shown = { filtered: [all[2]], filtering: true };
+  review.render();
+  assert.equal(text("#cleanup-title"), "This worktree has changed");
   element("#cleanup-cancel").onclick();
   // With nothing recommended there is nothing to open.
   shown = { filtered: [all[2]], filtering: false };
@@ -1755,7 +1793,7 @@ test("the review lists what Delete recommended would delete and why, and deletes
   fixture.workspace.dispose();
 });
 
-test("the review names the host of each worktree when every host is shown", async () => {
+test("the review waits for an operation that holds a worktree, and says every host and odd name plainly", async () => {
   const { createCleanupController } = await import(
     "../renderer/cleanup-controller.mjs"
   );
@@ -1763,7 +1801,8 @@ test("the review names the host of each worktree when every host is shown", asyn
     {
       id: JSON.stringify(["vps", "a"]),
       host: "vps",
-      path: "/srv/trees/a",
+      // A name that tries to hide or reorder what is read beside it.
+      path: "/srv/trees/safe‮gpj.exe\u0007<b>",
       head: "a",
       branch: "topic/a",
       repo: "api",
@@ -1776,10 +1815,16 @@ test("the review names the host of each worktree when every host is shown", asyn
     hostFilter: null,
     report: { worktrees: rows, warnings: [] },
   });
-  state.hosts = [
-    { ...state.hosts[0], host: "vps", label: "Build <VPS>" },
-  ];
-  const fixture = await workspaceFixture({ getState: async () => state });
+  state.hosts = [{ ...state.hosts[0], host: "vps", label: "Build <VPS>" }];
+  const removed = [];
+  const fixture = await workspaceFixture({
+    getState: async () => state,
+    refreshHosts: async () => state,
+    remove: async (selection) => {
+      removed.push(selection);
+      return { cancelled: true, results: [] };
+    },
+  });
   const { document, element } = preferenceDocument();
   const review = createCleanupController({
     document,
@@ -1787,19 +1832,48 @@ test("the review names the host of each worktree when every host is shown", asyn
     shown: () => ({ filtered: rows, filtering: false }),
   });
   review.open();
+  const markup = element("#cleanup-list").innerHTML;
+  // Each name keeps its own direction, and what would hide or reorder it is
+  // drawn as a mark.
   assert.match(
-    element("#cleanup-list").innerHTML,
-    /class="cleanup-context">topic\/a · api · Build &lt;VPS&gt;</,
+    markup,
+    /class="cleanup-name"><bdi>safe�gpj\.exe�&lt;b&gt;<\/bdi></,
+  );
+  assert.match(
+    markup,
+    /class="cleanup-path"><bdi>\/srv\/trees\/safe�gpj\.exe�&lt;b&gt;<\/bdi></,
+  );
+  assert.match(
+    markup,
+    /class="cleanup-context"><bdi>topic\/a<\/bdi> · <bdi>api<\/bdi> · <bdi>Build &lt;VPS&gt;<\/bdi></,
   );
   // With no evidence recorded, the reason is still said in words.
   assert.match(
-    element("#cleanup-list").innerHTML,
-    /class="cleanup-reason">All of its commits are in the default branch</,
+    markup,
+    /class="cleanup-reason"><bdi>All of its commits are in the default branch<\/bdi></,
   );
   assert.equal(
     element("#cleanup-total").textContent,
-    "1 worktree on all hosts · about 1 KB",
+    "About 1 KB to recover · All hosts",
   );
+  // Another operation holding the worktree's host changes nothing about the
+  // worktree. Nothing is marked; deleting waits.
+  state.hosts = [{ ...state.hosts[0], operation: "inspect" }];
+  await fixture.workspace.refresh();
+  review.render();
+  assert.equal(element("#cleanup-confirm").disabled, true);
+  assert.equal(
+    element("#cleanup-total").textContent,
+    "Deleting is unavailable until the current operation finishes.",
+  );
+  assert.equal(element("#cleanup-status").textContent, "");
+  await element("#cleanup-confirm").onclick();
+  assert.deepEqual(removed, []);
+  state.hosts = [{ ...state.hosts[0], operation: null }];
+  await fixture.workspace.refresh();
+  review.render();
+  assert.equal(element("#cleanup-confirm").disabled, false);
+  assert.equal(element("#cleanup-confirm").textContent, "Delete 1 worktree");
   fixture.workspace.dispose();
 });
 

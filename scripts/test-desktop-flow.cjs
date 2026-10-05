@@ -279,6 +279,12 @@ app.once("browser-window-created", (_event, win) => {
             ),
           "the recommended worktrees are deleted",
         );
+        // The button that opened the review is disabled while it deletes, so
+        // the keyboard is in the list, not nowhere.
+        assert.equal(
+          await js("document.activeElement?.id"),
+          "worktree-grid",
+        );
         const made = removals().slice(before);
         assert.equal(made.length, 39);
         assert.ok(made.every((args) => args.includes("--recommended-only")));
@@ -732,10 +738,7 @@ app.once("browser-window-created", (_event, win) => {
           asked.title,
           `Delete these ${expected} recommended worktrees?`,
         );
-        assert.match(
-          asked.total,
-          new RegExp(`^${expected} worktrees on this computer · about `),
-        );
+        assert.match(asked.total, /^About .+ to recover · This computer$/);
         assert.equal(asked.confirm, `Delete ${expected} worktrees`);
         assert.equal(removeCalls(), removalsBefore);
         // Escape closes it.
@@ -777,7 +780,30 @@ app.once("browser-window-created", (_event, win) => {
         win.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
         win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
         await until(async () => !(await review()).open, "Enter is Cancel");
-        await pause(150);
+        // However little room there is, what would be deleted stays in view
+        // and can be scrolled, and the buttons come after it, not instead of
+        // it: the smallest window, at more than twice the size.
+        const roomy = win.getContentSize();
+        win.setContentSize(850, 560);
+        win.webContents.setZoomFactor(2.25);
+        await pause(400);
+        await js("document.querySelector('#cleanup-button').click()");
+        await until(async () => (await review()).open, "the review opens small");
+        const cramped = await js(
+          `(() => { const inside = (node) => { node.scrollIntoView({ block: 'nearest' }); const r = node.getBoundingClientRect(); return r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1 && r.height > 0; }; const dialog = document.querySelector('#cleanup-dialog'), body = document.querySelector('#cleanup-body'), items = [...body.querySelectorAll('.cleanup-item')], at = body.getBoundingClientRect(), confirm = document.querySelector('#cleanup-confirm').getBoundingClientRect(); return { items: items.length, height: Math.round(at.height), first: at.top >= 0 && at.top < innerHeight - 40, hidden: confirm.bottom > innerHeight || confirm.top >= dialog.getBoundingClientRect().bottom, reached: [items[0], items.at(-1), document.querySelector('#cleanup-cancel'), document.querySelector('#cleanup-confirm')].map(inside) }; })()`,
+        );
+        assert.equal(cramped.items, expected);
+        assert.ok(cramped.height >= 60, `the review has room: ${cramped.height}px`);
+        assert.equal(cramped.first, true, "what is being asked is seen first");
+        assert.deepEqual(
+          cramped.reached,
+          [true, true, true, true],
+          "every worktree and both buttons can be scrolled to",
+        );
+        await js("document.querySelector('#cleanup-dialog').close()");
+        win.webContents.setZoomFactor(1);
+        win.setContentSize(...roomy);
+        await pause(400);
         assert.equal(
           removeCalls(),
           removalsBefore,
