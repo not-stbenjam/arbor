@@ -102,6 +102,8 @@ export function createWorktreeView({
       ["worktreeMenu", "data-worktree-menu"],
       ["folderDelete", "data-folder-delete"],
       ["toggleDirectory", "data-toggle-directory"],
+      ["selectFolder", "data-select-folder"],
+      ["select", "data-select"],
     ])
       if (element.dataset[key] !== undefined)
         return { attribute, value: element.dataset[key] };
@@ -113,9 +115,9 @@ export function createWorktreeView({
       `[${control.attribute}="${CSS.escape(control.value)}"]`,
     );
     // When its row is gone or unavailable, stay in the list, not on the page.
-    (next && !next.disabled ? next : $("#worktree-grid")).focus({
-      preventScroll: true,
-    });
+    if (next && !next.disabled && !next.hidden)
+      next.focus({ preventScroll: true });
+    else focusList();
   }
   function render() {
     const list = items(),
@@ -530,11 +532,19 @@ export function createWorktreeView({
       $("#worktree-grid").focus({ preventScroll: true });
       return;
     }
-    if (event.target.closest("button, input")) return;
-    // Space ticks the row the cursor is on, as clicking its box does.
-    if (event.key === " " && selection.cursor) {
+    if (event.target.closest("button")) return;
+    // On a box, Space is the box's own; Delete still means what is ticked.
+    if (
+      event.target.closest("input") &&
+      !["Delete", "Backspace"].includes(event.key)
+    )
+      return;
+    // Space ticks the row the cursor is on, as clicking its box does. A key
+    // held down is one press, not a tick and an untick and a tick.
+    if (event.key === " ") {
       event.preventDefault();
-      selectRow(selection.cursor, { ctrlKey: true });
+      if (!event.repeat && selection.cursor)
+        selectRow(selection.cursor, { ctrlKey: true });
       return;
     }
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
@@ -549,7 +559,9 @@ export function createWorktreeView({
             : event.key === "ArrowDown"
               ? Math.min(visible.length - 1, index + 1)
               : Math.max(0, index - 1);
-      selectRow(visible[index].id, event);
+      // Only Shift changes what is ticked on the way; Ctrl or Cmd with an
+      // arrow key is the system's or nobody's, not a tick.
+      selectRow(visible[index].id, { shiftKey: event.shiftKey });
       document
         .querySelector(
           `.worktree-row[data-id="${CSS.escape(visible[index].id)}"]`,

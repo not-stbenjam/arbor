@@ -227,7 +227,7 @@ test("a large selection previews the worktrees that would lose files before the 
     "2 of 12 worktrees are not clean. Discard their work and delete all 12?",
   );
   assert.deepEqual(options.detail.split("\n").slice(0, 4), [
-    "2 of them hold work that is not saved in Git. Deleting permanently discards:",
+    "2 of them hold local work that deleting would destroy. It permanently discards:",
     "• uncommitted changes and untracked files (1 worktree)",
     "• ignored files, such as local configuration or build output (1 worktree)",
     "Anything else in the folder that is not committed goes too, including files added since the last scan.",
@@ -236,14 +236,14 @@ test("a large selection previews the worktrees that would lose files before the 
   assert.equal(options.buttons[1], "Discard & Delete");
   // Without consent to discard, nothing is discarded, so nothing is flagged.
   const kept = removalConfirmationOptions(trees.slice(0, 9), false);
-  assert.doesNotMatch(kept.detail, /uncommitted|not saved in Git|•/);
+  assert.doesNotMatch(kept.detail, /uncommitted|would destroy|•/);
   assert.equal(kept.title, "Delete worktrees?");
   assert.equal(kept.buttons[1], "Delete Worktrees");
   // One worktree needs no tally; the list says what it holds.
   const one = removalConfirmationOptions([trees[8]], true);
   assert.match(
     one.detail,
-    /^It holds work that is not saved in Git\. Deleting permanently discards:\n• uncommitted changes and untracked files\n/,
+    /^It holds local work that deleting would destroy\. It permanently discards:\n• uncommitted changes and untracked files\n/,
   );
   assert.match(one.detail, /\/work\/dirty — uncommitted changes$/);
   assert.equal(
@@ -274,7 +274,7 @@ test("commits and repositories that would be lost are named, and listed first", 
     "4 of 5 worktrees are not clean. Discard their work and delete all 5?",
   );
   assert.deepEqual(options.detail.split("\n\n")[0].split("\n"), [
-    "4 of them hold work that is not saved in Git. Deleting permanently discards:",
+    "4 of them hold local work that deleting would destroy. It permanently discards:",
     "• uncommitted changes and untracked files (1 worktree)",
     "• ignored files, such as local configuration or build output (1 worktree)",
     "• submodule checkouts, and any commits made inside them that were never pushed (1 worktree)",
@@ -288,11 +288,33 @@ test("commits and repositories that would be lost are named, and listed first", 
   // Those that would lose commits or a repository lead the list.
   assert.deepEqual(options.detail.split("\n\n")[1].split("\n"), [
     "/work/vendored — submodules",
-    "/work/midway — uncommitted changes, unfinished Git operation",
+    "/work/midway — unfinished Git operation, uncommitted changes",
     "/work/holder — nested repository",
     "/work/deps — ignored files",
     "/work/clean",
   ]);
+  // Beside a path the two gravest losses are enough: the list above names
+  // them all, and the path must stay recognizable.
+  const everything = removalConfirmationOptions(
+    [
+      unclean("x".repeat(90), [
+        "changes",
+        "ignored",
+        "unchecked",
+        "submodules",
+        "operation",
+        "nested",
+      ]),
+    ],
+    true,
+  );
+  const line = everything.detail.split("\n").at(-1);
+  assert.match(line, / — nested repository, submodules, \+4 more$/);
+  // Both ends of the path survive, with most of the line still theirs.
+  const shown = line.slice(0, line.indexOf(" — "));
+  assert.ok(Array.from(shown).length >= 75, line);
+  assert.match(shown, /^\/work\/x{30,}…x{30,}$/);
+  assert.equal(everything.detail.match(/^• /gm).length, 6);
   // Both, when it is two.
   assert.equal(
     removalConfirmationOptions(trees.slice(2, 4), true).message,
@@ -313,7 +335,7 @@ test("the gravest consequence leads, and a single remote host is named up front"
   assert.equal(lines[0], "On Build server [vps].");
   assert.equal(
     lines[1],
-    "It holds work that is not saved in Git. Deleting permanently discards:",
+    "It holds local work that deleting would destroy. It permanently discards:",
   );
   assert.equal(lines[2], "• uncommitted changes and untracked files");
   assert.match(lines[4], /^Worktree folders are deleted permanently/);

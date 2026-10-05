@@ -2099,10 +2099,55 @@ test("boxes tick rows, folders and everything shown, and only a tick changes wha
   assert.equal(trees.selectedCount, 0);
   tick({});
   assert.equal(trees.selectedCount, 3);
-  // Delete takes what is ticked, whichever row the cursor happens to be on.
+  // Delete takes what is ticked, whichever row the cursor happens to be on,
+  // and from a box as well as from the list: the box in the heading is where
+  // the keyboard is left after ticking everything.
   go("beta");
   press("Delete");
   assert.deepEqual(deleted.at(-1), ["alpha", "beta", "gamma"]);
+  const onBox = (key, extra = {}) => {
+    let prevented = false;
+    listeners["#worktree-grid keydown"]({
+      key,
+      ...extra,
+      target: { closest: (selector) => (selector === "input" ? {} : null) },
+      preventDefault: () => (prevented = true),
+    });
+    return prevented;
+  };
+  deleted.length = 0;
+  onBox("Delete");
+  assert.deepEqual(deleted, [["alpha", "beta", "gamma"]]);
+  // Space on a box is the box's own; the list does not also act on it.
+  assert.equal(onBox(" "), false);
+  assert.equal(trees.selectedCount, 3);
+
+  // A held Space is one press. Its repeats neither untick nor tick again.
+  tick({});
+  assert.equal(trees.selectedCount, 0);
+  const key = (name, extra = {}) =>
+    listeners["#worktree-grid keydown"]({
+      key: name,
+      ...extra,
+      target: { closest: () => null },
+      preventDefault() {},
+    });
+  go("alpha");
+  key(" ");
+  key(" ", { repeat: true });
+  key(" ", { repeat: true });
+  assert.equal(trees.selectedCount, 1);
+  // Ctrl or Cmd with an arrow key moves the cursor and ticks nothing; Shift
+  // with one ticks the range it crosses.
+  document.querySelector = ((find) => (selector) =>
+    selector.startsWith(".worktree-row[data-id=") ? null : find(selector))(
+    document.querySelector,
+  );
+  key("ArrowDown", { ctrlKey: true });
+  key("ArrowDown", { metaKey: true });
+  assert.equal(trees.selectedCount, 1);
+  key("ArrowUp", { shiftKey: true });
+  assert.equal(trees.selectedCount, 3);
   fixture.workspace.dispose();
 });
 
@@ -2137,6 +2182,21 @@ test("a row and a selection say when deleting is not a clean delete, before the 
     rows.map((worktree) => ({ kind: "worktree", depth: 0, label: worktree.id, worktree })),
     { selected: new Set(), collapsed: new Set(), disabled: false, canDelete: () => true },
   );
+  // A folder has no row for the keyboard to stand on, so its box is a tab
+  // stop; a worktree's is reached with Space from its row.
+  const folders = renderTreeRows(
+    [
+      {
+        kind: "directory",
+        depth: 0,
+        label: "team",
+        node: { path: "/local/team", key: "team", descendants: rows },
+      },
+    ],
+    { selected: new Set(), collapsed: new Set(), disabled: false, canDelete: () => true },
+  );
+  assert.match(folders, /<input type="checkbox" class="row-check" data-select-folder="team"/);
+  assert.match(markup, /<input type="checkbox" class="row-check" tabindex="-1" data-select="clean"/);
   // The Delete button of a clean row is just Delete.
   assert.match(markup, /data-delete="clean" aria-label="Delete \/local\/team\/clean" >Delete</);
   assert.match(

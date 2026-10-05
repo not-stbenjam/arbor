@@ -1,9 +1,11 @@
 package worktree
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -15,19 +17,64 @@ var (
 	removalCount = 300 * time.Millisecond
 )
 
+// survey takes a last look through a folder that is about to be deleted. It
+// counts the files, for the progress that follows, and reports whether a
+// repository is inside that the inspection did not account for as one of the
+// worktree's own submodules.
+func survey(ctx context.Context, root string, submodules []string) (files int, nested bool, err error) {
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return err
+		}
+		parent := filepath.Dir(path)
+		if entry.Name() == ".git" {
+			if parent != root && !slices.Contains(submodules, parent) {
+				nested = true
+			}
+			if entry.IsDir() {
+				// Its contents are counted, not searched for more of the same.
+				files += countFiles(path, nil)
+				return filepath.SkipDir
+			}
+		}
+		if !entry.IsDir() {
+			files++
+		}
+		if entry.Name() == "HEAD" && !entry.IsDir() && parent != root {
+			// A repository without a checkout has no ".git" to find.
+			entries, readErr := os.ReadDir(parent)
+			if readErr != nil {
+				return readErr
+			}
+			kind, probeErr := recognizeRepository(ctx, parent, entries)
+			if probeErr != nil {
+				return probeErr
+			}
+			if kind != repositoryNone {
+				nested = true
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	return files, nested, err
+}
+
 // watchRemoval reports, while Git deletes a worktree's folder, how many of
-// its files are gone and one that is going about now. It only reads: Git
-// still does all of the deleting, and nothing here can change what is
-// deleted. The function it returns stops the reports and waits for the last.
-func watchRemoval(root string, report func(Progress)) (stop func()) {
-	if report == nil {
+// its total files are gone and one that is going about now. It only reads:
+// Git still does all of the deleting, and nothing here can change what is
+// deleted. It starts at once, without looking through the folder first: the
+// checks that this is still the right folder at the right commit come
+// immediately before the deletion, and nothing slow may come between them.
+// The function it returns stops the reports and waits for the last.
+func watchRemoval(root string, total int, report func(Progress)) (stop func()) {
+	if report == nil || total == 0 {
 		return func() {}
 	}
 	done := make(chan struct{})
-	total := countFiles(root, done)
-	if total == 0 {
-		return func() {}
-	}
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)

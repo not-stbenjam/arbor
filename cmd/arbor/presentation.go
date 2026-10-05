@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -162,6 +163,8 @@ func shorten(s string, limit int) string {
 
 // status names the one fact that most affects a cleanup decision. "merged"
 // means what clean removes: merged, and nothing else in the way.
+// status is the one thing about a worktree that decides its cleanup. Nothing
+// with something to lose is ever called clean, and the gravest loss is named.
 func status(entry worktree.Worktree) string {
 	switch {
 	case !entry.CanRemove && !entry.CanDiscard && len(entry.Blockers) > 0:
@@ -170,15 +173,31 @@ func status(entry worktree.Worktree) string {
 		return "missing checkout"
 	case entry.Empty:
 		return "empty checkout"
+	}
+	for _, loss := range []struct{ name, label string }{
+		{"nested", "nested repository"},
+		{"submodules", "submodules"},
+		{"operation", "unfinished operation"},
+		{"changes", "local changes"},
+		{"unchecked", "unchecked files"},
+		{"ignored", "ignored files"},
+	} {
+		if slices.Contains(entry.Losses, loss.name) {
+			return loss.label
+		}
+	}
+	switch {
 	case entry.Dirty:
 		return "local changes"
 	case entry.Ignored:
 		return "ignored files"
 	case entry.Locked:
 		return "Git locked"
-	case !entry.CanRemove && !entry.Detached && len(entry.Blockers) > 0:
+	case entry.Detached:
+		return "detached"
+	case !entry.CanRemove && len(entry.Blockers) > 0:
 		// Whatever else only --force gets past, in the words before its
-		// explanation: unchecked files, or a default or protected branch.
+		// explanation: a default or protected branch.
 		brief, _, _ := strings.Cut(entry.Blockers[0], ":")
 		return printable(strings.ToLower(brief))
 	case entry.Fresh:

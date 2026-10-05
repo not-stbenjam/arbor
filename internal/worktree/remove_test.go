@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -78,6 +79,13 @@ func TestRemoveRejectsChangesAfterScan(t *testing.T) {
 // Git command that was requested. It returns a file the action creates.
 func testChangeDuringRemoval(t *testing.T, worktree, action string) string {
 	t.Helper()
+	return testChangeAtGitCall(t, worktree, "merge-base", 1, action)
+}
+
+// testChangeAtGitCall runs a shell action exactly once, just before the nth
+// Git command whose arguments include the given word.
+func testChangeAtGitCall(t *testing.T, worktree, word string, nth int, action string) string {
+	t.Helper()
 	real, err := exec.LookPath("git")
 	if err != nil {
 		t.Fatal(err)
@@ -85,8 +93,9 @@ func testChangeDuringRemoval(t *testing.T, worktree, action string) string {
 	bin := t.TempDir()
 	marker := filepath.Join(bin, "changed")
 	script := `#!/bin/sh
-case " $* " in *" merge-base "*)
-	if [ ! -e "$ARBOR_TEST_MARKER" ]; then
+case " $* " in *" ` + word + ` "*)
+	printf x >> "$ARBOR_TEST_MARKER.calls"
+	if [ ! -e "$ARBOR_TEST_MARKER" ] && [ "$(wc -c < "$ARBOR_TEST_MARKER.calls" | tr -d '[:space:]')" -ge ` + strconv.Itoa(nth) + ` ]; then
 		: > "$ARBOR_TEST_MARKER"
 		( ` + action + ` ) || exit 97
 	fi ;;
@@ -282,7 +291,7 @@ func TestRemovalIsReportedFileByFile(t *testing.T) {
 		defer mu.Unlock()
 		return slices.Clone(events)
 	}
-	stop := watchRemoval(root, func(event Progress) {
+	stop := watchRemoval(root, 20, func(event Progress) {
 		mu.Lock()
 		defer mu.Unlock()
 		events = append(events, event)
@@ -335,8 +344,81 @@ func TestRemovalIsReportedFileByFile(t *testing.T) {
 		last = event.Files
 	}
 	// With nobody to tell, or nothing to delete, there is nothing to watch.
-	watchRemoval(root, nil)()
-	watchRemoval(filepath.Join(root, "absent"), func(Progress) { t.Error("reported on a folder that is not there") })()
+	watchRemoval(root, 20, nil)()
+	watchRemoval(filepath.Join(root, "absent"), 0, func(Progress) { t.Error("reported on a folder with nothing in it") })()
+}
+
+// The last look through a folder counts what the progress will count down
+// from, and finds a repository the inspection did not account for.
+func TestSurveyCountsFilesAndFindsRepositories(t *testing.T) {
+	root := t.TempDir()
+	testWrite(t, filepath.Join(root, ".git"), "gitdir: elsewhere\n")
+	testWrite(t, filepath.Join(root, "tracked.txt"), "x")
+	for _, dir := range []string{"vendor/library", "src"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testWrite(t, filepath.Join(root, "src", "main.go"), "x")
+	testWrite(t, filepath.Join(root, "vendor", "library", ".git"), "gitdir: elsewhere\n")
+	testWrite(t, filepath.Join(root, "vendor", "library", "lib.go"), "x")
+	known := []string{filepath.Join(root, "vendor", "library")}
+	files, nested, err := survey(context.Background(), root, known)
+	if err != nil || files != 5 || nested {
+		t.Fatalf("a worktree with its own submodule: %d files, nested=%v, %v", files, nested, err)
+	}
+	if files != countFiles(root, nil) {
+		t.Fatal("the survey and the progress count disagree about what a file is")
+	}
+	// The same folder, when nothing said it was a submodule.
+	if _, nested, _ := survey(context.Background(), root, nil); !nested {
+		t.Fatal("a repository nobody accounted for was not found")
+	}
+	// A repository with a checkout, and one without.
+	inner := testRepo(t, filepath.Join(root, "src", "experiment"))
+	if files, nested, err := survey(context.Background(), root, known); err != nil || !nested || files != countFiles(root, nil) {
+		t.Fatalf("nested repository %s: %d files (%d by count), nested=%v, %v", inner, files, countFiles(root, nil), nested, err)
+	}
+	if err := os.RemoveAll(inner); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, root, "init", "--bare", filepath.Join(root, "src", "store"))
+	if _, nested, err := survey(context.Background(), root, known); err != nil || !nested {
+		t.Fatalf("a repository without a checkout was not found: nested=%v, %v", nested, err)
+	}
+}
+
+// What was agreed to is what was shown. Something graver than files that
+// arrives after the worktree was inspected stops the deletion, however
+// general the agreement to discard local files.
+func TestRemoveStopsForAGraveLossThatArrivesLate(t *testing.T) {
+	for _, tc := range []struct{ name, action, lost string }{
+		{"another repository", `"$ARBOR_TEST_GIT" init --quiet "$ARBOR_TEST_WORKTREE/experiment" &&
+			"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE/experiment" -c user.name=Arbor -c user.email=arbor@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null commit --quiet --allow-empty -m "Kept nowhere else"`, "separate Git repository"},
+		{"an operation begun since", `"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE" rev-parse HEAD > "$("$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE" rev-parse --path-format=absolute --git-path MERGE_HEAD)"`, "unfinished Git operation"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			repo := testRepo(t, filepath.Join(root, "repo"))
+			wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+			testWrite(t, filepath.Join(wt, "scratch.txt"), "disposable\n")
+			w := testTree(t, testScan(t, root), wt)
+			if w.CanRemove || !w.CanDiscard || !slices.Equal(w.Losses, []string{"changes"}) {
+				t.Fatalf("fixture must hold only local files: %+v", w)
+			}
+			marker := testChangeDuringRemoval(t, wt, tc.action)
+			_, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
+			if _, statErr := os.Stat(marker); statErr != nil {
+				t.Fatalf("fixture never changed the checkout: %v (removal: %v)", statErr, err)
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.lost) {
+				t.Fatalf("a loss nobody was shown went with the folder: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(wt, "scratch.txt")); err != nil {
+				t.Fatalf("the worktree must remain: %v", err)
+			}
+		})
+	}
 }
 
 // The real removal reports through the same watcher, and still removes.
@@ -362,5 +444,57 @@ func TestRemoveWorktreeReportsItsProgress(t *testing.T) {
 	// tracked.txt, .gitignore and the worktree's .git file.
 	if len(events) == 0 || events[0].Stage != "remove" || events[0].Path != w.Path || events[0].FilesTotal != 3 {
 		t.Fatalf("removal was not reported: %+v", events)
+	}
+}
+
+// The last look through the folder takes time, as the count for the progress
+// display did when it came after the final checks. Whatever happens while it
+// is under way must still be caught where it can be: it is followed by the
+// checks that this is the same folder at the same commit, and it sees what
+// arrives in the folders it has yet to enter.
+func TestRemoveCatchesWhatChangesDuringTheLastLook(t *testing.T) {
+	for _, tc := range []struct{ name, action, refusal, survives string }{
+		{"the folder is swapped for another", `mv "$ARBOR_TEST_WORKTREE" "$ARBOR_TEST_WORKTREE-original" &&
+			mkdir "$ARBOR_TEST_WORKTREE" &&
+			cp "$ARBOR_TEST_WORKTREE-original/.git" "$ARBOR_TEST_WORKTREE/.git" &&
+			echo unrelated > "$ARBOR_TEST_WORKTREE/unrelated.txt"`, "", "unrelated.txt"},
+		// A walk lists a folder once, when it enters it. What arrives in a
+		// folder it has yet to enter is seen; that is as far as a look can go.
+		{"a repository arrives further on", `"$ARBOR_TEST_GIT" init --quiet "$ARBOR_TEST_WORKTREE/zz-later/experiment" &&
+			"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE/zz-later/experiment" -c user.name=Arbor -c user.email=arbor@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null commit --quiet --allow-empty -m "Kept nowhere else"`, "separate Git repository", "zz-later/experiment/.git"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			repo := testRepo(t, filepath.Join(root, "repo"))
+			wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+			// A folder that looks enough like a repository to be asked about
+			// each time the worktree is looked through. It is not one.
+			decoy := filepath.Join(wt, "a-decoy")
+			if err := os.MkdirAll(filepath.Join(decoy, "objects"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			testWrite(t, filepath.Join(decoy, "HEAD"), "not a Git reference\n")
+			testWrite(t, filepath.Join(decoy, "objects", "payload"), "ordinary data\n")
+			if err := os.Mkdir(filepath.Join(wt, "zz-later"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			w := testTree(t, testScan(t, root), wt)
+			if w.CanRemove || !w.CanDiscard || !slices.Equal(w.Losses, []string{"changes"}) {
+				t.Fatalf("fixture must hold only local files: %+v", w)
+			}
+			// The first time it is asked about is the fresh inspection; the
+			// second is the last look.
+			marker := testChangeAtGitCall(t, wt, "--is-bare-repository", 2, tc.action)
+			_, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Progress: func(Progress) {}})
+			if _, statErr := os.Stat(marker); statErr != nil {
+				t.Fatalf("fixture never changed the checkout: %v (removal: %v)", statErr, err)
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.refusal) {
+				t.Fatalf("removal went ahead after the folder changed under it: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(wt, filepath.FromSlash(tc.survives))); err != nil {
+				t.Fatalf("what arrived was deleted: %v", err)
+			}
+		})
 	}
 }

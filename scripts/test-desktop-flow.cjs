@@ -418,7 +418,7 @@ app.once("browser-window-created", (_event, win) => {
         assert.equal(removalDialogs[1].title, "Not a clean delete");
         assert.match(
           removalDialogs[1].detail,
-          /^1 of them holds work that is not saved in Git\. Deleting permanently discards:\n• ignored files, such as local configuration or build output \(1 worktree\)\nAnything else in the folder that is not committed goes too/,
+          /^1 of them holds local work that deleting would destroy\. It permanently discards:\n• ignored files, such as local configuration or build output \(1 worktree\)\nAnything else in the folder that is not committed goes too/,
         );
         assert.ok(listed(removalDialogs[1], "/sessions/old/tree-1"));
         assert.ok(!removalDialogs[1].detail.includes("/sessions/recent/"));

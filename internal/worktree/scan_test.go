@@ -508,6 +508,60 @@ func TestWorkThatOnlyConsentDiscards(t *testing.T) {
 	}
 }
 
+// A sequence of several cherry-picks can stop between commits with nothing
+// staged and nothing modified. Git calls the tree clean and the cherry-pick
+// in progress, and it is the second that decides.
+func TestUnfinishedSequenceIsNotACleanWorktree(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	// Two commits elsewhere that both rewrite a file the topic also changed.
+	testGit(t, repo, "checkout", "--quiet", "-b", "source")
+	for _, text := range []string{"one\n", "two\n"} {
+		testWrite(t, filepath.Join(repo, "tracked.txt"), text)
+		testGit(t, repo, "commit", "-am", "Source "+strings.TrimSpace(text))
+	}
+	testGit(t, repo, "checkout", "--quiet", "main")
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
+	testGit(t, wt, "commit", "-am", "Topic work")
+	testGit(t, repo, "merge", "--ff-only", "topic")
+	if w := testTree(t, testScan(t, root), wt); !w.Recommended {
+		t.Fatalf("fixture must begin as a recommendation: %+v", w)
+	}
+	// The first pick conflicts; taking our side leaves nothing to commit.
+	cmd := exec.Command("git", "-c", "core.hooksPath=/dev/null", "-C", wt, "cherry-pick", "--no-commit", "source~1", "source")
+	cmd.Env = append(commandEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("fixture: the cherry-pick should have stopped on a conflict:\n%s", out)
+	}
+	testGit(t, wt, "checkout", "--ours", "tracked.txt")
+	testGit(t, wt, "add", "tracked.txt")
+	if status := testGit(t, wt, "status", "--porcelain"); status != "" {
+		t.Fatalf("fixture: the tree should look clean to Git: %q", status)
+	}
+	report, err := Scan(context.Background(), Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := testTree(t, report, wt)
+	assertProtected(t, w, "Unfinished Git operation")
+	if !slices.Equal(w.Losses, []string{"operation"}) {
+		t.Fatalf("losses: %q", w.Losses)
+	}
+	for _, options := range []RemovalOptions{
+		{ExpectedHead: w.Head, RecommendedOnly: true},
+		{ExpectedHead: w.Head},
+		{ExpectedHead: w.Head, DiscardLocal: true},
+	} {
+		if _, err := RemoveWorktree(context.Background(), w, options); err == nil {
+			t.Fatalf("an unfinished cherry-pick went without being named: %+v", options)
+		}
+	}
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: []string{"operation"}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A clean worktree loses nothing by being deleted, and says so: that is what
 // tells it apart, everywhere it is shown, from one that would.
 func TestOnlyWorkNotInGitCountsAsALoss(t *testing.T) {

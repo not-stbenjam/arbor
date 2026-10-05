@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -103,35 +104,53 @@ func inspectIndex(ctx context.Context, w *Worktree, block func(reasonCode)) (sub
 	return submodules
 }
 
+// operationMarkers are what Git keeps in a worktree's own metadata while an
+// operation is unfinished. A sequence of several cherry-picks or reverts can
+// be between commits with none of the single-commit markers present, and
+// leaves only its "sequencer" folder.
+var operationMarkers = []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "sequencer"}
+
+// unfinished reports whether any of an operation's markers is present.
+func unfinished(markers []string) bool {
+	for _, marker := range markers {
+		if _, err := os.Stat(marker); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // inspectActivity combines operation markers and Git metadata timestamps with
-// the file walk, which also identifies nested repositories and local byte size.
-func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), submodules []string) {
-	metadata, err := gitPaths(ctx, w.Path, []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "HEAD", "index", "logs/HEAD", "modules"})
-	if err != nil {
+// the file walk, which also identifies nested repositories and local byte
+// size. It returns where this worktree's operation markers would be.
+func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), submodules []string) (markers []string) {
+	names := append(slices.Clone(operationMarkers), "HEAD", "index", "logs/HEAD", "modules")
+	metadata, err := gitPaths(ctx, w.Path, names)
+	if err != nil || len(metadata) != len(names) {
 		block(reasonMetadata)
-		w.Problems = append(w.Problems, err.Error())
-	} else {
-		for _, p := range metadata[:6] {
-			if _, err := os.Stat(p); err == nil {
-				block(reasonOperation)
-				break
-			}
+		if err != nil {
+			w.Problems = append(w.Problems, err.Error())
 		}
-		// Git keeps the repositories of this worktree's submodules here, and
-		// refuses an unforced removal while the folder exists, whether or not
-		// any of them is still checked out.
-		if st, err := os.Stat(metadata[9]); err == nil && st.IsDir() {
-			block(reasonSubmodules)
-		}
+		measure(ctx, w, block, submodules)
+		return nil
+	}
+	markers = metadata[:len(operationMarkers)]
+	if unfinished(markers) {
+		block(reasonOperation)
+	}
+	// Git keeps the repositories of this worktree's submodules here, and
+	// refuses an unforced removal while the folder exists, whether or not
+	// any of them is still checked out.
+	if st, err := os.Stat(metadata[len(names)-1]); err == nil && st.IsDir() {
+		block(reasonSubmodules)
 	}
 	measure(ctx, w, block, submodules)
-	if len(metadata) == 10 {
-		for _, path := range metadata[6:9] {
-			if st, err := os.Stat(path); err == nil && st.ModTime().After(w.ActivityAt) {
-				w.ActivityAt = st.ModTime()
-			}
+	for _, path := range metadata[len(operationMarkers) : len(names)-1] {
+		if st, err := os.Stat(path); err == nil && st.ModTime().After(w.ActivityAt) {
+			w.ActivityAt = st.ModTime()
 		}
 	}
+	return markers
 }
 
 // vacant reports whether a folder is absent or empty.

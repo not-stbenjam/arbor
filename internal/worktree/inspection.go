@@ -8,13 +8,23 @@ import (
 	"strings"
 )
 
-func inspect(ctx context.Context, w *Worktree, options Options) {
-	inspectWithDefault(ctx, w, options, nil)
+func inspect(ctx context.Context, w *Worktree, options Options) inspectionDetails {
+	return inspectWithDefault(ctx, w, options, nil)
+}
+
+// inspectionDetails is what an inspection learned that a removal looks at
+// once more, at the last moment, without inspecting everything again.
+type inspectionDetails struct {
+	// submodules are the folders of the submodules that are checked out.
+	submodules []string
+	// markers are the files and folders Git keeps while an operation such
+	// as a rebase or a cherry-pick is unfinished.
+	markers []string
 }
 
 // inspectWithDefault assembles facts in explicit stages and evaluates removal
 // policy once. No intermediate metadata stage grants permission to remove.
-func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defaultCache *repositoryDefault) {
+func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defaultCache *repositoryDefault) (details inspectionDetails) {
 	w.Missing = false
 	w.Empty = false
 	w.Fresh = false
@@ -49,8 +59,8 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 	}
 	inspectCommit(ctx, w)
 	inspectStatus(ctx, w, block)
-	submodules := inspectIndex(ctx, w, block)
-	inspectActivity(ctx, w, block, submodules)
+	details.submodules = inspectIndex(ctx, w, block)
+	details.markers = inspectActivity(ctx, w, block, details.submodules)
 	inspectPublication(ctx, w)
 	decided := inspectMerge(ctx, w, defaultCache, block)
 	if options.GitHub {
@@ -60,6 +70,7 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 		inspectFreshness(ctx, w)
 	}
 	verified = true
+	return details
 }
 
 type inspectionLocation uint8

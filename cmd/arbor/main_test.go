@@ -123,7 +123,8 @@ func TestCLITableNamesTheFolderOnceAndKeepsRowsNarrow(t *testing.T) {
 		{"worktrees/api/login", "feature/login"},
 		{"worktrees/web/checkout", "feature/checkout-re…-name-for-truncation"},
 		{"/home/dev/codex/outside", "elsewhere"},
-		{"sessions/one", "(detached)", "clean"},
+		// --yes alone does not take it, so it is not called clean.
+		{"sessions/one", "(detached)", "detached"},
 	} {
 		fields := strings.Fields(lines[i+2])
 		for j, text := range want[:2] {
@@ -499,8 +500,8 @@ func TestCLIRemovalReportsActualCommitRetention(t *testing.T) {
 
 func TestCLIHelpDocumentsRemovalPolicies(t *testing.T) {
 	for command, required := range map[string][]string{
-		"remove": {"--force", "--repo", "that alone is refused", "uncommitted,\nuntracked or ignored files", "only when no\nbranch already holds them"},
-		"clean":  {"--all", "--force", "skipped unless --force"},
+		"remove": {"--force", "--repo", "that alone is refused", "uncommitted,\nuntracked or ignored files", "only when no\nbranch already holds them", "agrees to everything\nthe preview lists"},
+		"clean":  {"--all", "--force", "not a clean delete are skipped\nunless --force is added", "another repository inside the folder", "own branches and commits are kept"},
 		"list":   {"--linked-only=false", "--exclude"},
 	} {
 		var out, stderr bytes.Buffer
@@ -524,10 +525,15 @@ func TestStatusNamesWhatForceIsNeededFor(t *testing.T) {
 	}{
 		{"clean", worktree.Worktree{CanRemove: true, CanDiscard: true}},
 		{"merged", worktree.Worktree{CanRemove: true, CanDiscard: true, Recommended: true}},
-		{"ignored files", worktree.Worktree{CanDiscard: true, Ignored: true, Blockers: []string{"Ignored files on disk (may include local secrets or build output)"}}},
-		{"unchecked files", worktree.Worktree{CanDiscard: true, Blockers: []string{"Unchecked files: Git was told not to look at some tracked files (assume-unchanged or skip-worktree)"}}},
+		{"ignored files", worktree.Worktree{CanDiscard: true, Ignored: true, Losses: []string{"ignored"}, Blockers: []string{"Ignored files on disk (may include local secrets or build output)"}}},
+		{"unchecked files", worktree.Worktree{CanDiscard: true, Losses: []string{"unchecked"}, Blockers: []string{"Unchecked files: Git was told not to look at some files"}}},
 		{"protected branch name", worktree.Worktree{CanDiscard: true, Blockers: []string{"Protected branch name"}}},
-		{"clean", worktree.Worktree{CanDiscard: true, Detached: true, Blockers: []string{"Detached HEAD; create a branch to retain its commits"}}},
+		{"detached", worktree.Worktree{CanDiscard: true, Detached: true, Blockers: []string{"Detached HEAD; create a branch to retain its commits"}}},
+		// Nothing with something to lose is called clean, detached or not,
+		// and the gravest loss is the one named.
+		{"unfinished operation", worktree.Worktree{CanDiscard: true, Detached: true, Losses: []string{"operation"}, Blockers: []string{"Detached HEAD; create a branch to retain its commits", "Unfinished Git operation: a bisect is in progress"}}},
+		{"nested repository", worktree.Worktree{CanDiscard: true, Dirty: true, Losses: []string{"changes", "nested"}}},
+		{"submodules", worktree.Worktree{CanDiscard: true, Losses: []string{"ignored", "submodules", "operation"}}},
 		{"Contains submodules", worktree.Worktree{Blockers: []string{"Contains submodules"}}},
 	} {
 		if got := status(tc.entry); got != tc.want {

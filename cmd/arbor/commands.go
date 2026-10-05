@@ -129,21 +129,21 @@ func newListCommand() *cobra.Command {
 func newCleanCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("clean", "Preview or delete worktrees beneath a folder",
-		"Preview clean, merged worktrees that can be removed. Nothing is deleted until\n--yes is supplied. --all also takes clean worktrees that are not merged; their\nbranches keep the commits. Worktrees with local files, a lock, or a detached\nHEAD are skipped unless --force is added, which discards those files.\nNamed branches and committed work are kept; nothing is sent to Trash.",
+		"Preview clean, merged worktrees that can be removed. Nothing is deleted until\n--yes is supplied. --all also takes clean worktrees that are not merged; their\nbranches keep the commits. Worktrees that are not a clean delete are skipped\nunless --force is added. --force agrees to everything the preview lists for\nthem: local files, and where it says so a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder.\nEach worktree's own branches and commits are kept; nothing is sent to Trash.",
 		"  arbor clean -p ~/code\n  arbor clean -p ~/code --yes\n  arbor clean -p ~/old-sessions --all --yes\n  arbor clean -p ~/old-sessions --all --force --yes\n  arbor clean --host my-vps --path ~/projects --json", flags)
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
 	cmd.Flags().BoolVarP(&flags.yes, "yes", "y", false, "Perform removal instead of previewing")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Include clean worktrees that are not merged")
-	cmd.Flags().BoolVarP(&flags.force, "force", "f", false, "With --all, also discard local files and override locks")
+	cmd.Flags().BoolVarP(&flags.force, "force", "f", false, "With --all, also take worktrees that are not a clean delete, discarding what the preview lists")
 	return cmd
 }
 
 func newRemoveCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("remove PATH", "Preview or delete one linked worktree",
-		"Preview removal of one linked checkout. Pass --yes to delete it. Like\n'git worktree remove', that alone is refused when the checkout has uncommitted,\nuntracked or ignored files, or is locked; the preview says which. Add --force\nto discard those files and override the lock. --force is also what removes a\ndetached, missing or empty checkout.\nNamed branches are kept. Detached commits get a recovery branch only when no\nbranch already holds them. A missing checkout removes only its Git\nregistration; provide --repo when its owning repository cannot be found from\nthe path. Flags may follow PATH. Use -- before a path beginning with a dash.",
+		"Preview removal of one linked checkout. Pass --yes to delete it. Like\n'git worktree remove', that alone is refused when the checkout has uncommitted,\nuntracked or ignored files, or is locked; the preview says which. Add --force\nto discard those files and override the lock. --force agrees to everything\nthe preview lists, which can include a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder. It is\nalso what removes a detached, missing or empty checkout.\nThe worktree's own branches are kept. Detached commits get a recovery branch only when no\nbranch already holds them. A missing checkout removes only its Git\nregistration; provide --repo when its owning repository cannot be found from\nthe path. Flags may follow PATH. Use -- before a path beginning with a dash.",
 		"  arbor remove /path/to/worktree\n  arbor remove /path/to/worktree --yes\n  arbor remove /path/to/worktree --force --yes\n  arbor remove /missing/worktree --repo ~/code/project --force --yes\n  arbor remove --yes -- ./-old-session", flags)
 	cmd.Args = checkedArgs(cobra.ExactArgs(1))
 	cmd.ValidArgsFunction = cobra.FixedCompletions(nil, cobra.ShellCompDirectiveFilterDirs)

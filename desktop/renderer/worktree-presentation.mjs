@@ -253,8 +253,10 @@ export function renderTreeRows(
     );
   // A folder's box ticks the rows shown beneath it. The view sets its state,
   // which depends on what is selected and on which folders are open.
+  // A folder has no row of its own for the keyboard to stand on, so its box
+  // is a tab stop. A worktree's is not: Space ticks the row the cursor is on.
   const folderCheck = (key, name) =>
-    `<td class="check-cell"><input type="checkbox" class="row-check" tabindex="-1" data-select-folder="${esc(key)}" aria-label="Select the worktrees shown under ${esc(name)}" /></td>`;
+    `<td class="check-cell"><input type="checkbox" class="row-check" data-select-folder="${esc(key)}" aria-label="Select the worktrees shown under ${esc(name)}" /></td>`;
   return directoryRows
     .map((entry) => {
       if (entry.kind === "host") {

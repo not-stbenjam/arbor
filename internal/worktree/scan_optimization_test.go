@@ -39,13 +39,13 @@ func TestCombinedIndexInspectionReadsSubmoduleEntries(t *testing.T) {
 }
 
 func TestBatchedMetadataInspectionFindsAllOperations(t *testing.T) {
-	for _, name := range []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"} {
+	for _, name := range []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "sequencer"} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			repo := testRepo(t, filepath.Join(root, "repo"))
 			linked := testLinked(t, repo, filepath.Join(root, "linked"), "feature")
 			path := testGit(t, linked, "rev-parse", "--path-format=absolute", "--git-path", name)
-			if name == "rebase-merge" || name == "rebase-apply" {
+			if name == "rebase-merge" || name == "rebase-apply" || name == "sequencer" {
 				if err := os.Mkdir(path, 0700); err != nil {
 					t.Fatal(err)
 				}

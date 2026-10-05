@@ -50,7 +50,7 @@ function removalConfirmationOptions(trees, discardLocal) {
           : unclean.length === trees.length
             ? "They hold"
             : `${unclean.length} of them ${unclean.length === 1 ? "holds" : "hold"}`
-      } work that is not saved in Git. Deleting permanently discards:`,
+      } local work that deleting would destroy. It permanently discards:`,
       ...lost.map(
         ([name, count]) =>
           `• ${LOSSES[name].text}${trees.length > 1 ? ` (${count} ${count === 1 ? "worktree" : "worktrees"})` : ""}`,
@@ -102,17 +102,25 @@ function removalConfirmationOptions(trees, discardLocal) {
     notes.push(
       `${missing} missing worktree ${missing === 1 ? "registration will" : "registrations will"} also be removed; no folders exist at those paths.`,
     );
+  const briefly = (row) => {
+    const gravest = ["nested", "submodules", "operation", "changes", "unchecked", "ignored"]
+      .filter((name) => lossesOf(row).includes(name))
+      .map((name) => LOSSES[name].brief);
+    return gravest.length > 2
+      ? `${gravest.slice(0, 2).join(", ")}, +${gravest.length - 2} more`
+      : gravest.join(", ");
+  };
   // What the last scan saw in a row that this operation will discard. It
   // decides which paths the preview shows first, so a selection's risky
   // members are never the ones hidden behind "and more".
   const risk = (row) =>
     row.missing || row.empty || !usesDiscardLocal(row, discardLocal)
       ? ""
-      : lossesOf(row)
-          .map((name) => LOSSES[name].brief)
-          .join(", ") || (row.locked ? "locked" : "");
+      : briefly(row) || (row.locked ? "locked" : "");
   // Worktrees that would lose commits or a repository come before those
   // that would lose files, and those before the rest.
+  // (The list above the paths names every loss in full. Beside a path, the
+  // two gravest are enough, and leave the path room to be recognized.)
   const weight = (row) =>
     !risk(row) ? 0 : unclean.includes(row) && graveLosses(row).length ? 2 : 1;
   if (trees.some((row) => row.locked && usesDiscardLocal(row, discardLocal)))

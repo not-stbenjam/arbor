@@ -103,7 +103,7 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	if current.Head != expectedHead || current.Branch != snapshot.Branch {
 		return errors.New("worktree commit or branch changed; scan again")
 	}
-	inspect(ctx, current, Options{GitHub: snapshot.PR != nil && snapshot.PR.Merged})
+	details := inspect(ctx, current, Options{GitHub: snapshot.PR != nil && snapshot.PR.Merged})
 	if snapshot.Empty && !current.Empty && !current.Missing {
 		return errors.New("checkout is no longer an empty directory; inspect it again")
 	}
@@ -159,6 +159,30 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 			return errors.New("worktree directory appeared during validation; inspect it again")
 		}
 	}
+	// Everything above took time, and the folder may not be as it was. Look
+	// through it once more for what is graver than files: a repository that
+	// was not there, or an operation begun since. What was agreed to is what
+	// was shown, so anything of that kind that was not stops the deletion.
+	// This look also counts the files, for the progress reported below. It
+	// comes before the final checks so that nothing slow comes after them.
+	files := 0
+	if !missing {
+		var late []string
+		var nested bool
+		files, nested, err = survey(ctx, current.Path, details.submodules)
+		if err != nil {
+			return fmt.Errorf("cannot look through the worktree before deleting it: %w", err)
+		}
+		if nested {
+			late = append(late, "nested")
+		}
+		if unfinished(details.markers) {
+			late = append(late, "operation")
+		}
+		if missing := unacknowledged(late, options.Acknowledged); missing != "" {
+			return fmt.Errorf("not deleted: it would also discard %s. Look at it again and confirm that", missing)
+		}
+	}
 	// Inspection reads every file and can query GitHub, long enough for the
 	// checkout to change. Confirm as the last step that this is still the folder
 	// that was inspected, at the same commit and branch: a folder swapped into
@@ -187,11 +211,7 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		}
 	}
 	args = append(args, "--", current.Path)
-	var progress func(Progress)
-	if !missing {
-		progress = options.Progress
-	}
-	defer watchRemoval(current.Path, progress)()
+	defer watchRemoval(current.Path, files, options.Progress)()
 	_, err = gitCommon(ctx, common, args...)
 	return err
 }
