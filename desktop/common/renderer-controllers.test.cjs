@@ -353,45 +353,54 @@ test("selection reconciles provisional IDs by path and clears vanished anchors",
   });
 });
 
-test("going to a row never unticks; boxes and modifiers tick, in visible tree order", async () => {
+test("going to a row never unticks another; a tick flips one row and a range adds, in visible tree order", async () => {
   const { selectRow } = await import("../renderer/selection.mjs");
   const rows = ["a", "c", "b"].map((id) => ({ id }));
-  // A plain click or arrow key moves the cursor and ticks nothing.
+  // An arrow key or a right-click moves the cursor and ticks nothing.
   let value = selectRow({ ids: new Set(), anchor: "", cursor: "" }, rows, "a");
   assert.deepEqual([...value.ids], []);
   assert.equal(value.cursor, "a");
   assert.equal(value.anchor, "a");
-  // Shift ticks from there to here, in the order the rows are shown.
-  value = selectRow(value, rows, "b", { shiftKey: true });
+  // A range ticks from there to here, in the order the rows are shown.
+  value = selectRow(value, rows, "b", { range: true });
   assert.deepEqual([...value.ids], ["a", "c", "b"]);
   assert.equal(value.anchor, "a");
-  // Ctrl/Cmd, like a row's own box, flips one row and leaves the rest.
-  value = selectRow(value, rows, "c", { metaKey: true });
+  // A tick, which is a click on the row or its box, flips that one row and
+  // leaves the rest.
+  value = selectRow(value, rows, "c", { tick: true });
   assert.deepEqual([...value.ids], ["a", "b"]);
   assert.equal(value.anchor, "c");
   // Going somewhere else afterwards keeps every tick.
   value = selectRow(value, rows, "a");
   assert.deepEqual([...value.ids], ["a", "b"]);
   assert.equal(value.cursor, "a");
-  value = selectRow(value, rows, "c", { ctrlKey: true });
+  value = selectRow(value, rows, "c", { tick: true });
   assert.deepEqual([...value.ids], ["a", "b", "c"]);
-  // A range adds to what is ticked, in either direction.
+  // A range adds to what is ticked, in either direction, and a Shift-click,
+  // which is both, is the range.
   const backward = selectRow(
     { ids: new Set(["b"]), anchor: "b", cursor: "b" },
     rows,
     "a",
-    { shiftKey: true },
+    { tick: true, range: true },
   );
   assert.deepEqual([...backward.ids].sort(), ["a", "b", "c"]);
   assert.equal(backward.anchor, "b");
-  // With nowhere ticked from yet, Shift starts at the cursor.
+  // With nowhere ticked from yet, a range starts at the cursor.
   const fromCursor = selectRow(
     { ids: new Set(), anchor: "", cursor: "a" },
     rows,
     "c",
-    { shiftKey: true },
+    { range: true },
   );
   assert.deepEqual([...fromCursor.ids], ["a", "c"]);
+  // With nowhere to start from at all, a Shift-click is a tick.
+  const first = selectRow({ ids: new Set(), anchor: "", cursor: "" }, rows, "c", {
+    tick: true,
+    range: true,
+  });
+  assert.deepEqual([...first.ids], ["c"]);
+  assert.equal(first.anchor, "c");
 });
 
 test("selection preserves exact registration IDs and never expands duplicate paths", async () => {
@@ -1684,6 +1693,7 @@ test("selection and the keyboard cursor never outlive a row's place on screen", 
       preventDefault() {},
     });
   click("alpha");
+  assert.equal(trees.selectedCount, 1, "clicking a row ticks it");
   press("Enter");
   press("Delete");
   assert.deepEqual(menus, ["alpha"]);
@@ -1780,9 +1790,12 @@ test("the keyboard stays somewhere useful when its row, or every row, goes away"
           selector === "[data-id]" ? { dataset: { id } } : null,
       },
     });
+  // A click ticks the row and a second click unticks it; the cursor stays.
+  click("beta");
+  assert.equal(trees.selectedCount, 1);
   click("beta");
   document.activeElement = element("#worktree-grid");
-  assert.equal(trees.selectedCount, 0, "going to a row ticks nothing");
+  assert.equal(trees.selectedCount, 0);
 
   // Beta is deleted. The list still has the keyboard, so the cursor moves to
   // the row now in beta's place. It selects nothing: Enter has a row to act
@@ -2007,7 +2020,7 @@ test("a row names what only an explicit discard gets past, and colors it by what
   );
 });
 
-test("boxes tick rows, folders and everything shown, and only a tick changes what is ticked", async (t) => {
+test("a click on a row or its box ticks it; boxes tick folders and everything shown; nothing else changes what is ticked", async (t) => {
   const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
   globalThis.CSS = { escape: String };
   t.after(() => delete globalThis.CSS);
@@ -2056,19 +2069,27 @@ test("boxes tick rows, folders and everything shown, and only a tick changes wha
             : null,
       },
     });
-  const go = (id) =>
+  // A click anywhere else on a row lands on the row itself.
+  const click = (id, shiftKey = false) =>
     listeners["#table-scroll click"]({
+      shiftKey,
       target: {
         closest: (selector) =>
           selector === "[data-id]" ? { dataset: { id } } : null,
       },
     });
-  const press = (key) =>
+  const key = (name, extra = {}) =>
     listeners["#worktree-grid keydown"]({
-      key,
+      key: name,
+      ...extra,
       target: { closest: () => null },
       preventDefault() {},
     });
+  // An arrow key scrolls its row into view; these rows are not on a screen.
+  document.querySelector = ((find) => (selector) =>
+    selector.startsWith(".worktree-row[data-id=") ? null : find(selector))(
+    document.querySelector,
+  );
   const folder = (name) => JSON.stringify(["", `/local/${name}`]);
 
   tick({ select: "alpha" });
@@ -2076,8 +2097,15 @@ test("boxes tick rows, folders and everything shown, and only a tick changes wha
   // One tick is enough to say what will happen and to offer it.
   assert.equal(element("#selection-bar").hidden, false);
   assert.equal(element("#selection-label").textContent, "1 worktree selected");
-  // Going to another row, by pointer or keyboard, leaves the tick alone.
-  go("gamma");
+  // The whole row is its box. Clicking another row ticks that one too and
+  // leaves the first alone; clicking it again unticks only it.
+  click("gamma");
+  assert.equal(element("#selection-label").textContent, "2 worktrees selected");
+  click("gamma");
+  assert.equal(element("#selection-label").textContent, "1 worktree selected");
+  // Going to a row with the keyboard ticks nothing and unticks nothing.
+  key("End");
+  key("ArrowUp");
   assert.equal(trees.selectedCount, 1);
   tick({ select: "gamma" });
   assert.equal(element("#selection-label").textContent, "2 worktrees selected");
@@ -2090,11 +2118,20 @@ test("boxes tick rows, folders and everything shown, and only a tick changes wha
   tick({ select: "gamma" });
   assert.equal(trees.selectedCount, 0);
   assert.equal(element("#selection-bar").hidden, true);
-  // Shift on a box ticks the range from the last box used.
+  // Shift on a box ticks the range from the last box used, and Shift on a
+  // row the range from the last row clicked.
   tick({ select: "alpha" });
   tick({ select: "gamma" }, true);
   assert.equal(trees.selectedCount, 3);
+  tick({});
+  click("gamma");
+  click("alpha", true);
+  assert.equal(trees.selectedCount, 3);
+  tick({});
+  assert.equal(trees.selectedCount, 0);
   // The box in the heading ticks everything shown, then nothing.
+  tick({});
+  assert.equal(trees.selectedCount, 3);
   tick({});
   assert.equal(trees.selectedCount, 0);
   tick({});
@@ -2102,8 +2139,9 @@ test("boxes tick rows, folders and everything shown, and only a tick changes wha
   // Delete takes what is ticked, whichever row the cursor happens to be on,
   // and from a box as well as from the list: the box in the heading is where
   // the keyboard is left after ticking everything.
-  go("beta");
-  press("Delete");
+  key("Home");
+  key("ArrowDown");
+  key("Delete");
   assert.deepEqual(deleted.at(-1), ["alpha", "beta", "gamma"]);
   const onBox = (key, extra = {}) => {
     let prevented = false;
@@ -2125,24 +2163,13 @@ test("boxes tick rows, folders and everything shown, and only a tick changes wha
   // A held Space is one press. Its repeats neither untick nor tick again.
   tick({});
   assert.equal(trees.selectedCount, 0);
-  const key = (name, extra = {}) =>
-    listeners["#worktree-grid keydown"]({
-      key: name,
-      ...extra,
-      target: { closest: () => null },
-      preventDefault() {},
-    });
-  go("alpha");
+  key("Home");
   key(" ");
   key(" ", { repeat: true });
   key(" ", { repeat: true });
   assert.equal(trees.selectedCount, 1);
   // Ctrl or Cmd with an arrow key moves the cursor and ticks nothing; Shift
   // with one ticks the range it crosses.
-  document.querySelector = ((find) => (selector) =>
-    selector.startsWith(".worktree-row[data-id=") ? null : find(selector))(
-    document.querySelector,
-  );
   key("ArrowDown", { ctrlKey: true });
   key("ArrowDown", { metaKey: true });
   assert.equal(trees.selectedCount, 1);

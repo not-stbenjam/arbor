@@ -669,8 +669,9 @@ td {
 .worktree-row.selected > td:first-child {
   box-shadow: inset 3px 0 0 var(--accent);
 }
-/* The row last clicked or arrowed to: where Enter and Delete act. It is not
-   ticked by being gone to, so it is marked more quietly than a ticked row. */
+/* The row the keyboard is on: where Enter acts, and Delete when nothing is
+   ticked. Arrowing to a row does not tick it, so it is marked more quietly
+   than a ticked row. */
 .worktree-row.is-current:not(.selected) {
   background: var(--hover);
 }

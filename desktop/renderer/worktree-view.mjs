@@ -418,22 +418,19 @@ export function createWorktreeView({
     // The status bar explains a lone selection, so it follows each change.
     onRender();
   }
-  function selectRow(id, event) {
-    selection = chooseRow(selection, visible, id, event);
+  function selectRow(id, how) {
+    selection = chooseRow(selection, visible, id, how);
     selectionChanged();
     $("#worktree-grid").focus({ preventScroll: true });
   }
   function handleTreeClick(event) {
-    // A box, or the cell around it, ticks without disturbing the rest. A
-    // row's box works like Ctrl-click, and Shift still takes a range.
+    // A box, or the cell around it, ticks without disturbing the rest, and
+    // Shift takes a range.
     const cell = event.target.closest(".check-cell, .check-column");
     const box = cell?.querySelector("input");
     if (box) {
       if (box.dataset.select)
-        selectRow(box.dataset.select, {
-          ctrlKey: true,
-          shiftKey: event.shiftKey,
-        });
+        selectRow(box.dataset.select, { tick: true, range: event.shiftKey });
       else if (box.dataset.selectFolder)
         tickRows(folderRows.get(box.dataset.selectFolder) || []);
       else tickRows(visible.map((row) => row.id));
@@ -483,18 +480,26 @@ export function createWorktreeView({
         showWorktreeMenu(button.dataset.worktreeMenu);
       return;
     }
+    // The whole row is its box: a click anywhere on it ticks or unticks it.
     const row = event.target.closest("[data-id]");
-    if (row) selectRow(row.dataset.id, event);
+    if (row) selectRow(row.dataset.id, { tick: true, range: event.shiftKey });
   }
   [".views", "#repo-list", "#table-scroll"].forEach((selector) =>
     $(selector).addEventListener("click", handleTreeClick),
   );
+  // Shift with a click takes a range of rows. Left alone, the browser would
+  // also select the text between the two clicks.
+  $("#worktree-list").addEventListener("mousedown", (event) => {
+    if (event.shiftKey && event.target.closest("[data-id]"))
+      event.preventDefault();
+  });
   $("#worktree-list").addEventListener("contextmenu", (event) => {
     const row = event.target.closest("[data-id]");
     if (!row) return;
     event.preventDefault();
-    // The menu is for the row it was opened on; the cursor goes there too.
-    selectRow(row.dataset.id, {});
+    // The menu is for the row it was opened on; the cursor goes there too,
+    // and nothing is ticked by it.
+    selectRow(row.dataset.id);
     showWorktreeMenu(row.dataset.id);
   });
   // Tabbing into the list lands on a row, as in any list: the first selected
@@ -544,12 +549,12 @@ export function createWorktreeView({
       !["Delete", "Backspace"].includes(event.key)
     )
       return;
-    // Space ticks the row the cursor is on, as clicking its box does. A key
-    // held down is one press, not a tick and an untick and a tick.
+    // Space ticks the row the cursor is on, as clicking it does. A key held
+    // down is one press, not a tick and an untick and a tick.
     if (event.key === " ") {
       event.preventDefault();
       if (!event.repeat && selection.cursor)
-        selectRow(selection.cursor, { ctrlKey: true });
+        selectRow(selection.cursor, { tick: true });
       return;
     }
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
@@ -566,7 +571,7 @@ export function createWorktreeView({
               : Math.max(0, index - 1);
       // Only Shift changes what is ticked on the way; Ctrl or Cmd with an
       // arrow key is the system's or nobody's, not a tick.
-      selectRow(visible[index].id, { shiftKey: event.shiftKey });
+      selectRow(visible[index].id, { range: event.shiftKey });
       document
         .querySelector(
           `.worktree-row[data-id="${CSS.escape(visible[index].id)}"]`,

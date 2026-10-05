@@ -258,9 +258,9 @@ app.once("browser-window-created", (_event, win) => {
           ),
           ["tree-1", root + "/sessions/old/tree-1"],
         );
-        // Rows are ticked with the boxes down the left. One tick is enough
-        // to offer the bulk action; going to another row unticks nothing;
-        // a folder's box ticks what is shown under it; Escape clears.
+        // A row is ticked by clicking it or the box at its left. One tick is
+        // enough to offer the bulk action; ticking another row unticks
+        // nothing; a folder's box ticks what is shown under it; Escape clears.
         const status = () =>
           js("document.querySelector('#status-message').textContent");
         const summary = await status();
@@ -285,10 +285,44 @@ app.once("browser-window-created", (_event, win) => {
           all: [false, true],
         });
         assert.equal(await status(), summary, "the totals stay where they are");
-        await js(
-          `document.querySelector('tr[data-id]:not([data-id="${tree1ID}"])').click()`,
+        // The whole row is its box. Real clicks on three other rows' names:
+        // the first ticks its row and leaves tree-1 ticked, Shift on the third
+        // ticks the rows between without selecting their text, and a click on
+        // a ticked row unticks that row only.
+        const names = await js(
+          `[...document.querySelectorAll('tr[data-id]:not([data-id="${tree1ID}"]) .path-leaf')].slice(0, 3).map((leaf) => { const r = leaf.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })`,
         );
-        assert.equal((await ticked()).boxes, 1, "going to a row unticks nothing");
+        const point = (at, modifiers = []) => {
+          for (const type of ["mouseDown", "mouseUp"])
+            win.webContents.sendInputEvent({
+              type,
+              ...at,
+              button: "left",
+              clickCount: 1,
+              modifiers,
+            });
+        };
+        const boxes = (count, message) =>
+          until(async () => (await ticked()).boxes === count, message);
+        point(names[0]);
+        await boxes(2, "a click on a row ticks it");
+        point(names[2], ["shift"]);
+        await boxes(4, "Shift with a click ticks the range");
+        assert.equal(
+          await js("getSelection().toString()"),
+          "",
+          "a range of rows is not a selection of text",
+        );
+        point(names[1]);
+        await boxes(3, "a click on a ticked row unticks it");
+        point(names[0]);
+        point(names[2]);
+        await boxes(1, "each click unticks its own row");
+        // Going to a row with the keyboard ticks nothing and unticks nothing.
+        await js(
+          "document.querySelector('#worktree-grid').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))",
+        );
+        assert.equal((await ticked()).boxes, 1);
         await js(
           `document.querySelector('tr[data-directory-path="${root}/sessions/old"] [data-select-folder]').click()`,
         );

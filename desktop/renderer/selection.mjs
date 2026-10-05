@@ -36,17 +36,23 @@ export function reconcileSelection(
   };
 }
 
-// Going to a row never unticks anything. A plain click or arrow key only
-// moves the cursor there. Ctrl/Cmd, like a row's own box, ticks or unticks
-// that row, and Shift ticks every row from the last such place to this one.
-export function selectRow(selection, visible, id, modifiers = {}) {
+// Going to a row never unticks another. An arrow key or a right-click only
+// moves the cursor there. Ticking, which is a click on the row or its box, or
+// Space, ticks or unticks that one row. A range ticks every row from the last
+// such place to this one.
+export function selectRow(
+  selection,
+  visible,
+  id,
+  { tick = false, range = false } = {},
+) {
   const next = {
     ids: new Set(selection.ids),
     anchor: selection.anchor,
     cursor: id,
   };
   const from = next.anchor || selection.cursor;
-  if (modifiers.shiftKey && from) {
+  if (range && from) {
     const a = visible.findIndex((row) => row.id === from),
       b = visible.findIndex((row) => row.id === id);
     if (a >= 0 && b >= 0)
@@ -54,7 +60,7 @@ export function selectRow(selection, visible, id, modifiers = {}) {
         .slice(Math.min(a, b), Math.max(a, b) + 1)
         .forEach((row) => next.ids.add(row.id));
     next.anchor = from;
-  } else if (modifiers.metaKey || modifiers.ctrlKey) {
+  } else if (tick) {
     next.ids.has(id) ? next.ids.delete(id) : next.ids.add(id);
     next.anchor = id;
   } else {
