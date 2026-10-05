@@ -563,3 +563,52 @@ func TestRemoveCatchesWhatChangesDuringTheLastLook(t *testing.T) {
 		})
 	}
 }
+
+// A rebase stopped on a conflict keeps what it was doing, and any changes it
+// set aside to begin, beside the worktree's other metadata. Deleting the
+// folder by hand leaves all of that behind, and removing the registration
+// then removes it. That is an unfinished operation, folder or no folder.
+func TestUnfinishedOperationIsALossEvenWithoutTheFolder(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
+	testGit(t, wt, "commit", "-am", "Topic work")
+	testWrite(t, filepath.Join(repo, "tracked.txt"), "main\n")
+	testGit(t, repo, "commit", "-am", "Main work")
+	// Notes that are not committed; the rebase sets them aside to begin.
+	testWrite(t, filepath.Join(wt, ".gitignore"), "ignored/\nnotes kept nowhere else\n")
+	cmd := exec.Command("git", "-c", "core.hooksPath=/dev/null", "-C", wt, "rebase", "--autostash", "main")
+	cmd.Env = append(commandEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("fixture: the rebase should have stopped on a conflict:\n%s", out)
+	}
+	state := testGit(t, wt, "rev-parse", "--path-format=absolute", "--git-path", "rebase-merge")
+	if _, err := os.Stat(filepath.Join(state, "autostash")); err != nil {
+		t.Fatalf("fixture: the rebase set nothing aside: %v", err)
+	}
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+	w := testTree(t, testScan(t, root), wt)
+	if !w.Missing || w.CanRemove || !w.CanDiscard || !slices.Equal(w.Losses, []string{"operation"}) {
+		t.Fatalf("a missing worktree with a rebase under way: %+v", w)
+	}
+	for _, options := range []RemovalOptions{
+		{ExpectedHead: w.Head, DiscardLocal: true},
+		{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: []string{"submodules", "nested"}},
+	} {
+		if _, err := RemoveWorktree(context.Background(), w, options); err == nil || !strings.Contains(err.Error(), "unfinished Git operation") {
+			t.Fatalf("an unfinished rebase went with the registration unnamed (%+v): %v", options, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(state, "autostash")); err != nil {
+		t.Fatal("what the rebase set aside was deleted")
+	}
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: []string{"operation"}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(testGit(t, repo, "worktree", "list", "--porcelain"), wt) {
+		t.Fatal("the registration was not removed")
+	}
+}

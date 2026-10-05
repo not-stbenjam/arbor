@@ -176,12 +176,13 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		if nested {
 			late = append(late, "nested")
 		}
-		if unfinished(details.markers) {
-			late = append(late, "operation")
-		}
 	}
-	// What Git keeps for the worktree's submodules is outside the folder and
-	// goes with it, whether or not the folder is still there.
+	// What Git keeps for an unfinished operation and for the worktree's
+	// submodules is outside the folder, and goes with the worktree whether
+	// or not the folder is still there.
+	if unfinished(details.markers) {
+		late = append(late, "operation")
+	}
 	if holdsSubmodules(details.modules) {
 		late = append(late, "submodules")
 	}

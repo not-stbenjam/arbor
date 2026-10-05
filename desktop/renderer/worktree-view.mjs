@@ -78,7 +78,7 @@ export function createWorktreeView({
     // ...and how much of it is not a clean delete, which the confirmation
     // then spells out.
     const unclean = rows.filter(
-      (row) => deletable(row) && !row.missing && lossesOf(row).length,
+      (row) => deletable(row) && lossesOf(row).length,
     ).length;
     $("#selection-label").textContent =
       `${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"} selected${unclean ? ` · ${unclean} not clean` : ""}${kept ? ` · ${kept} cannot be deleted` : ""}`;

@@ -2177,6 +2177,8 @@ test("a row and a selection say when deleting is not a clean delete, before the 
       blockers: ["Submodules: has submodule checkouts, which keep commits of their own"],
     }),
     row("edited", { canRemove: false, dirty: true, losses: ["changes"] }),
+    // Its folder is gone, but what Git kept for its submodules is not.
+    row("lost", { canRemove: false, missing: true, losses: ["submodules"] }),
   ];
   const markup = renderTreeRows(
     rows.map((worktree) => ({ kind: "worktree", depth: 0, label: worktree.id, worktree })),
@@ -2277,7 +2279,7 @@ test("a row and a selection say when deleting is not a clean delete, before the 
   tick({});
   assert.equal(
     element("#selection-label").textContent,
-    "3 worktrees selected · 2 not clean",
+    "4 worktrees selected · 3 not clean",
   );
   fixture.workspace.dispose();
 });

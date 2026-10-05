@@ -62,11 +62,18 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 		if verified {
 			// The folder is gone or empty, but what Git kept for it is not.
 			// A submodule's repository there can hold commits that were
-			// never pushed, and removing the registration removes it.
+			// never pushed, and an unfinished rebase its saved changes.
+			// Removing the registration removes both.
 			if admin := adminDirectory(w.CommonDir, w.Path); admin != "" {
 				details.modules = filepath.Join(admin, "modules")
 				if holdsSubmodules(details.modules) {
 					block(reasonSubmodules)
+				}
+				for _, marker := range operationMarkers {
+					details.markers = append(details.markers, filepath.Join(admin, marker))
+				}
+				if unfinished(details.markers) {
+					block(reasonOperation)
 				}
 			}
 		}
