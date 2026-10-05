@@ -149,13 +149,16 @@ func TestLookingForASquashStopsAtItsLimit(t *testing.T) {
 	testSquash(t, repo, "topic")
 	testGit(t, repo, "commit", "--allow-empty", "-m", "One more")
 	w := testTree(t, testScan(t, root), topic)
-	if reason := inspectEquivalent(context.Background(), &w); !strings.Contains(reason, "squashed") {
+	if reason := inspectEquivalent(context.Background(), &w, func() bool { return false }); !strings.Contains(reason, "squashed") {
 		t.Fatalf("reason = %q", reason)
+	}
+	if reason := inspectEquivalent(context.Background(), &w, func() bool { return true }); reason != "" {
+		t.Fatalf("compared changes in a partial clone: %q", reason)
 	}
 	previous := equivalenceLimit
 	equivalenceLimit = 1
 	defer func() { equivalenceLimit = previous }()
-	if reason := inspectEquivalent(context.Background(), &w); reason != "" {
+	if reason := inspectEquivalent(context.Background(), &w, func() bool { return false }); reason != "" {
 		t.Fatalf("looked through more commits than the limit: %q", reason)
 	}
 }

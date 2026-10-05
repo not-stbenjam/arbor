@@ -21,6 +21,9 @@ type repositoryDefault struct {
 	// problem says why nothing decides what is merged here, when a remote
 	// should have. It is written once, with ref.
 	problem string
+	// partial says whether this is a partial clone, asked once.
+	partialOnce sync.Once
+	partial     bool
 }
 
 func inspectPublication(ctx context.Context, w *Worktree) {
@@ -81,7 +84,13 @@ func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefa
 		w.Merged = err == nil
 		if w.Merged {
 			w.MergeReason = "All commits are in " + w.DefaultRef
-		} else if reason := inspectEquivalent(ctx, w); reason != "" {
+		} else if reason := inspectEquivalent(ctx, w, func() bool {
+			if defaultCache == nil {
+				return partialClone(ctx, w.Path)
+			}
+			defaultCache.partialOnce.Do(func() { defaultCache.partial = partialClone(ctx, w.Path) })
+			return defaultCache.partial
+		}); reason != "" {
 			w.Merged, w.MergeReason = true, reason
 		}
 		defaultBranch := strings.TrimPrefix(w.DefaultRef, "refs/heads/")

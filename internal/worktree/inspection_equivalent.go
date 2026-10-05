@@ -28,51 +28,73 @@ var equivalenceLimit = 20000
 //
 // It returns why the branch counts as merged, or nothing. Nothing is written
 // to the repository.
-func inspectEquivalent(ctx context.Context, w *Worktree) string {
+func inspectEquivalent(ctx context.Context, w *Worktree, partial func() bool) string {
 	if w.Detached || w.Head == "" || w.DefaultRef == "" {
 		return ""
 	}
-	// Comparing changes reads file contents, which a partial clone would
-	// have to fetch.
-	if gitText(ctx, w.Path, "config", "--get", "extensions.partialClone") != "" {
+	// How far each side has gone since they parted: the commits only here,
+	// and those only in the default branch.
+	counts := strings.Fields(gitText(ctx, w.Path, "rev-list", "--count", "--left-right", w.Head+"..."+w.DefaultRef))
+	if len(counts) != 2 {
 		return ""
 	}
+	own, _ := strconv.Atoi(counts[0])
+	since, _ := strconv.Atoi(counts[1])
+	if own == 0 || since == 0 || since > equivalenceLimit {
+		return ""
+	}
+	// Histories with nothing in common were never one branch leaving another,
+	// whatever their files have in common.
 	base := gitText(ctx, w.Path, "merge-base", w.Head, w.DefaultRef)
 	if base == "" {
 		return ""
 	}
-	since, err := strconv.Atoi(gitText(ctx, w.Path, "rev-list", "--count", base+".."+w.DefaultRef))
-	if err != nil || since == 0 || since > equivalenceLimit {
+	// Comparing changes reads file contents, which a partial clone would
+	// have to fetch.
+	if partial() {
 		return ""
 	}
 	// Rebased or cherry-picked: every commit here has its equal there.
-	if marks, err := gitCompare(ctx, w.Path, nil, "cherry", w.DefaultRef, w.Head); err == nil && allEquivalent(marks) {
+	marks, err := gitCompare(ctx, w.Path, nil, "cherry", w.DefaultRef, w.Head)
+	if err != nil {
+		return ""
+	}
+	if allEquivalent(marks) {
 		return "All commits are in " + w.DefaultRef + ", as copies (rebased or cherry-picked)"
 	}
-	// Squashed: one commit there makes every change made here. Git compares
-	// commits, so the branch's changes are made into one, in a folder of its
-	// own that is thrown away, never in the repository.
-	tree := gitText(ctx, w.Path, "rev-parse", "--verify", w.Head+"^{tree}")
-	if tree == "" || tree == gitText(ctx, w.Path, "rev-parse", "--verify", base+"^{tree}") {
+	// Squashed: one commit there makes every change made here. A branch of
+	// one commit was that comparison already, unless it also merged
+	// something in, which `git cherry` passes over.
+	if own == 1 && strings.Count(marks, "\n") == 1 {
+		return ""
+	}
+	trees := strings.Fields(gitText(ctx, w.Path, "rev-parse", w.Head+"^{tree}", base+"^{tree}"))
+	if len(trees) != 2 || trees[0] == trees[1] {
 		// Commits that undo one another change nothing, and nothing says
 		// they were ever merged.
 		return ""
 	}
-	objects, err := gitPaths(ctx, w.Path, []string{"objects"})
-	if err != nil {
-		return ""
+	objects := filepath.Join(w.CommonDir, "objects")
+	if w.CommonDir == "" {
+		found, err := gitPaths(ctx, w.Path, []string{"objects"})
+		if err != nil {
+			return ""
+		}
+		objects = found[0]
 	}
+	// Git compares commits, so the branch's changes are made into one, in a
+	// folder of its own that is thrown away, never in the repository.
 	scratch, err := os.MkdirTemp("", "arbor-compare-")
 	if err != nil {
 		return ""
 	}
 	env := []string{
 		"GIT_OBJECT_DIRECTORY=" + scratch,
-		"GIT_ALTERNATE_OBJECT_DIRECTORIES=" + quoteAlternate(objects[0]),
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES=" + quoteAlternate(objects),
 		"GIT_AUTHOR_NAME=Arbor", "GIT_AUTHOR_EMAIL=arbor@localhost", "GIT_AUTHOR_DATE=@0 +0000",
 		"GIT_COMMITTER_NAME=Arbor", "GIT_COMMITTER_EMAIL=arbor@localhost", "GIT_COMMITTER_DATE=@0 +0000",
 	}
-	squashed, err := gitCompare(ctx, w.Path, env, "commit-tree", "--no-gpg-sign", "-p", base, "-m", "squashed", tree)
+	squashed, err := gitCompare(ctx, w.Path, env, "commit-tree", "--no-gpg-sign", "-p", base, "-m", "squashed", trees[0])
 	squashed = strings.TrimSpace(squashed)
 	// Git wrote one file, in a folder named for it. Exactly those are removed.
 	defer func() {
@@ -89,6 +111,12 @@ func inspectEquivalent(ctx context.Context, w *Worktree) string {
 		return "All changes are in " + w.DefaultRef + ", as one commit (squashed)"
 	}
 	return ""
+}
+
+// partialClone reports whether a repository fetches file contents only when
+// something asks for them.
+func partialClone(ctx context.Context, path string) bool {
+	return gitText(ctx, path, "config", "--get", "extensions.partialClone") != ""
 }
 
 // allEquivalent reads what `git cherry` printed: a line for each commit,
