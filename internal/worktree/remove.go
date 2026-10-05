@@ -148,9 +148,16 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		}
 	}
 	// Inspection reads every file and can query GitHub, long enough for the
-	// checkout to move. Re-read its identity as the last step: a commit made on
-	// a newly detached HEAD has no branch, and would be lost with the folder.
+	// checkout to change. Confirm as the last step that this is still the folder
+	// that was inspected, at the same commit and branch: a folder swapped into
+	// its place has unrelated files, and a commit made on a newly detached HEAD
+	// has no branch. Either would be lost with the removal.
 	if !missing {
+		info, err := os.Lstat(current.Path)
+		canonical, pathErr := resolveMissingRoot(current.Path)
+		if err != nil || pathErr != nil || canonical != current.Path || !os.SameFile(pathInfo, info) {
+			return errors.New("worktree directory was replaced during validation; scan again")
+		}
 		ref := ""
 		if current.Branch != "" {
 			ref = "refs/heads/" + current.Branch

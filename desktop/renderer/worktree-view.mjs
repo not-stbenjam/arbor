@@ -130,6 +130,15 @@ export function createWorktreeView({
     filtered = projection.filtered;
     directoryRows = projection.directoryRows;
     visible = projection.visible;
+    // Only a row on screen can be selected or hold the keyboard cursor. No
+    // key or button may reach a worktree that a filter or a collapsed folder
+    // has hidden.
+    const onScreen = new Set(visible.map((row) => row.id));
+    selection = {
+      ids: new Set([...selection.ids].filter((id) => onScreen.has(id))),
+      anchor: onScreen.has(selection.anchor) ? selection.anchor : "",
+      cursor: onScreen.has(selection.cursor) ? selection.cursor : "",
+    };
     $("#visible-count").textContent = filtered.length;
     $("#tree-sort").value = sort;
     document.querySelectorAll("[data-sort]").forEach((button) => {

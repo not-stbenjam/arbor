@@ -43,7 +43,8 @@ func run(ctx context.Context, timeout time.Duration, name string, args ...string
 
 func git(ctx context.Context, path string, args ...string) (string, error) {
 	// Disable fsmonitor hooks, pagers, and external diff commands during inspection.
-	prefix := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-C", path}
+	// Output is parsed, so signature verification text must never precede it.
+	prefix := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false", "-C", path}
 	return run(ctx, 30*time.Second, "git", append(prefix, args...)...)
 }
 

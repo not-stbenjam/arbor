@@ -391,12 +391,12 @@ class WorkspaceCoordinator {
   async remove(value, confirm) {
     this.assertInteractive();
     if (this.#removing) throw new Error("Cleanup is already running");
-    if (
-      !Array.isArray(value?.items) ||
-      !value.items.length ||
-      value.items.length > MAX_WORKTREES
-    )
+    if (!Array.isArray(value?.items) || !value.items.length)
       throw new Error("Choose at least one worktree");
+    // Each host's share is bounded like its scan when it is planned below.
+    // The combined view may select that much on every host at once.
+    if (value.items.length > MAX_WORKTREES * this.#entries.size)
+      throw new Error("Too many worktrees selected for one cleanup");
     const groups = new Map();
     for (const item of value.items) {
       const { host, id } = parseGlobalID(item.id);

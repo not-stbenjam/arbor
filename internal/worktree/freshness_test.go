@@ -3,8 +3,11 @@ package worktree
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // A branch that still points at its starting commit is trivially an ancestor
@@ -54,5 +57,59 @@ func TestWorktreeWithoutCreationEvidenceIsNotFresh(t *testing.T) {
 	testGit(t, repo, "-c", "core.logAllRefUpdates=false", "worktree", "add", "-b", "topic", wt)
 	if w := testTree(t, testScan(t, root), wt); w.Fresh || !w.Recommended {
 		t.Fatalf("age is unknown without a HEAD reflog: %+v", w)
+	}
+}
+
+// A repository can ask Git to print signature verification above every log
+// entry. Arbor parses log output, so that text must not reach it: it would
+// hide a new checkout's age and every commit's subject, author, and date.
+func TestSignatureDisplayDoesNotDisturbParsedGitOutput(t *testing.T) {
+	keygen, err := exec.LookPath("ssh-keygen")
+	if err != nil {
+		t.Skip("ssh-keygen is required to sign a fixture commit")
+	}
+	keys := t.TempDir()
+	key := filepath.Join(keys, "signing")
+	if out, err := exec.Command(keygen, "-q", "-t", "ed25519", "-N", "", "-C", "arbor-test", "-f", key).CombinedOutput(); err != nil {
+		t.Skipf("cannot create a signing key: %v %s", err, out)
+	}
+	public, err := os.ReadFile(key + ".pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signers := filepath.Join(keys, "allowed_signers")
+	testWrite(t, signers, "arbor@example.invalid "+string(public))
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	for key, value := range map[string]string{"gpg.format": "ssh", "user.signingkey": key + ".pub", "gpg.ssh.allowedSignersFile": signers, "log.showSignature": "true"} {
+		testGit(t, repo, "config", key, value)
+	}
+	testWrite(t, filepath.Join(repo, "tracked.txt"), "signed\n")
+	testGit(t, repo, "commit", "-S", "-am", "Signed commit")
+	decorated := exec.Command("git", "-C", repo, "log", "-1", "--format=%H")
+	decorated.Env = append(commandEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := decorated.Output(); err != nil || !strings.Contains(string(out), "Good") {
+		t.Skipf("this Git does not print SSH signature verification: %q %v", out, err)
+	}
+	wt := testNewLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	w := testTree(t, testScan(t, root), wt)
+	if !w.Fresh || w.Recommended {
+		t.Fatalf("signature output hid a new checkout's age: %+v", w)
+	}
+	if w.Subject != "Signed commit" || w.Author != "Arbor Test" || w.CommitAt.IsZero() {
+		t.Fatalf("signature output hid commit metadata: subject %q, author %q, at %v", w.Subject, w.Author, w.CommitAt)
+	}
+}
+
+// A creation time far in the future is a clock error. It must not withhold a
+// checkout from recommendations until that date arrives.
+func TestWorktreeStampedFarInTheFutureIsNotFresh(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := filepath.Join(root, "linked")
+	future := time.Now().AddDate(5, 0, 0).Format(time.RFC3339)
+	testGitEnv(t, repo, []string{"GIT_COMMITTER_DATE=" + future}, "worktree", "add", "-b", "topic", wt)
+	if w := testTree(t, testScan(t, root), wt); w.Fresh || !w.Recommended {
+		t.Fatalf("clock error withheld a checkout indefinitely: %+v", w)
 	}
 }

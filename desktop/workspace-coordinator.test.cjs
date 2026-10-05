@@ -758,3 +758,47 @@ test("a selection as large as a scan is removed in one confirmed cleanup", async
   assert.equal(removed.length, 1001);
   assert.equal(result.report.worktrees.length, 0);
 });
+
+test("the combined view may select each host's full share, and no more", async () => {
+  const { globalID } = require("./workspace-snapshot.cjs");
+  const { MAX_WORKTREES } = require("./protocol.cjs");
+  const coordinator = new WorkspaceCoordinator({
+    options: options(""),
+    run: async () => JSON.stringify(report()),
+  });
+  await coordinator.synchronizeHosts(preferences(["vps"]));
+  await coordinator.start();
+  await coordinator.waitUntilIdle();
+  const { revision } = coordinator.getState();
+  const share = (host, count) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: globalID(host, `unknown-${index}`),
+      head: row.head,
+    }));
+  // More than one scan's worth in total, within bounds on each machine: the
+  // request reaches per-host validation instead of failing on its size.
+  await assert.rejects(
+    coordinator.remove({
+      revision,
+      items: [
+        ...share("", MAX_WORKTREES / 2 + 1),
+        ...share("vps", MAX_WORKTREES / 2 + 1),
+      ],
+    }),
+    /Worktree changed or is protected/,
+  );
+  await assert.rejects(
+    coordinator.remove({ revision, items: share("", MAX_WORKTREES + 1) }),
+    /Too many worktrees selected/,
+  );
+  await assert.rejects(
+    coordinator.remove({
+      revision,
+      items: [
+        ...share("", MAX_WORKTREES),
+        ...share("vps", MAX_WORKTREES + 1),
+      ],
+    }),
+    /Too many worktrees selected/,
+  );
+});

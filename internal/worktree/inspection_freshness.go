@@ -37,5 +37,8 @@ func inspectFreshness(ctx context.Context, w *Worktree) {
 		// Entries are newest first; the last one records the checkout's creation.
 		created = time.Unix(seconds, 0)
 	}
-	w.Fresh = !created.IsZero() && time.Since(created) < freshGrace
+	// A creation time further ahead than the grace period is a clock error,
+	// not a checkout that should be withheld until that date arrives.
+	age := time.Since(created)
+	w.Fresh = !created.IsZero() && age < freshGrace && age > -freshGrace
 }

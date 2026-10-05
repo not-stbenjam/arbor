@@ -69,6 +69,36 @@ func TestRemoveRejectsChangesAfterScan(t *testing.T) {
 	}
 }
 
+// testChangeDuringRemoval stands in for a concurrent editor or agent. It runs
+// a shell action exactly once, late in removal's own inspection, and then the
+// Git command that was requested. It returns a file the action creates.
+func testChangeDuringRemoval(t *testing.T, worktree, action string) string {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	marker := filepath.Join(bin, "changed")
+	script := `#!/bin/sh
+case " $* " in *" merge-base "*)
+	if [ ! -e "$ARBOR_TEST_MARKER" ]; then
+		: > "$ARBOR_TEST_MARKER"
+		( ` + action + ` ) || exit 97
+	fi ;;
+esac
+exec "$ARBOR_TEST_GIT" "$@"
+`
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ARBOR_TEST_GIT", real)
+	t.Setenv("ARBOR_TEST_MARKER", marker)
+	t.Setenv("ARBOR_TEST_WORKTREE", worktree)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return marker
+}
+
 // Removal inspects files, refs, and optionally GitHub after reading HEAD. Git
 // removes a clean detached checkout without complaint, so a commit made on a
 // HEAD that detached during that inspection would be lost with the folder.
@@ -80,32 +110,9 @@ func TestRemoveRechecksIdentityAfterInspection(t *testing.T) {
 	if !w.Recommended {
 		t.Fatalf("fixture must begin recommended: %+v", w)
 	}
-	real, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Stand in for a concurrent editor or agent: move the checkout exactly once,
-	// late in removal's own inspection, then run the requested Git command.
-	bin := t.TempDir()
-	marker := filepath.Join(bin, "moved")
-	script := `#!/bin/sh
-case " $* " in *" merge-base "*)
-	if [ ! -e "$ARBOR_TEST_MARKER" ]; then
-		: > "$ARBOR_TEST_MARKER"
-		"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE" checkout --quiet --detach &&
-			"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE" -c user.name=Arbor -c user.email=arbor@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null commit --quiet --allow-empty -m "Commit during validation" || exit 97
-	fi ;;
-esac
-exec "$ARBOR_TEST_GIT" "$@"
-`
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("ARBOR_TEST_GIT", real)
-	t.Setenv("ARBOR_TEST_MARKER", marker)
-	t.Setenv("ARBOR_TEST_WORKTREE", wt)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	_, err = RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true})
+	marker := testChangeDuringRemoval(t, wt, `"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE" checkout --quiet --detach &&
+		"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE" -c user.name=Arbor -c user.email=arbor@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null commit --quiet --allow-empty -m "Commit during validation"`)
+	_, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true})
 	if _, statErr := os.Stat(marker); statErr != nil {
 		t.Fatalf("fixture never moved the checkout: %v (removal: %v)", statErr, err)
 	}
@@ -115,8 +122,39 @@ exec "$ARBOR_TEST_GIT" "$@"
 	if _, err := os.Stat(wt); err != nil {
 		t.Fatalf("moved checkout must remain: %v", err)
 	}
-	if head := testGitEnv(t, wt, []string{"PATH=" + filepath.Dir(real) + string(os.PathListSeparator) + os.Getenv("PATH")}, "rev-parse", "HEAD"); head == w.Head {
+	if head := testGit(t, repo, "-C", wt, "rev-parse", "HEAD"); head == w.Head {
 		t.Fatal("fixture did not create the commit the check must protect")
+	}
+}
+
+// A folder swapped into the checkout's place can keep its Git pointer, so Git
+// still accepts it as this worktree. Consent to discard the inspected folder's
+// files is not consent to delete a different folder's.
+func TestRemoveRejectsDirectoryReplacedDuringInspection(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "scratch.txt"), "disposable\n")
+	w := testTree(t, testScan(t, root), wt)
+	if w.CanRemove || !w.CanDiscard {
+		t.Fatalf("fixture must need explicit disposal: %+v", w)
+	}
+	marker := testChangeDuringRemoval(t, wt, `mv "$ARBOR_TEST_WORKTREE" "$ARBOR_TEST_WORKTREE-original" &&
+		mkdir "$ARBOR_TEST_WORKTREE" &&
+		cp "$ARBOR_TEST_WORKTREE-original/.git" "$ARBOR_TEST_WORKTREE/.git" &&
+		echo unrelated > "$ARBOR_TEST_WORKTREE/unrelated.txt"`)
+	_, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true})
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("fixture never replaced the checkout: %v (removal: %v)", statErr, err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "replaced during validation") {
+		t.Fatalf("removal accepted a replaced directory: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(wt, "unrelated.txt")); err != nil || string(got) != "unrelated\n" {
+		t.Fatalf("replacement folder's files were deleted: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(wt+"-original", "scratch.txt")); err != nil {
+		t.Fatalf("original checkout changed: %v", err)
 	}
 }
 

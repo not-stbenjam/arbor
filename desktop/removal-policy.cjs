@@ -18,13 +18,11 @@ function planRemoval(state, request) {
     throw new Error(
       "The scan changed; review the current worktrees and try again",
     );
-  // Anything one scan can list, one confirmed selection can remove.
-  if (
-    !Array.isArray(request.items) ||
-    !request.items.length ||
-    request.items.length > MAX_WORKTREES
-  )
+  if (!Array.isArray(request.items) || !request.items.length)
     throw new Error("Choose at least one worktree");
+  // Anything one scan can list, one confirmed selection can remove.
+  if (request.items.length > MAX_WORKTREES)
+    throw new Error("Too many worktrees selected for one cleanup");
   const discardLocal = request.discardLocal === true;
   const recommendedOnly = request.recommendedOnly === true;
   if (discardLocal && recommendedOnly)

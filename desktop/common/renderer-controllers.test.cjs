@@ -1459,3 +1459,95 @@ test("Delete merged acts on, counts, and describes exactly what the list shows",
   assert.equal(element("#cleanup-button").disabled, true);
   fixture.workspace.dispose();
 });
+
+test("selection and the keyboard cursor never outlive a row's place on screen", async (t) => {
+  const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
+  // The view quotes identities into selectors with the browser's CSS.escape.
+  globalThis.CSS = { escape: String };
+  t.after(() => delete globalThis.CSS);
+  const row = (id) => ({
+    id,
+    path: `/local/team/${id}`,
+    head: id,
+    branch: id,
+    repo: "repo",
+    canRemove: true,
+  });
+  const deleted = [],
+    menus = [];
+  const fixture = await workspaceFixture({
+    getState: async () =>
+      coordinatorState({
+        report: { worktrees: [row("alpha"), row("beta")], warnings: [] },
+      }),
+  });
+  fixture.workspace.deleteWorktrees = (rows) => deleted.push(rows);
+  const { document, element } = preferenceDocument();
+  document.getElementById = () => null;
+  const listeners = {};
+  for (const selector of ["#table-scroll", "#worktree-grid"])
+    element(selector).addEventListener = (type, listener) => {
+      listeners[`${selector} ${type}`] = listener;
+    };
+  const trees = createWorktreeView({
+    document,
+    workspace: fixture.workspace,
+    tree: require("./worktree-tree.mjs"),
+    showWorktreeMenu: (id) => menus.push(id),
+  });
+  trees.render();
+  const click = (id) =>
+    listeners["#table-scroll click"]({
+      target: {
+        closest: (selector) =>
+          selector === "[data-id]" ? { dataset: { id } } : null,
+      },
+    });
+  const press = (key) =>
+    listeners["#worktree-grid keydown"]({
+      key,
+      target: { closest: () => null },
+      preventDefault() {},
+    });
+  click("alpha");
+  press("Enter");
+  press("Delete");
+  assert.deepEqual(menus, ["alpha"]);
+  assert.deepEqual(
+    deleted.map((rows) => rows.map((entry) => entry.id)),
+    [["alpha"]],
+  );
+  // Filtering alpha away must not leave Enter or Delete aimed at it.
+  element("#search").oninput({ target: { value: "beta" } });
+  assert.deepEqual(
+    trees.filtered.map((entry) => entry.id),
+    ["beta"],
+  );
+  press("Enter");
+  press("Delete");
+  assert.deepEqual(menus, ["alpha"], "no menu for a hidden worktree");
+  assert.deepEqual(deleted.at(-1), [], "nothing hidden is selected");
+  // Nor does clearing the filter quietly restore the old target.
+  element("#search").oninput({ target: { value: "" } });
+  press("Enter");
+  assert.deepEqual(menus, ["alpha"]);
+  // A collapsed folder hides its rows in the same way.
+  click("beta");
+  listeners["#table-scroll click"]({
+    target: {
+      closest: (selector) =>
+        selector === "button"
+          ? {
+              dataset: {
+                toggleDirectory: JSON.stringify(["", "/local/team"]),
+              },
+            }
+          : null,
+    },
+  });
+  press("Enter");
+  press("Delete");
+  assert.deepEqual(menus, ["alpha"]);
+  assert.deepEqual(deleted.at(-1), []);
+  fixture.workspace.dispose();
+});
