@@ -142,11 +142,13 @@ func refreshRemoteDefault(ctx context.Context, path, remote string) string {
 			break
 		}
 	}
-	// What an earlier fetch recorded is replaced by what this one learns.
+	// What an earlier fetch recorded is replaced by what this one learns. A
+	// record that cannot be written or cleared is a reason in itself: the
+	// scans that follow would otherwise not know what this one found.
 	learned := gitText(ctx, path, "config", "--local", "--get", learnedDefault(remote))
-	record := func(value string) {
+	record := func(value string) string {
 		if value == learned {
-			return
+			return ""
 		}
 		args := []string{"-c", "core.hooksPath=/dev/null", "-C", path, "config", "--local"}
 		if value == "" {
@@ -154,26 +156,31 @@ func refreshRemoteDefault(ctx context.Context, path, remote string) string {
 		} else {
 			args = append(args, learnedDefault(remote), value)
 		}
-		// Best effort: this scan withholds its recommendations either way.
-		_, _ = run(ctx, 30*time.Second, "git", args...)
+		if _, err := run(ctx, 30*time.Second, "git", args...); err != nil {
+			return "what this fetch learned about the default branch of " + remote + " could not be recorded" + gitReason(err)
+		}
+		return ""
 	}
 	if branch == "" {
 		// The remote names no default branch, so no selector can be stale.
-		record("")
-		return ""
+		return record("")
 	}
 	selector, target := "refs/remotes/"+remote+"/HEAD", "refs/remotes/"+remote+"/"+branch
 	if gitText(ctx, path, "rev-parse", "--verify", target+"^{commit}") == "" {
 		if !tracksRemote(ctx, path, remote) {
 			// A bare clone tracks none of the remote's branches as such.
-			record("")
-			return ""
+			return record("")
 		}
 		// Kept for the scans and removals that follow without a fetch.
-		record(branch)
-		return untrackedDefault(remote, branch)
+		reason := untrackedDefault(remote, branch)
+		if failure := record(branch); failure != "" {
+			reason += "; " + failure
+		}
+		return reason
 	}
-	record("")
+	if failure := record(""); failure != "" {
+		return failure
+	}
 	if gitText(ctx, path, "symbolic-ref", selector) == target {
 		return ""
 	}

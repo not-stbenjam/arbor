@@ -424,25 +424,69 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	// What the fetch learned outlasts it. A later scan without a fetch, and
 	// the fresh inspection every removal makes, must not go back to the
 	// branch now known to be the wrong one.
-	report, err = Scan(context.Background(), Options{Root: root})
-	if err != nil {
+	later := "Nothing is recommended in " + repo + ": at the last scan with fetching on, the default branch of origin was trunk, which was not fetched here. Fetch it, then scan with fetching on again."
+	withheld := func(step string) Worktree {
+		t.Helper()
+		report, err := Scan(context.Background(), Options{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := testTree(t, report, wt)
+		if w.DefaultRef != "" || w.Merged || w.Recommended || len(report.Warnings) != 1 || report.Warnings[0] != later {
+			t.Fatalf("%s: a scan without a fetch did not keep to what the last fetch learned: %+v %q", step, w, report.Warnings)
+		}
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
+			t.Fatalf("%s: cleanup removed a worktree whose default branch is not decided", step)
+		}
+		if _, err := os.Stat(wt); err != nil {
+			t.Fatalf("%s: the worktree was removed", step)
+		}
+		return w
+	}
+	withheld("after the fetch")
+
+	// The record is a barrier, never an answer. The project moves on to
+	// stable, which lacks the topic, while trunk gains it. Git, used by
+	// hand, fetches both and points the selector at stable. Arbor has not
+	// asked the remote since, so it still decides nothing: trusting the
+	// branch it once recorded would call the topic merged.
+	testGit(t, remote, "branch", "stable", "trunk")
+	testGit(t, remote, "update-ref", "refs/heads/trunk", "refs/heads/main")
+	testGit(t, remote, "symbolic-ref", "HEAD", "refs/heads/stable")
+	testGit(t, repo, "remote", "set-branches", "--add", "origin", "trunk")
+	testGit(t, repo, "remote", "set-branches", "--add", "origin", "stable")
+	testGit(t, repo, "fetch", "origin")
+	testGit(t, repo, "remote", "set-head", "origin", "--auto")
+	if testGit(t, repo, "merge-base", "--is-ancestor", "topic", "refs/remotes/origin/trunk"); testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD") != "refs/remotes/origin/stable" {
+		t.Fatal("fixture: trunk should contain the topic and stable should be the default")
+	}
+	withheld("after Git refreshed the selector by hand")
+
+	// A record that cannot be cleared says so, and still decides nothing.
+	lock := filepath.Join(repo, ".git", "config.lock")
+	testWrite(t, lock, "")
+	report, err = Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil || len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "what this fetch learned about the default branch of origin could not be recorded") {
+		t.Fatalf("fetch with the configuration locked: %v %q", err, report.Warnings)
+	}
+	if w := testTree(t, report, wt); w.DefaultRef != "" || w.Recommended {
+		t.Fatalf("a record that could not be cleared was trusted: %+v", w)
+	}
+	if err := os.Remove(lock); err != nil {
 		t.Fatal(err)
 	}
-	w := testTree(t, report, wt)
-	if w.DefaultRef != "" || w.Recommended || len(report.Warnings) != 1 || report.Warnings[0] != want {
-		t.Fatalf("a scan without a fetch forgot the default branch: %+v %q", w, report.Warnings)
+	withheld("after a fetch that could not clear the record")
+
+	// Asking the remote again is what clears it. Stable never got the topic.
+	report, err = Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil || len(report.Warnings) != 0 {
+		t.Fatalf("fetch: %v, warnings=%v", err, report.Warnings)
 	}
-	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
-		t.Fatal("cleanup removed a worktree whose default branch is not fetched here")
+	if w := testTree(t, report, wt); w.DefaultRef != "refs/remotes/origin/stable" || w.Merged || w.Recommended {
+		t.Fatalf("the default branch the remote names now should decide: %+v", w)
 	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatal("the worktree was removed")
-	}
-	// Once the clone fetches that branch, it decides. It never got the topic.
-	testGit(t, repo, "remote", "set-branches", "--add", "origin", "trunk")
-	testGit(t, repo, "fetch", "origin")
-	if w := testTree(t, testScan(t, root), wt); w.DefaultRef != "refs/remotes/origin/trunk" || w.Merged || w.Recommended {
-		t.Fatalf("the fetched default branch should decide: %+v", w)
+	if config, err := os.ReadFile(filepath.Join(repo, ".git", "config")); err != nil || strings.Contains(string(config), "[arbor ") {
+		t.Fatalf("a record that no longer applies was left behind: %v\n%s", err, config)
 	}
 	// And when the project goes back to main, the next fetch says so.
 	testGit(t, remote, "symbolic-ref", "HEAD", "refs/heads/main")
@@ -452,9 +496,6 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	}
 	if w := testTree(t, report, wt); w.DefaultRef != "refs/remotes/origin/main" || !w.Recommended {
 		t.Fatalf("the restored default branch should decide again: %+v", w)
-	}
-	if config, err := os.ReadFile(filepath.Join(repo, ".git", "config")); err != nil || strings.Contains(string(config), "[arbor ") {
-		t.Fatalf("a record that no longer applies was left behind: %v\n%s", err, config)
 	}
 }
 

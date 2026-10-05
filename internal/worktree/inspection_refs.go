@@ -101,6 +101,11 @@ func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefa
 // Git has no selector for a branch that is not here, and without a record
 // the next scan would go back to the older selector or the usual names, both
 // then known to be out of date.
+//
+// The record only ever withholds. It says what was true when the remote was
+// last asked, so it never names the default branch itself, even once that
+// branch has been fetched: the remote may have moved on again. Asking the
+// remote, in a scan that fetches, is the one thing that clears it.
 func learnedDefault(remote string) string { return "arbor." + remote + ".head" }
 
 // defaultRef finds the branch that decides what is merged. When a remote
@@ -130,10 +135,7 @@ func defaultRef(ctx context.Context, path string, unconfirmed map[string]string)
 	}
 	prefix := "refs/remotes/" + remote + "/"
 	if branch := gitText(ctx, path, "config", "--local", "--get", learnedDefault(remote)); branch != "" {
-		if ref := prefix + branch; exists(ref) {
-			return ref, ""
-		}
-		return "", untrackedDefault(remote, branch)
+		return "", "at the last scan with fetching on, the default branch of " + remote + " was " + branch + ", which was not fetched here. Fetch it, then scan with fetching on again"
 	}
 	if ref := gitText(ctx, path, "symbolic-ref", prefix+"HEAD"); ref != "" {
 		if exists(ref) {
