@@ -2,7 +2,7 @@
 <h1 align="center">Arbor (Alpha)</h1>
 <p align="center">Your Git worktrees, in one place.</p>
 <p align="center">macOS · Linux · Desktop app + portable CLI · Local and SSH hosts</p>
-<p align="center"><a href="https://github.com/not-stbenjam/arbor/actions/workflows/ci.yml"><img src="https://github.com/not-stbenjam/arbor/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="https://github.com/not-stbenjam/arbor/releases">Download</a> · <a href="#build-from-source">Build from source</a></p>
+<p align="center"><a href="https://github.com/stbenjam/arbor/actions/workflows/ci.yml"><img src="https://github.com/stbenjam/arbor/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="https://github.com/stbenjam/arbor/releases">Download</a> · <a href="#build-from-source">Build from source</a></p>
 
 > **Alpha.** Arbor deletes folders, and it is still changing quickly: behavior, options and the look of the app can differ from one release to the next. Read what a confirmation says before agreeing to it, and keep your work committed or pushed.
 
@@ -12,7 +12,7 @@ The desktop app uses Electron with a native window, system typography, compact c
 
 ## Download
 
-Choose an asset from [Releases](https://github.com/not-stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.1.0`.
+Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.1.0`.
 
 | Platform             | Desktop app                          | Standalone CLI                      |
 | -------------------- | ------------------------------------ | ----------------------------------- |
@@ -215,7 +215,7 @@ Deleted checkouts are not moved to Trash. Committed work can be checked out agai
 Install **Go 1.24+**, **Node.js 22.12+**, Git, and Make. The same commands work on macOS and Linux:
 
 ```sh
-git clone https://github.com/not-stbenjam/arbor.git
+git clone https://github.com/stbenjam/arbor.git
 cd arbor
 npm ci
 npm start

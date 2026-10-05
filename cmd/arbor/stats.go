@@ -6,8 +6,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/not-stbenjam/arbor/internal/engine"
 	"github.com/spf13/cobra"
+	"github.com/stbenjam/arbor/internal/engine"
 )
 
 func newStatsCommand() *cobra.Command {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 var hostPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@:\[\]-]*$`)

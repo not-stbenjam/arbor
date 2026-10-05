@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {

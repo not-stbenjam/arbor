@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 func commandOutput(t *testing.T, args ...string) (string, string, error) {

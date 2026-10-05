@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 func TestSelectionBindsEveryConfirmedIdentityAndRecommendation(t *testing.T) {

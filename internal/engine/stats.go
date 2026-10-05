@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/not-stbenjam/arbor/internal/stats"
+	"github.com/stbenjam/arbor/internal/stats"
 )
 
 // ReadStats reads the selected machine's history, including CLI and GUI cleanup.

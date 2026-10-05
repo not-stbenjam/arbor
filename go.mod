@@ -1,4 +1,4 @@
-module github.com/not-stbenjam/arbor
+module github.com/stbenjam/arbor
 
 go 1.24.0
 

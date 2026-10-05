@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 // progressWriter separates live remote progress from SSH diagnostics. os/exec

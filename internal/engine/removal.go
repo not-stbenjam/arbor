@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 // RemovalRequest binds an inspected target and explicit cleanup policy to its host.

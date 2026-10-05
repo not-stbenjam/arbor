@@ -51,5 +51,5 @@ func launchDesktop(options commonFlags) error {
 		}
 		return cmd.Process.Release()
 	}
-	return fmt.Errorf("native Arbor app not found; install the desktop download from https://github.com/not-stbenjam/arbor/releases (CLI commands such as 'arbor list' work independently)")
+	return fmt.Errorf("native Arbor app not found; install the desktop download from https://github.com/stbenjam/arbor/releases (CLI commands such as 'arbor list' work independently)")
 }

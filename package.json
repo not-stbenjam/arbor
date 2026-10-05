@@ -6,7 +6,7 @@
   "license": "MIT",
   "private": true,
   "main": "desktop/main.cjs",
-  "desktopName": "io.github.not-stbenjam.arbor.desktop",
+  "desktopName": "io.github.stbenjam.arbor.desktop",
   "engines": {
     "node": ">=22.12.0"
   },

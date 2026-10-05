@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/not-stbenjam/arbor/internal/stats"
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/stats"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 func statsRemoteFixture(t *testing.T, respond func(string) ([]byte, error)) {

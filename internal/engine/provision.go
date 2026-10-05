@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 	"io"
 	"net/http"
 	"regexp"
@@ -29,7 +29,7 @@ type provisioner struct {
 
 var managed = &provisioner{
 	client:      defaultReleaseClient(),
-	releaseBase: "https://github.com/not-stbenjam/arbor/releases/download",
+	releaseBase: "https://github.com/stbenjam/arbor/releases/download",
 	run:         runSSH,
 	stream:      runSSHProgress,
 }
@@ -74,7 +74,7 @@ func (p *provisioner) prepare(ctx context.Context, host, version string) (string
 		return "", err
 	}
 	if !releaseVersion.MatchString(version) {
-		return "", fmt.Errorf("automatic SSH setup needs a released Arbor build (current version %q); download a release from https://github.com/not-stbenjam/arbor/releases", version)
+		return "", fmt.Errorf("automatic SSH setup needs a released Arbor build (current version %q); download a release from https://github.com/stbenjam/arbor/releases", version)
 	}
 	// Probe on every operation: a host alias may now point to a different machine.
 	info, err := p.command(ctx, 30*time.Second, host, "uname -s && uname -m", nil)

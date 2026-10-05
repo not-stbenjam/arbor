@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/not-stbenjam/arbor/internal/engine"
+	"github.com/stbenjam/arbor/internal/engine"
 )
 
 var version = "dev"

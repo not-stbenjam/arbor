@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/not-stbenjam/arbor/internal/engine"
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/engine"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 func TestBatchCancellationRetainsCompletedOutcome(t *testing.T) {

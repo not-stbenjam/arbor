@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/not-stbenjam/arbor/internal/config"
+	"github.com/stbenjam/arbor/internal/config"
 )
 
 // DefaultExcludes returns a fresh list so callers can edit their preferences.

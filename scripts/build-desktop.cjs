@@ -77,7 +77,7 @@ if (!process.argv.includes("--prepare")) {
     targets: platform.createTarget(targets, architecture),
     publish: "never",
     config: {
-      appId: "io.github.not-stbenjam.arbor",
+      appId: "io.github.stbenjam.arbor",
       productName: "Arbor",
       executableName: "arbor-desktop",
       electronDist: path.join(root, "node_modules/electron/dist"),

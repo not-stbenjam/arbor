@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 // Human status never shares stdout with command results or the JSON protocol.

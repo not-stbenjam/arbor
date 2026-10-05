@@ -93,12 +93,12 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
         {
           label: "Arbor on GitHub",
           click: () =>
-            shell.openExternal("https://github.com/not-stbenjam/arbor"),
+            shell.openExternal("https://github.com/stbenjam/arbor"),
         },
         {
           label: "Report an Issue",
           click: () =>
-            shell.openExternal("https://github.com/not-stbenjam/arbor/issues"),
+            shell.openExternal("https://github.com/stbenjam/arbor/issues"),
         },
       ],
     },

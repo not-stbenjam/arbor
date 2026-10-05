@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/not-stbenjam/arbor/internal/engine"
-	"github.com/not-stbenjam/arbor/internal/worktree"
 	"github.com/spf13/cobra"
+	"github.com/stbenjam/arbor/internal/engine"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 type commonFlags struct {

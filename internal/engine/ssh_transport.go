@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 type sshRunner func(context.Context, string, string, io.Reader) ([]byte, error)

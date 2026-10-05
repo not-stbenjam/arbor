@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/not-stbenjam/arbor/internal/engine"
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/engine"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 var cleanupSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)

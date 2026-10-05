@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/not-stbenjam/arbor/internal/worktree"
+	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 type targetSelection struct {

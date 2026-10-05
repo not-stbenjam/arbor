@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/not-stbenjam/arbor/internal/stats"
+	"github.com/stbenjam/arbor/internal/stats"
 )
 
 // Remote CLI processes record their own history; the SSH client never duplicates it.
