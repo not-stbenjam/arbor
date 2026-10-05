@@ -477,6 +477,22 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	}
 	withheld("after a fetch that could not clear the record")
 
+	// Nor is the record lifted before the selector it gives way to is in
+	// place. Here Git's selector is put back to main, as it was when the
+	// clone was made, and cannot be rewritten: lifting the record first
+	// would leave main deciding again.
+	testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	lock = filepath.Join(repo, ".git", "refs", "remotes", "origin", "HEAD.lock")
+	testWrite(t, lock, "")
+	report, err = Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil || len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "the default branch of origin could not be recorded") {
+		t.Fatalf("fetch with the selector locked: %v %q", err, report.Warnings)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	withheld("after a fetch that could not publish the selector")
+
 	// Asking the remote again is what clears it. Stable never got the topic.
 	report, err = Scan(context.Background(), Options{Root: root, Fetch: true})
 	if err != nil || len(report.Warnings) != 0 {

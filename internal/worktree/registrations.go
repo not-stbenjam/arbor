@@ -178,17 +178,15 @@ func refreshRemoteDefault(ctx context.Context, path, remote string) string {
 		}
 		return reason
 	}
-	if failure := record(""); failure != "" {
-		return failure
+	// The selector is published before the barrier is lifted. If it cannot
+	// be, the barrier stays: without it the old selector would decide again.
+	if gitText(ctx, path, "symbolic-ref", selector) != target {
+		// Full ref names, so a branch name can never be read as an option.
+		if _, err := run(ctx, 30*time.Second, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "symbolic-ref", selector, target); err != nil {
+			return "the default branch of " + remote + " could not be recorded" + gitReason(err)
+		}
 	}
-	if gitText(ctx, path, "symbolic-ref", selector) == target {
-		return ""
-	}
-	// Full ref names, so a branch name can never be read as an option.
-	if _, err := run(ctx, 30*time.Second, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "symbolic-ref", selector, target); err != nil {
-		return "the default branch of " + remote + " could not be recorded" + gitReason(err)
-	}
-	return ""
+	return record("")
 }
 
 // selectRegistrations applies scan scope and assigns stable repository identity.
