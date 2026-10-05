@@ -5,6 +5,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld(
   "arbor",
   Object.freeze({
+    // Known before the first state arrives, so the window never repaints its
+    // chrome for the platform after it is shown.
+    platform: process.platform,
     getDefaults: () => ipcRenderer.invoke("arbor:get-defaults"),
     getState: () => ipcRenderer.invoke("arbor:get-state"),
     getStats: (host) => ipcRenderer.invoke("arbor:get-stats", host),

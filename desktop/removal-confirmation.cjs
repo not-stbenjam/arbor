@@ -28,11 +28,22 @@ function removalConfirmationOptions(trees, discardLocal) {
   const discardsFiles = existing.some(
     (row) => !row.empty && usesDiscardLocal(row, discardLocal),
   );
-  const notes = [
+  // The gravest consequence leads; what is kept follows it.
+  const notes = [];
+  if (discardsFiles)
+    notes.push(
+      "Any local files, including uncommitted, untracked, and ignored files, will be permanently discarded.",
+    );
+  notes.push(
     registrationsOnly
-      ? "Only Git worktree registrations will be removed; their folders are already missing. Git branches and commits are retained."
-      : "The selected worktree folders will be deleted. Git branches and commits are retained.",
-  ];
+      ? "Only Git worktree registrations will be removed; their folders are already missing. Git branches and commits are kept."
+      : "Worktree folders are deleted permanently, not moved to Trash. Git branches and commits are kept.",
+  );
+  // A folder's Delete can read as deleting the folder. It never does.
+  if (existing.length > 1)
+    notes.push(
+      "Only these worktrees are deleted; a folder that holds them, and anything else in it, is kept.",
+    );
   const hosts = new Map();
   for (const row of trees) {
     const host = row.host || "";
@@ -46,6 +57,9 @@ function removalConfirmationOptions(trees, discardLocal) {
   }
   const hostName = ({ host, label }) =>
     host && label !== host ? `${label} [${host}]` : label;
+  // One remote host is easy to overlook when every path looks local.
+  if (hosts.size === 1 && [...hosts.keys()][0] !== "")
+    notes.unshift(`On ${shorten(hostName([...hosts.values()][0]), 70)}.`);
   if (hosts.size > 1) {
     const summary = [...hosts.values()]
       .slice(0, 4)
@@ -58,28 +72,53 @@ function removalConfirmationOptions(trees, discardLocal) {
     notes.push(
       `${missing} missing worktree ${missing === 1 ? "registration will" : "registrations will"} also be removed; no folders exist at those paths.`,
     );
-  if (discardsFiles)
-    notes.push(
-      "Any local files, including uncommitted, untracked, and ignored files, will be permanently discarded.",
-    );
+  // What the last scan saw in a row that this operation will discard. It
+  // decides which paths the preview shows first, so a selection's risky
+  // members are never the ones hidden behind "and more".
+  const risk = (row) =>
+    row.missing || row.empty || !usesDiscardLocal(row, discardLocal)
+      ? ""
+      : row.dirty
+        ? "uncommitted changes"
+        : row.ignored
+          ? "ignored files"
+          : row.locked
+            ? "locked"
+            : "";
+  if (discardsFiles) {
+    const count = (label) => trees.filter((row) => risk(row) === label).length;
+    const seen = [
+      [count("uncommitted changes"), "with uncommitted changes"],
+      [count("ignored files"), "with ignored files only"],
+    ]
+      .filter(([total]) => total)
+      .map(([total, label]) => `${total} ${label}`);
+    if (trees.length > 1 && seen.length)
+      notes.push(`At the last scan: ${seen.join(", ")}.`);
+  }
   if (trees.some((row) => row.locked && usesDiscardLocal(row, discardLocal)))
     notes.push(
       "Git worktree locks on the selected entries will be overridden.",
     );
   if (existing.some((row) => row.detached))
     notes.push(
-      "Detached commits will be retained; recovery branches are created only if needed.",
+      "Detached commits will be kept; recovery branches are created only if needed.",
     );
   const preview = trees
+    .map((row, index) => ({ row, index, risk: risk(row) }))
+    .sort((a, b) => !!b.risk - !!a.risk || a.index - b.index)
     .slice(0, 5)
-    .map((row) =>
-      shorten(
-        Object.hasOwn(row, "host")
-          ? `${hostName(hosts.get(row.host || ""))}: ${row.path}`
-          : row.path,
-        120,
-      ),
-    );
+    .map(({ row, risk }) => {
+      const suffix = risk ? ` — ${risk}` : "";
+      return (
+        shorten(
+          Object.hasOwn(row, "host")
+            ? `${hostName(hosts.get(row.host || ""))}: ${row.path}`
+            : row.path,
+          120 - suffix.length,
+        ) + suffix
+      );
+    });
   if (trees.length > preview.length)
     preview.push(
       `and ${trees.length - preview.length} more selected ${trees.length - preview.length === 1 ? "worktree" : "worktrees"}`,
@@ -88,24 +127,27 @@ function removalConfirmationOptions(trees, discardLocal) {
     path.basename(trees[0]?.path || "") || trees[0]?.branch || "worktree",
     80,
   );
+  const plural = trees.length > 1 ? "s" : "";
   return {
     title: registrationsOnly
-      ? `Remove missing worktree registration${trees.length === 1 ? "" : "s"}?`
+      ? `Remove missing worktree registration${plural}?`
       : discardsFiles
-        ? "Discard local data and remove?"
-        : "Remove worktree?",
+        ? "Discard local files and delete?"
+        : `Delete worktree${plural}?`,
     message:
       trees.length === 1
-        ? `Remove ${registrationsOnly ? "registration for " : ""}“${name}”?`
-        : `Remove ${trees.length} ${registrationsOnly ? "missing worktree registrations" : "worktrees"}${hosts.size > 1 ? ` on ${hosts.size} hosts` : ""}?`,
+        ? registrationsOnly
+          ? `Remove registration for “${name}”?`
+          : `Delete “${name}”${discardsFiles ? " and discard its local files" : ""}?`
+        : `${registrationsOnly ? "Remove" : "Delete"} ${trees.length} ${registrationsOnly ? "missing worktree registrations" : "worktrees"}${hosts.size > 1 ? ` on ${hosts.size} hosts` : ""}${discardsFiles ? " and discard their local files" : ""}?`,
     detail: `${notes.join("\n")}\n\n${preview.join("\n")}`,
     buttons: [
       "Cancel",
       registrationsOnly
-        ? "Remove Registration" + (trees.length > 1 ? "s" : "")
+        ? `Remove Registration${plural}`
         : discardsFiles
-          ? "Discard & Remove"
-          : "Remove Worktree" + (trees.length > 1 ? "s" : ""),
+          ? "Discard & Delete"
+          : `Delete Worktree${plural}`,
     ],
   };
 }

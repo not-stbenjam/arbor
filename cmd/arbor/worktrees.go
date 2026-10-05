@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/not-stbenjam/arbor/internal/engine"
 	"github.com/not-stbenjam/arbor/internal/worktree"
@@ -57,10 +56,14 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 		return err
 	}
 	for _, w := range selection.skipped {
-		fmt.Fprintf(stderr, "Skipped %s: %s\n", printable(w.Path), printable(strings.Join(append(w.Blockers, w.Problems...), "; ")))
+		hint := ""
+		if w.CanDiscard && !r.discardLocal {
+			hint = " (add --force to include it)"
+		}
+		fmt.Fprintf(stderr, "Skipped %s: %s%s\n", printable(w.Path), printable(reasons(w)), hint)
 	}
 	if r.preview {
-		return writePreview(stdout, r, selection.selected, report.Warnings)
+		return writePreview(stdout, r, report, selection)
 	}
 	batchID := rand.Text()
 	sessionID := r.sessionID

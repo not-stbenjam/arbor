@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/not-stbenjam/arbor/internal/engine"
@@ -53,13 +54,22 @@ func TestNormalizedCleanupModes(t *testing.T) {
 		flags                commandOptions
 		discard, recommended bool
 	}{
-		{"remove", commandOptions{}, true, false}, {"remove", commandOptions{keepLocal: true}, false, false},
-		{"clean", commandOptions{}, false, true}, {"clean", commandOptions{all: true}, true, false},
+		// Consent to run is not consent to discard: only --force, or the
+		// desktop's --discard-local, permits losing local files.
+		{"remove", commandOptions{}, false, false}, {"remove", commandOptions{keepLocal: true}, false, false},
+		{"remove", commandOptions{force: true}, true, false}, {"remove", commandOptions{discardLocal: true}, true, false},
+		{"clean", commandOptions{}, false, true}, {"clean", commandOptions{all: true}, false, false},
+		{"clean", commandOptions{all: true, force: true}, true, false},
 		{"remove", commandOptions{recommended: true}, false, true},
 	} {
 		r, err := normalizeRequest(tc.command, &tc.flags)
 		if err != nil || r.discardLocal != tc.discard || r.recommendedRemoval() != tc.recommended {
 			t.Fatalf("incorrect normalization: %+v %v", r, err)
+		}
+	}
+	for _, flags := range []commandOptions{{force: true}, {force: true, yes: true}} {
+		if _, err := normalizeRequest("clean", &flags); err == nil || !strings.Contains(err.Error(), "--all") {
+			t.Fatalf("clean --force without --all must explain itself: %v", err)
 		}
 	}
 }

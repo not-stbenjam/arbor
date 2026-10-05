@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/not-stbenjam/arbor/internal/worktree"
@@ -11,6 +12,13 @@ import (
 type targetSelection struct {
 	selected []worktree.Worktree
 	skipped  []worktree.Worktree
+	// needsForce reports a previewed target that --yes alone will not remove.
+	needsForce bool
+}
+
+// reasons is why a worktree cannot simply be removed, in the scan's words.
+func reasons(w worktree.Worktree) string {
+	return strings.Join(append(slices.Clone(w.Blockers), w.Problems...), "; ")
 }
 
 // selectTargets is pure: it evaluates the inspected report against command intent.
@@ -18,7 +26,7 @@ func selectTargets(r worktreeRequest, report worktree.Report) (targetSelection, 
 	selection := targetSelection{selected: []worktree.Worktree{}}
 	if r.command == "clean" {
 		for _, w := range report.Worktrees {
-			if w.Recommended || r.all && (w.CanRemove || w.CanDiscard) {
+			if w.Recommended || r.all && (w.CanRemove || r.discardLocal && w.CanDiscard) {
 				selection.selected = append(selection.selected, w)
 			} else if r.all {
 				selection.skipped = append(selection.skipped, w)
@@ -51,8 +59,16 @@ func selectTargets(r worktreeRequest, report worktree.Report) (targetSelection, 
 	if r.expectBranch && r.branch != w.Branch {
 		return selection, errors.New("branch changed; scan again")
 	}
-	if !w.CanRemove && !(r.discardLocal && w.CanDiscard) {
-		return selection, fmt.Errorf("cannot remove: %s", strings.Join(append(w.Blockers, w.Problems...), "; "))
+	if !w.CanRemove && !w.CanDiscard {
+		return selection, fmt.Errorf("cannot remove: %s", reasons(w))
+	}
+	if !w.CanRemove && !r.discardLocal {
+		// A preview still shows the target and what --force would discard.
+		// Carrying it out without --force is refused, as Git refuses it.
+		if !r.preview {
+			return selection, fmt.Errorf("not removed: %s. Add --force to remove it anyway; run without --yes first to see what that involves", reasons(w))
+		}
+		selection.needsForce = true
 	}
 	if r.recommended && !w.Recommended {
 		return selection, errors.New("worktree is not a cleanup recommendation")

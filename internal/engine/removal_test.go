@@ -156,7 +156,7 @@ func TestRemoteRemovalUsesOnlyBoundStructuredRefusals(t *testing.T) {
 				t.Fatalf("nonzero remote removal became success or changed identity: %+v %v", result, err)
 			}
 			if tc.accepted {
-				if err.Error() != "SSH stats-fixture-vps: "+actionable {
+				if err.Error() != "stats-fixture-vps: "+actionable {
 					t.Fatalf("actionable error lost: %v", err)
 				}
 			} else if !errors.Is(err, failure) {

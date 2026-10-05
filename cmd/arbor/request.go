@@ -44,13 +44,17 @@ func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, e
 	if r.expectMissing && r.expectEmpty {
 		return r, errors.New("--expect-missing and --expect-empty are mutually exclusive")
 	}
+	if command == "clean" && flags.force && !r.all {
+		return r, errors.New("--force applies to --all; without it, clean removes only clean, merged worktrees")
+	}
 	if r.sessionID != "" && !cleanupSessionPattern.MatchString(r.sessionID) {
 		return r, errors.New("--stats-session must contain 1–128 letters, digits, hyphens, or underscores")
 	}
 	if err := engine.ValidateHost(r.host); err != nil {
 		return r, err
 	}
-	r.discardLocal = r.discardLocal || command == "remove" && !r.recommended && !flags.keepLocal || command == "clean" && r.all
+	// Consent to run is not consent to discard: only --force (or the
+	// desktop's --discard-local) permits losing local files.
 	r.scan.Repository = flags.repository
 	r.scan.LinkedOnly = flags.linkedOnly
 	r.scan.TargetOnly = command == "remove" || flags.targetOnly

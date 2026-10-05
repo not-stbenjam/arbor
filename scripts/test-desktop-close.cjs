@@ -149,7 +149,7 @@ if (args[0] === 'remove') {
   };
   const originalMenu = Menu.buildFromTemplate;
   Menu.buildFromTemplate = (template) => {
-    if (template.some((item) => item.label === "Copy Path")) {
+    if (template.some((item) => item.label === "Copy path")) {
       contextMenu = template;
       return { popup() {} };
     }
@@ -162,7 +162,7 @@ if (args[0] === 'remove') {
     if (options.title === "Cleanup is running") return { response: 1 };
     if (
       phase === "confirmations" &&
-      ["Remove worktree?", "Discard local data and remove?"].includes(
+      ["Delete worktree?", "Discard local files and delete?"].includes(
         options.title,
       )
     ) {
@@ -245,7 +245,7 @@ if (args[0] === 'remove') {
           };
           await js(`window.arbor.showWorktreeMenu(${JSON.stringify(request)})`);
           const previous = await clipboard.readText();
-          contextMenu.find((item) => item.label === "Copy Path").click();
+          contextMenu.find((item) => item.label === "Copy path").click();
           await until(
             () => copiedPath !== undefined,
             "native menu invoked clipboard",
@@ -258,7 +258,7 @@ if (args[0] === 'remove') {
           );
           await clipboard.writeText(previous);
           assert.equal(
-            contextMenu.find((item) => item.label === "Delete Worktree…")
+            contextMenu.find((item) => item.label?.startsWith("Delete “"))
               .enabled,
             !state.busy,
           );
@@ -282,17 +282,23 @@ if (args[0] === 'remove') {
               );
               assert.equal(result.cancelled, true);
             }
-            assert.equal(confirmations[0].message, "Remove “tree-1”?");
+            assert.equal(
+              confirmations[0].message,
+              "Delete “tree-1” and discard its local files?",
+            );
             assert.match(
               confirmations[0].detail,
               /recovery branches are created only if needed/,
             );
-            assert.equal(confirmations[1].message, "Remove “tree-2”?");
+            assert.equal(
+              confirmations[1].message,
+              "Delete “tree-2” and discard its local files?",
+            );
             assert.ok(
               confirmations.every(
                 (options) =>
                   options.detail.includes("Any local files") &&
-                  options.buttons[1] === "Discard & Remove",
+                  options.buttons[1] === "Discard & Delete",
               ),
               "force-removal consent must cover files added since the cached scan",
             );

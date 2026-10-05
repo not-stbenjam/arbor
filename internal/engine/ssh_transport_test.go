@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -20,7 +19,7 @@ func TestSSHExitPreservesStdoutAndTypedFailure(t *testing.T) {
 	t.Setenv("ARBOR_TEST_SSH_OUTPUT", output)
 	data, err := runSSH(context.Background(), "fixture-host", "unused fixture command", nil)
 	var exited *sshExitError
-	if string(data) != output || !errors.As(err, &exited) || exited.status != 7 || !strings.Contains(err.Error(), "SSH fixture-host: generic failure") {
+	if string(data) != output || !errors.As(err, &exited) || exited.status != 7 || err.Error() != "fixture-host: generic failure" {
 		t.Fatalf("lost stdout or exit context: %q, %v", data, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -44,5 +43,29 @@ func TestSSHOutputIsBoundedWithoutShortWrites(t *testing.T) {
 	}
 	if n, err := w.Write([]byte("extra")); n != 5 || err != nil || !w.overflow || w.Len() != maxSSHOutput {
 		t.Fatalf("overflow was not bounded: %d %v, length=%d", n, err, w.Len())
+	}
+}
+
+// An error should say what went wrong and offer the one check that fits it. A
+// remote command's own failure is not an SSH problem and gets no SSH advice.
+func TestSSHErrorsNameTheirCause(t *testing.T) {
+	for _, tc := range []struct {
+		name, detail string
+		status       int
+		want         string
+	}{
+		{"unknown host", "ssh: Could not resolve hostname build: Name or service not known", 255, "Could not connect to build over SSH: Could not resolve hostname build: Name or service not known. Check the SSH alias or hostname."},
+		{"rejected key", "dev@build: Permission denied (publickey).", 255, "Could not connect to build over SSH: dev@build: Permission denied (publickey). Check your SSH key and agent; Arbor cannot enter a password."},
+		{"unverified host key", "Host key verification failed.", 255, "Could not connect to build over SSH: Host key verification failed. Connect once with ssh in a terminal to verify the host's key."},
+		{"offline", "ssh: connect to host build port 22: Connection timed out", 255, "Could not connect to build over SSH: connect to host build port 22: Connection timed out. Check that the host is online and reachable."},
+		{"something else", "kex_exchange_identification: read: Connection reset by peer", 255, "Could not connect to build over SSH: kex_exchange_identification: read: Connection reset by peer. Check that `ssh build` connects from a terminal."},
+		{"remote command", "arbor: folder does not exist: /srv/code", 1, "build: folder does not exist: /srv/code"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &sshExitError{host: "build", detail: tc.detail, status: tc.status}
+			if err.Error() != tc.want {
+				t.Fatalf("got  %q\nwant %q", err.Error(), tc.want)
+			}
+		})
 	}
 }

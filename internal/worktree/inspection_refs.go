@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,14 @@ func inspectPublication(ctx context.Context, w *Worktree) {
 	w.Published = len(w.PublishedRefs) > 0
 }
 
+// defaultRemotes are the remotes whose default branch decides what is merged,
+// in order of authority: a fork's upstream, then the origin.
+var defaultRemotes = []string{"upstream", "origin"}
+
+// defaultBranches are the conventional names tried when nothing says which
+// branch is the default.
+var defaultBranches = []string{"main", "master", "trunk"}
+
 func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefault, block func(reasonCode)) {
 	if defaultCache == nil {
 		w.DefaultRef = defaultRef(ctx, w.Path)
@@ -53,27 +62,35 @@ func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefa
 			block(reasonDefaultBranch)
 		}
 	}
-	if w.Branch == "main" || w.Branch == "master" || w.Branch == "develop" {
+	if slices.Contains(defaultBranches, w.Branch) || w.Branch == "develop" {
 		block(reasonProtectedBranch)
 	}
 }
 
 func defaultRef(ctx context.Context, path string) string {
-	for _, remote := range []string{"upstream", "origin"} {
-		ref := gitText(ctx, path, "symbolic-ref", "refs/remotes/"+remote+"/HEAD")
-		if ref != "" && gitText(ctx, path, "rev-parse", "--verify", ref+"^{commit}") != "" {
+	exists := func(ref string) bool {
+		return gitText(ctx, path, "rev-parse", "--verify", ref+"^{commit}") != ""
+	}
+	for _, remote := range defaultRemotes {
+		if ref := gitText(ctx, path, "symbolic-ref", "refs/remotes/"+remote+"/HEAD"); ref != "" && exists(ref) {
 			return ref
 		}
-		for _, branch := range []string{"main", "master"} {
-			ref := "refs/remotes/" + remote + "/" + branch
-			if gitText(ctx, path, "rev-parse", "--verify", ref+"^{commit}") != "" {
+		for _, branch := range defaultBranches {
+			if ref := "refs/remotes/" + remote + "/" + branch; exists(ref) {
 				return ref
 			}
 		}
 	}
-	for _, branch := range []string{"main", "master"} {
-		ref := "refs/heads/" + branch
-		if gitText(ctx, path, "rev-parse", "--verify", ref+"^{commit}") != "" {
+	// A repository with no remote says nothing about its default branch.
+	// Conventional names come first; the name this user's Git gives new
+	// repositories is the last resort, never a reason to prefer it over one
+	// of those.
+	local := defaultBranches
+	if configured := gitText(ctx, path, "config", "--get", "init.defaultBranch"); configured != "" {
+		local = append(slices.Clone(local), configured)
+	}
+	for _, branch := range local {
+		if ref := "refs/heads/" + branch; exists(ref) {
 			return ref
 		}
 	}

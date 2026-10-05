@@ -73,9 +73,9 @@ func RemoveWorktree(ctx context.Context, request RemovalRequest) (result worktre
 			Removed *bool  `json:"removed"`
 			Error   string `json:"error"`
 		}
-		if errors.As(err, &exited) && exited.status > 0 && exited.status != 255 && len(data) <= maxProgressLine &&
+		if errors.As(err, &exited) && exited.status > 0 && exited.status != sshTransportStatus && len(data) <= maxProgressLine &&
 			json.Unmarshal(data, &refusal) == nil && refusal.Path == w.Path && refusal.Removed != nil && !*refusal.Removed && strings.TrimSpace(refusal.Error) != "" {
-			return result, fmt.Errorf("SSH %s: %s", host, refusal.Error)
+			return result, fmt.Errorf("%s: %s", host, refusal.Error)
 		}
 		return result, err
 	}

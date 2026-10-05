@@ -58,4 +58,12 @@ test("unavailable hosts produce partial totals, not a false zero history", () =>
     /Partial totals.*offline.*connection unavailable/,
   );
   assert.equal(aggregateStats([]).removedWorktrees, 0);
+  // A host is called what its owner named it, as in the rest of the window.
+  assert.equal(
+    aggregateStats([
+      { host: "", report: { removedWorktrees: 1, daily: [] } },
+      { host: "10.0.0.7", label: "Build server", error: "unreachable" },
+    ]).warning,
+    "Partial totals. Build server: unreachable",
+  );
 });

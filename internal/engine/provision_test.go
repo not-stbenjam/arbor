@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -212,14 +214,6 @@ func TestPrepareInstallsMatchingReleaseAndRechecksRemote(t *testing.T) {
 		case command == "uname -s && uname -m":
 			probes++
 			return []byte("Linux\naarch64\n"), nil
-		case strings.Contains(command, "--version"):
-			if !strings.Contains(command, "linux_arm64") {
-				t.Fatalf("wrong remote binary: %s", command)
-			}
-			if installed {
-				return []byte("arbor v1.2.3\n"), nil
-			}
-			return nil, nil
 		case strings.Contains(command, "mktemp"):
 			installs++
 			data, err := io.ReadAll(input)
@@ -230,6 +224,14 @@ func TestPrepareInstallsMatchingReleaseAndRechecksRemote(t *testing.T) {
 				t.Fatalf("incorrect binary or install: %q %s", data, command)
 			}
 			installed = true
+			return nil, nil
+		case strings.Contains(command, "--version"):
+			if !strings.Contains(command, "linux_arm64") {
+				t.Fatalf("wrong remote binary: %s", command)
+			}
+			if installed {
+				return []byte("arbor v1.2.3\n"), nil
+			}
 			return nil, nil
 		default:
 			t.Fatalf("unexpected SSH command: %s", command)
@@ -269,6 +271,8 @@ func TestConcurrentInstallationRequiresExactVersion(t *testing.T) {
 			switch {
 			case command == "uname -s && uname -m":
 				return []byte("Linux\narm64\n"), nil
+			case strings.Contains(command, "mktemp"):
+				return nil, errors.New("destination already exists")
 			case strings.Contains(command, "--version"):
 				probes++
 				if probes == 1 {
@@ -276,7 +280,8 @@ func TestConcurrentInstallationRequiresExactVersion(t *testing.T) {
 				}
 				return []byte(actual), nil
 			default:
-				return nil, errors.New("destination already exists")
+				t.Fatalf("unexpected SSH command: %s", command)
+				return nil, nil
 			}
 		}
 		_, err := p.prepare(context.Background(), "host", "v1.2.3")
@@ -298,5 +303,90 @@ func TestFetchRejectsHTTPFailuresAndOversizedResponses(t *testing.T) {
 		if _, err := p.fetch(context.Background(), "https://releases.invalid", 5); err == nil {
 			t.Fatalf("invalid response accepted: %+v", tc)
 		}
+	}
+}
+
+// The installer is a shell script that runs on someone else's machine. Run the
+// real one here: a transfer that ends early must never become the managed
+// executable, because a broken file at that path blocks every later attempt.
+func TestInstallScriptPublishesOnlyACompleteWorkingExecutable(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("a POSIX shell is required to run the installer")
+	}
+	const version = "v1.2.3"
+	executable := "#!/bin/sh\nprintf '%s\\n' 'arbor " + version + "'\n"
+	install := func(t *testing.T, home, input string, size int) (string, error) {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", installScript(version, "linux", "arm64", size))
+		cmd.Env = append(os.Environ(), "HOME="+home)
+		cmd.Stdin = strings.NewReader(input)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	// A home folder with a space and a quote exercises the script's quoting.
+	home := filepath.Join(t.TempDir(), "dev's home")
+	if err := os.MkdirAll(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(home, ".cache", "arbor", "bin", version, "linux_arm64")
+	managed := filepath.Join(directory, "arbor")
+	leftovers := func() []string {
+		entries, _ := os.ReadDir(directory)
+		var names []string
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		return names
+	}
+	for name, tc := range map[string]struct {
+		input   string
+		size    int
+		message string
+	}{
+		"transfer cut short":          {executable[:12], len(executable), "incomplete"},
+		"complete but will not run":   {strings.Repeat("x", 40), 40, "does not run"},
+		"runs but is another version": {"#!/bin/sh\necho 'arbor v9.9.9'\n", len("#!/bin/sh\necho 'arbor v9.9.9'\n"), "does not run"},
+	} {
+		out, err := install(t, home, tc.input, tc.size)
+		if err == nil || !strings.Contains(out, tc.message) {
+			t.Fatalf("%s: accepted or unexplained: %v %q", name, err, out)
+		}
+		if names := leftovers(); len(names) != 0 {
+			t.Fatalf("%s: left files behind, blocking a retry: %v", name, names)
+		}
+	}
+	if out, err := install(t, home, executable, len(executable)); err != nil {
+		t.Fatalf("complete transfer refused: %v %s", err, out)
+	}
+	data, err := os.ReadFile(managed)
+	info, statErr := os.Stat(managed)
+	if err != nil || statErr != nil || string(data) != executable || info.Mode().Perm() != 0700 {
+		t.Fatalf("installed file differs: %q %v %v", data, err, statErr)
+	}
+	if names := leftovers(); len(names) != 1 {
+		t.Fatalf("temporary files remain beside the executable: %v", names)
+	}
+	// Something already at the destination is never replaced, and the message
+	// says where it is.
+	out, err := install(t, home, executable, len(executable))
+	if err == nil || !strings.Contains(out, managed) {
+		t.Fatalf("an existing destination was replaced or not named: %v %q", err, out)
+	}
+}
+
+// The checksum covers the archive file, but gzip's own length and checksum
+// sit after the tar data and are only verified by reading to the end.
+func TestExtractVerifiesTheCompressedStreamToItsEnd(t *testing.T) {
+	archive := makeArchive(t, archiveFile{name: "arbor_v1.2.3_linux_arm64/arbor", data: "executable"})
+	if binary, err := extractBinary(archive, "arbor_v1.2.3_linux_arm64/arbor"); err != nil || string(binary) != "executable" {
+		t.Fatalf("valid archive: %q %v", binary, err)
+	}
+	corrupt := bytes.Clone(archive)
+	corrupt[len(corrupt)-5] ^= 0xff // within the trailing CRC-32 and length
+	if _, err := extractBinary(corrupt, "arbor_v1.2.3_linux_arm64/arbor"); err == nil {
+		t.Fatal("an archive with a corrupt gzip trailer was accepted")
+	}
+	if _, err := extractBinary(archive[:len(archive)-4], "arbor_v1.2.3_linux_arm64/arbor"); err == nil {
+		t.Fatal("a truncated archive was accepted")
 	}
 }

@@ -1,39 +1,35 @@
 import { esc, icon, describeProgress } from "./presentation.mjs";
 
-// Display-only projection of independently running machine scans.
+// Display-only projection of scan activity. A host appears while it is
+// scanning, queued or stopping, and after its scan was stopped, since its
+// list may then be incomplete. A finished host has nothing left to report,
+// and a failure belongs to the error banner, said once.
 export function hostProgress(hosts) {
-  const active = hosts.filter((source) => source.busy);
+  const stoppable = (source) => source.canCancelScan && !source.cancelRequested;
+  const rows = hosts.filter(
+    (source) => source.busy || source.cancelRequested || source.cancelled,
+  );
   return {
-    active: active.length,
-    visible: hosts.some(
-      (source) => source.busy || source.cancelled || source.error,
-    ),
-    canCancel: hosts.some(
-      (source) => source.canCancelScan && !source.cancelRequested,
-    ),
-    markup: hosts
+    active: hosts.filter((source) => source.busy).length,
+    visible: rows.length > 0,
+    canCancel: hosts.some(stoppable),
+    // One host has its own Stop; a shared one only helps with several.
+    canCancelAll: hosts.filter(stoppable).length > 1,
+    markup: rows
       .map((source) => {
         const name = source.label || source.host || "This computer";
         const { stage, countText } = describeProgress(
           source,
           source.operation === "remove",
         );
-        const status = source.error
-          ? source.error
-          : source.busy
-            ? stage
-            : source.cancelled
-              ? "Scan stopped"
-              : source.report
-                ? "Saved results ready"
-                : "Not scanned yet";
-        const detail = source.busy
-          ? [source.progress?.path || source.root, countText]
-              .filter(Boolean)
-              .join(" · ")
-          : source.root || "";
+        const status =
+          source.busy || source.cancelRequested ? stage : "Scan stopped";
         const stop = source.canCancelScan || source.cancelRequested;
-        return `<div class="host-progress-row" data-progress-host="${esc(source.host)}"><div class="host-progress-heading">${icon(source.busy ? "refresh" : source.host ? "server" : "monitor", source.busy ? "spinning" : "")}<strong>${esc(name)}</strong><span title="${esc(status)}">${esc(status)}</span>${stop ? `<button class="button" data-stop-host="${esc(source.host)}" ${source.cancelRequested ? "disabled" : ""} aria-label="Stop scan on ${esc(name)}">${source.cancelRequested ? "Stopping…" : "Stop"}</button>` : ""}</div>${detail ? `<div class="host-progress-detail" title="${esc(detail)}">${esc(detail)}</div>` : ""}</div>`;
+        // The count is the part worth reading, so the path gives way first.
+        const detail = source.busy
+          ? `<span class="host-progress-path" title="${esc(source.progress?.path || source.root || "")}">${esc(source.progress?.path || source.root || "")}</span>${countText ? `<span class="host-progress-count">${esc(countText)}</span>` : ""}`
+          : `<span class="host-progress-path">${source.report ? "Showing the results of the last completed scan." : "The list is incomplete."} Refresh to scan again.</span>`;
+        return `<div class="host-progress-row" data-progress-host="${esc(source.host)}"><div class="host-progress-heading">${icon(source.busy ? "refresh" : source.host ? "server" : "monitor", source.busy ? "spinning" : "")}<strong>${esc(name)}</strong><span title="${esc(status)}">${esc(status)}</span>${stop ? `<button class="button" data-stop-host="${esc(source.host)}" ${source.cancelRequested ? "disabled" : ""} aria-label="Stop scan on ${esc(name)}">${source.cancelRequested ? "Stopping…" : "Stop"}</button>` : ""}</div><div class="host-progress-detail">${detail}</div></div>`;
       })
       .join(""),
   };

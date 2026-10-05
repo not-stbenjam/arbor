@@ -36,6 +36,9 @@ const paths = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/>',
   moon: '<path d="M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11Z"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  "arrow-up": '<path d="M12 19V5m-6 6 6-6 6 6"/>',
+  "arrow-down": '<path d="M12 5v14m-6-6 6 6 6-6"/>',
   chart: '<path d="M4 3v18h17M9 16v-4m5 4V8m5 8V5"/>',
   copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
 };
@@ -130,30 +133,29 @@ export function initializeDOM() {
 }
 export function describeProgress(state, removing = false) {
   const progress = state.progress || {};
+  const deleting = removing && progress.stage === "removing";
   const stage = state.cancelRequested
     ? "Stopping scan…"
     : state.cancelled && !state.busy
       ? "Scan stopped"
-      : removing && progress.stage === "removing"
-        ? "Removing selected worktrees…"
-        : {
-            queued: "Queued…",
-            starting: "Starting scan…",
-            discovery: "Finding Git repositories…",
-            fetch: "Fetching remote branches…",
-            inspect: "Inspecting worktrees…",
-            connecting: "Connecting to SSH host…",
-            removing: "Removing selected worktrees…",
-          }[progress.stage] || "Scanning workspace…";
+      : {
+          queued: "Waiting to scan…",
+          starting: "Starting scan…",
+          discovery: "Finding Git repositories…",
+          fetch: "Fetching remote branches…",
+          inspect: "Checking worktrees…",
+          connecting: "Connecting…",
+          removing: "Deleting worktrees…",
+        }[progress.stage] || "Scanning…";
   const totalKnown =
     Number.isFinite(progress.total) &&
     progress.total > 0 &&
-    ["fetch", "inspect"].includes(progress.stage);
+    (deleting || ["fetch", "inspect"].includes(progress.stage));
   const completed = Math.max(0, Number(progress.completed) || 0);
   const countText = totalKnown
-    ? `${completed} of ${progress.total} ${progress.stage === "fetch" ? "repositories" : "worktrees"}`
+    ? `${completed} of ${progress.total}${progress.stage === "fetch" ? " repositories" : ""}`
     : Number(progress.discovered) > 0
-      ? `${progress.discovered} discovered`
+      ? `${progress.discovered} found`
       : "";
   return { stage, totalKnown, completed, countText };
 }

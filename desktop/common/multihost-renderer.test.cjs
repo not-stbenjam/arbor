@@ -259,33 +259,63 @@ test("provisional selection bridges never cross machines with the same path", as
   );
 });
 
-test("per-machine progress exposes independent stop buttons and safe labels", async () => {
+test("scan activity lists only hosts with something to report, with independent stop buttons and safe labels", async () => {
   const { hostProgress } = await import("../renderer/host-progress.mjs");
+  const scanning = {
+    ...hosts[1],
+    label: "<Build>",
+    busy: true,
+    canCancelScan: true,
+    progress: {
+      stage: "inspect",
+      path: "/work/<pending>",
+      completed: 1,
+      total: 3,
+    },
+  };
   const result = hostProgress([
     { ...hosts[0], report: { worktrees: [] } },
-    {
-      ...hosts[1],
-      label: "<Build>",
-      busy: true,
-      canCancelScan: true,
-      progress: {
-        stage: "inspect",
-        path: "/work/<pending>",
-        completed: 1,
-        total: 3,
-      },
-    },
+    scanning,
     { host: "offline", error: "Connection <failed>" },
+    { host: "paused", label: "Paused", cancelled: true, root: "/srv" },
   ]);
   assert.equal(result.active, 1);
   assert.equal(result.visible, true);
   assert.equal(result.canCancel, true);
+  assert.equal(result.canCancelAll, false, "one scan needs only its own Stop");
   assert.match(result.markup, /data-stop-host="vps"/);
   assert.doesNotMatch(result.markup, /data-stop-host=""/);
-  assert.match(result.markup, /Saved results ready/);
   assert.match(result.markup, /&lt;Build&gt;/);
-  assert.match(result.markup, /Connection &lt;failed&gt;/);
-  assert.doesNotMatch(result.markup, /<Build>|<pending>|<failed>/);
+  // The count is its own element, so a long path cannot push it out of view.
+  assert.match(
+    result.markup,
+    /host-progress-path" title="\/work\/&lt;pending&gt;">\/work\/&lt;pending&gt;<\/span><span class="host-progress-count">1 of 3<\/span>/,
+  );
+  assert.match(
+    result.markup,
+    /data-progress-host="paused"[^]*Scan stopped[^]*The list is incomplete\. Refresh to scan again\./,
+  );
+  assert.match(
+    hostProgress([{ host: "", cancelled: true, report: { root: "/work" } }])
+      .markup,
+    /Showing the results of the last completed scan\./,
+  );
+  assert.doesNotMatch(result.markup, /<Build>|<pending>/);
+  // An idle host has nothing to report, and a failure is the banner's to say
+  // once, not repeated here.
+  assert.doesNotMatch(result.markup, /This computer|offline|Connection/);
+  assert.equal(
+    hostProgress([hosts[0], { host: "offline", error: "unreachable" }]).visible,
+    false,
+  );
+  const several = hostProgress([
+    scanning,
+    { host: "other", busy: true, canCancelScan: true },
+    { host: "stopping", busy: true, cancelRequested: true },
+  ]);
+  assert.equal(several.active, 3);
+  assert.equal(several.canCancelAll, true);
+  assert.match(several.markup, /data-stop-host="stopping" disabled/);
 });
 
 test("background scans allow filter navigation and verified deletion, with host-scoped refresh and cancellation", async () => {

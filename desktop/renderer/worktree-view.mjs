@@ -5,7 +5,7 @@ import {
   renderRepositoryList,
   rowElementID,
 } from "./worktree-presentation.mjs";
-import { icon, ago } from "./presentation.mjs";
+import { icon, esc, ago } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
 
 // Owns tree-only interaction state: filters, sorting, expansion and selection.
@@ -48,12 +48,23 @@ export function createWorktreeView({
         button.disabled = unavailable || (!!row && !workspace.canDelete(row));
       });
   }
+  const deletable = (row) =>
+    workspace.canDelete(row) && (row.canRemove || row.canDiscard);
   function renderSelectionBar() {
-    $("#selection-bar").hidden = selection.ids.size < 2;
+    const rows = selected(),
+      kept = rows.filter((row) => !deletable(row)).length;
+    $("#selection-bar").hidden = rows.length < 2;
+    // Say before the click how much of the selection can actually go.
     $("#selection-label").textContent =
-      `${selection.ids.size} worktrees selected`;
+      `${rows.length} worktrees selected${kept ? ` · ${kept} cannot be deleted` : ""}`;
     $("#remove-selected").disabled =
-      blocked() || !selection.ids.size || !workspace.snapshot.revision;
+      blocked() || rows.length === kept || !workspace.snapshot.revision;
+  }
+  function clearSelection() {
+    selection = { ids: new Set(), anchor: "", cursor: selection.cursor };
+    renderSelection();
+    renderSelectionBar();
+    onRender();
   }
   // Replacing the rows would drop keyboard focus to the page. Remember the
   // control that held it by what it acts on, not by its element.
@@ -139,9 +150,35 @@ export function createWorktreeView({
       anchor: onScreen.has(selection.anchor) ? selection.anchor : "",
       cursor: onScreen.has(selection.cursor) ? selection.cursor : "",
     };
-    $("#visible-count").textContent = filtered.length;
+    // A filter shows part of the list, so its count says part of what.
+    $("#visible-count").textContent =
+      filtered.length === items().length
+        ? filtered.length
+        : `${filtered.length} of ${items().length}`;
     $("#tree-sort").value = sort;
+    $("#sort-direction").innerHTML = icon(
+      descending ? "arrow-down" : "arrow-up",
+    );
+    $("#sort-direction").title = descending
+      ? "Descending. Click for ascending."
+      : "Ascending. Click for descending.";
+    $("#sort-direction").setAttribute(
+      "aria-label",
+      `Sort ${descending ? "descending" : "ascending"}; switch direction`,
+    );
+    // An empty list has no row for the keyboard to land on, or to stay on.
+    $("#worktree-grid").tabIndex = visible.length ? 0 : -1;
+    if (!visible.length && document.activeElement === $("#worktree-grid"))
+      $("#worktree-grid").blur();
     document.querySelectorAll("[data-sort]").forEach((button) => {
+      const active = button.dataset.sort === sort;
+      const name = active ? (descending ? "arrow-down" : "arrow-up") : "sort";
+      if (button.dataset.sortIcon !== name) {
+        button.dataset.sortIcon = name;
+        button.querySelector("svg")?.replaceWith(
+          document.createRange().createContextualFragment(icon(name)),
+        );
+      }
       button.parentElement.classList.toggle(
         "sorted",
         button.dataset.sort === sort,
@@ -169,6 +206,8 @@ export function createWorktreeView({
       workspace.snapshot.cancelled,
       workspace.snapshot.revision,
       workspace.snapshot.hostFilter,
+      workspace.snapshot.setupRequired,
+      workspace.snapshot.error,
       filtered.map((w) => ago(w.activityAt)),
     ]);
     if (signature === rowSignature) {
@@ -179,23 +218,11 @@ export function createWorktreeView({
       return;
     }
     rowSignature = signature;
-    $("#empty-state").hidden = filtered.length > 0;
-    if (!filtered.length) {
-      const loading =
-        workspace.snapshot.busy || (!workspace.connected && !workspace.error);
-      const heading = loading
-        ? "Finding linked worktrees…"
-        : !items().length
-          ? "No linked worktrees found"
-          : "No matching worktrees";
-      const description = loading
-        ? "Worktree folders appear here as they are discovered."
-        : !items().length
-          ? "Choose a folder containing linked Git worktrees. Ordinary repository checkouts are not included."
-          : "Try another search or repository.";
-      $("#empty-state").innerHTML =
-        `${icon(loading ? "refresh" : "folder", loading ? "spinning" : "")}<h2>${heading}</h2><p>${description}</p>${!loading && !items().length ? '<button class="button" data-open-settings>Choose scan folder</button>' : ""}`;
-    }
+    // The setup wizard covers a first launch; nothing has been scanned yet,
+    // so the list behind it makes no claim about what was found.
+    $("#empty-state").hidden =
+      filtered.length > 0 || workspace.snapshot.setupRequired;
+    if (!filtered.length) $("#empty-state").innerHTML = emptyState();
     const scroll = $("#table-scroll").scrollTop;
     const focus = focusedControl();
     $("#worktree-list").innerHTML = renderTreeRows(directoryRows, {
@@ -218,8 +245,61 @@ export function createWorktreeView({
     const active =
       selection.cursor &&
       document.getElementById(rowElementID(selection.cursor));
-    if (active) grid.setAttribute("aria-activedescendant", active.id);
-    else grid.removeAttribute("aria-activedescendant");
+    document
+      .querySelectorAll(".worktree-row.is-current")
+      .forEach((row) => row.classList.remove("is-current"));
+    if (active) {
+      active.classList.add("is-current");
+      grid.setAttribute("aria-activedescendant", active.id);
+    } else grid.removeAttribute("aria-activedescendant");
+  }
+  // Why the list is empty decides what to say and what to offer next.
+  function emptyState() {
+    const action = (attribute, label) =>
+      `<button class="button" ${attribute}>${label}</button>`;
+    const message = (name, spin, heading, description, actions = "") =>
+      `${icon(name, spin ? "spinning" : "")}<h2>${heading}</h2><p>${description}</p>${actions ? `<div class="empty-actions">${actions}</div>` : ""}`;
+    if (workspace.snapshot.busy || (!workspace.connected && !workspace.error))
+      return message(
+        "refresh",
+        true,
+        "Finding linked worktrees…",
+        "Worktree folders appear here as they are discovered.",
+      );
+    if (items().length && !search.trim() && !repo)
+      return message(
+        "check-circle",
+        false,
+        "Nothing to clean up",
+        "Clean worktrees whose commits are already merged will appear here.",
+      );
+    if (items().length)
+      return message(
+        "search",
+        false,
+        search.trim()
+          ? `No worktrees match “${esc(search.trim())}”`
+          : "No worktrees in this repository",
+        "Try a different search, or clear the filter to see everything.",
+        action("data-clear-filter", "Clear filter"),
+      );
+    // A scan that failed found nothing; it did not find that there is nothing.
+    if (workspace.snapshot.error)
+      return message(
+        "warning",
+        false,
+        "This scan did not finish",
+        "The message above says what went wrong. Fix it and scan again, or choose another folder.",
+        action("data-scan-again", "Scan again") +
+          action("data-open-settings", "Scan settings…"),
+      );
+    return message(
+      "folder",
+      false,
+      "No linked worktrees here",
+      "Arbor lists worktrees created with <code>git worktree add</code>. Ordinary repository checkouts are not included.",
+      action("data-choose-folder", "Choose another folder…"),
+    );
   }
   function renderSelection() {
     document.querySelectorAll(".worktree-row").forEach((row) => {
@@ -235,6 +315,8 @@ export function createWorktreeView({
     selection = chooseRow(selection, visible, id, event);
     renderSelection();
     renderSelectionBar();
+    // The status bar explains a lone selection, so it follows each change.
+    onRender();
     $("#worktree-grid").focus({ preventScroll: true });
   }
   function handleTreeClick(event) {
@@ -295,6 +377,25 @@ export function createWorktreeView({
     if (!selection.ids.has(row.dataset.id)) selectRow(row.dataset.id, event);
     showWorktreeMenu(row.dataset.id);
   });
+  // Tabbing into the list lands on a row, as in any list: the first selected
+  // one, or the first row. It moves the cursor without changing the selection.
+  $("#worktree-grid").addEventListener("focus", () => {
+    if (selection.cursor || !visible.length) return;
+    const current =
+      visible.find((row) => selection.ids.has(row.id)) || visible[0];
+    selection = { ...selection, cursor: current.id };
+    renderActiveRow();
+  });
+  $("#empty-state").addEventListener("click", (event) => {
+    if (event.target.closest("[data-clear-filter]")) {
+      repo = "";
+      $("#search").value = "";
+      setSearch("");
+      render();
+      $("#search").focus();
+    }
+    if (event.target.closest("[data-scan-again]")) workspace.refresh();
+  });
   $("#worktree-grid").addEventListener("keydown", (event) => {
     const directoryButton = event.target.closest("[data-toggle-directory]");
     if (directoryButton && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
@@ -341,23 +442,45 @@ export function createWorktreeView({
       selection.ids = new Set(visible.map((w) => w.id));
       render();
     }
+    if (event.key === "Escape" && selection.ids.size) {
+      event.preventDefault();
+      clearSelection();
+    }
     // Deletion always asks first, so the key is as safe as the button.
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
       workspace.deleteWorktrees(selected());
     }
   });
-  $("#search").oninput = (event) => {
-    if (search !== event.target.value) collapsedDirectories.clear();
-    search = event.target.value;
+  // A search opens every folder so its matches show. That is a view of the
+  // search, not a change to how the tree was arranged, so the arrangement
+  // comes back when the search is cleared.
+  let collapsedBeforeSearch = null;
+  function setSearch(value) {
+    if (search === value) return;
+    if (!search.trim() && value.trim()) {
+      collapsedBeforeSearch = new Set(collapsedDirectories);
+      collapsedDirectories.clear();
+    } else if (search.trim() && !value.trim() && collapsedBeforeSearch) {
+      collapsedDirectories.clear();
+      collapsedBeforeSearch.forEach((key) => collapsedDirectories.add(key));
+      collapsedBeforeSearch = null;
+    }
+    search = value;
     selection.ids.clear();
     render();
-  };
+  }
+  $("#search").oninput = (event) => setSearch(event.target.value);
   $("#tree-sort").onchange = (event) => {
     sort = event.target.value;
     descending = ["activity", "size"].includes(sort);
     renderRows();
   };
+  $("#sort-direction").onclick = () => {
+    descending = !descending;
+    renderRows();
+  };
+  $("#clear-selection").onclick = clearSelection;
 
   $("#remove-selected").onclick = () => workspace.deleteWorktrees(selected());
   function resetView(full = false) {
@@ -369,6 +492,7 @@ export function createWorktreeView({
       sort = "path";
       descending = false;
       collapsedDirectories.clear();
+      collapsedBeforeSearch = null;
       $("#search").value = "";
     }
   }
@@ -397,6 +521,9 @@ export function createWorktreeView({
     },
     get filtering() {
       return !!repo || !!search.trim();
+    },
+    get selectedCount() {
+      return selection.ids.size;
     },
   };
 }

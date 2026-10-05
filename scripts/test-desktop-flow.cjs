@@ -250,11 +250,25 @@ app.once("browser-window-created", (_event, win) => {
             "document.querySelectorAll('tr[data-directory-path]').length >= 4",
           ),
         );
-        assert.ok(
+        // A row is named by its last component, under the folders that hold
+        // it; the whole path stays one hover or Copy path away.
+        assert.deepEqual(
           await js(
-            `document.querySelector('tr[data-id="${tree1ID}"]').textContent.includes(${JSON.stringify(root + "/sessions/old/tree-1")})`,
+            `(() => { const path = document.querySelector('tr[data-id="${tree1ID}"] .worktree-path'); return [path.textContent.trim(), path.title]; })()`,
           ),
+          ["tree-1", root + "/sessions/old/tree-1"],
         );
+        // Selecting one row explains how to select more, where the summary
+        // was; Escape puts the summary back.
+        const status = () =>
+          js("document.querySelector('#status-message').textContent");
+        const summary = await status();
+        await js(`document.querySelector('tr[data-id="${tree1ID}"]').click()`);
+        assert.match(await status(), /^1 selected · Shift-click for a range/);
+        await js(
+          "document.querySelector('#worktree-grid').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
+        );
+        assert.equal(await status(), summary);
         const oldFolder = root + "/sessions/old";
         const oldFolderKey = JSON.stringify(["", oldFolder]);
         await js(
@@ -281,10 +295,10 @@ app.once("browser-window-created", (_event, win) => {
         await until(() => lastMenu, "native row menu");
         assert.ok(
           lastMenu.items.some((item) =>
-            item.label.startsWith("Open in Terminal"),
+            /^Open in terminal/i.test(item.label),
           ),
         );
-        lastMenu.items.find((item) => item.label === "Copy Path").click();
+        lastMenu.items.find((item) => item.label === "Copy path").click();
         await until(
           async () => (await clipboard.readText()) === oldFolder + "/tree-1",
           "copy path from native menu",
@@ -444,18 +458,24 @@ app.once("browser-window-created", (_event, win) => {
             ),
           "second scan live results",
         );
+        // One scanning host is stopped from its own row; "Stop all" would say
+        // the same thing twice, so it appears only with several.
         await until(
           () =>
             js(
-              "!document.querySelector('#stop-scan').hidden && !document.querySelector('#stop-scan').disabled",
+              "(() => { const stop = document.querySelector('[data-stop-host=\"\"]'); return !!stop && !stop.disabled && stop.getClientRects().length > 0; })()",
             ),
           "stop scan control",
+        );
+        assert.equal(
+          await js("document.querySelector('#progress-heading').hidden"),
+          true,
         );
         assert.equal(
           await js("document.querySelector('#settings-stop-scan')"),
           null,
         );
-        await js("document.querySelector('#stop-scan').click()");
+        await js("document.querySelector('[data-stop-host=\"\"]').click()");
         await until(
           () => js("window.arbor.getState().then(s=>!s.busy && s.cancelled)"),
           "scan cancellation",
@@ -483,6 +503,37 @@ app.once("browser-window-created", (_event, win) => {
           await js("document.querySelector('#cleanup-button').disabled"),
           false,
           "cached recommendations remain available after stopping a refresh",
+        );
+        // Delete recommended sits beside Refresh, so its first click only
+        // asks; nothing is deleted until the second, and looking away
+        // withdraws the question.
+        const cleanup = () =>
+          js(
+            `(() => { const button = document.querySelector('#cleanup-button'); return { label: button.textContent.trim(), armed: button.classList.contains('armed') }; })()`,
+          );
+        const idle = await cleanup();
+        assert.match(idle.label, /^Delete recommended \(\d+\)$/);
+        assert.equal(idle.armed, false);
+        const removalsBefore = fs
+          .readFileSync(calls, "utf8")
+          .split("\n")
+          .filter((line) => line.includes('"remove"')).length;
+        await js(
+          "(() => { const button = document.querySelector('#cleanup-button'); button.focus(); button.click(); })()",
+        );
+        const asking = await cleanup();
+        assert.match(asking.label, /^Confirm: delete \d+ worktrees$/);
+        assert.equal(asking.armed, true);
+        await js("document.querySelector('#cleanup-button').blur()");
+        assert.deepEqual(await cleanup(), idle);
+        await pause(150);
+        assert.equal(
+          fs
+            .readFileSync(calls, "utf8")
+            .split("\n")
+            .filter((line) => line.includes('"remove"')).length,
+          removalsBefore,
+          "an unconfirmed click deletes nothing",
         );
         assert.equal(
           await js(

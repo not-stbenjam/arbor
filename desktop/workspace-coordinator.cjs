@@ -492,9 +492,9 @@ class WorkspaceCoordinator {
     const results = await Promise.all(
       this.#selected(null).map(async (entry) => {
         try {
-          return await entry.backend.readStats();
+          return { ...(await entry.backend.readStats()), label: entry.label };
         } catch (error) {
-          return { host: entry.host, error: error.message };
+          return { host: entry.host, label: entry.label, error: error.message };
         }
       }),
     );

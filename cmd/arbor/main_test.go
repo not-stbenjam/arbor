@@ -56,7 +56,7 @@ func TestCLIProgressPreservesJSONStdout(t *testing.T) {
 
 func TestCLITableLabelsAbsentCheckouts(t *testing.T) {
 	var out bytes.Buffer
-	if err := printTable(&out, []worktree.Worktree{
+	if err := printTable(&out, "", []worktree.Worktree{
 		{Path: "/work/missing", Missing: true, CanDiscard: true},
 		{Path: "/work/empty", Empty: true, CanDiscard: true},
 	}); err != nil {
@@ -71,7 +71,7 @@ func TestCLITableLabelsAbsentCheckouts(t *testing.T) {
 
 func TestCLITableShowsSizeAndTheDecidingStatus(t *testing.T) {
 	var out bytes.Buffer
-	if err := printTable(&out, []worktree.Worktree{
+	if err := printTable(&out, "", []worktree.Worktree{
 		{Path: "/work/merged", Merged: true, CanRemove: true, CanDiscard: true, Recommended: true, SizeBytes: 3 * 1024 * 1024},
 		{Path: "/work/new", Merged: true, Fresh: true, CanRemove: true, CanDiscard: true, SizeBytes: 512},
 		{Path: "/work/dirty", Merged: true, Dirty: true, CanDiscard: true, SizeBytes: 2048},
@@ -98,6 +98,61 @@ func TestCLITableShowsSizeAndTheDecidingStatus(t *testing.T) {
 	}
 	if count(1, "worktree") != "1 worktree" || count(2, "worktree") != "2 worktrees" || count(0, "worktree") != "0 worktrees" {
 		t.Fatal("counts must agree in number")
+	}
+}
+
+// Every path under the scanned folder repeats that folder. A table for people
+// names it once; a long branch keeps both of its ends.
+func TestCLITableNamesTheFolderOnceAndKeepsRowsNarrow(t *testing.T) {
+	var out bytes.Buffer
+	branch := "feature/checkout-redesign-with-a-rather-long-branch-name-for-truncation"
+	if err := printTable(&out, "/home/dev/code", []worktree.Worktree{
+		{Path: "/home/dev/code/worktrees/api/login", Branch: "feature/login", Repo: "api", CanRemove: true, CanDiscard: true},
+		{Path: "/home/dev/code/worktrees/web/checkout", Branch: branch, Repo: "web", CanRemove: true, CanDiscard: true},
+		{Path: "/home/dev/codex/outside", Branch: "elsewhere", Repo: "api", CanRemove: true, CanDiscard: true},
+		// Merged, but detached: clean does not take it, so it is not "merged".
+		{Path: "/home/dev/code/sessions/one", Detached: true, Merged: true, CanDiscard: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if lines[0] != "Under /home/dev/code:" || len(lines) != 6 {
+		t.Fatalf("unexpected table: %s", out.String())
+	}
+	for i, want := range [][]string{
+		{"worktrees/api/login", "feature/login"},
+		{"worktrees/web/checkout", "feature/checkout-re…-name-for-truncation"},
+		{"/home/dev/codex/outside", "elsewhere"},
+		{"sessions/one", "(detached)", "clean"},
+	} {
+		fields := strings.Fields(lines[i+2])
+		for j, text := range want[:2] {
+			if fields[j] != text {
+				t.Fatalf("row %d field %d = %q, want %q\n%s", i, j, fields[j], text, out.String())
+			}
+		}
+		if len(want) == 3 && fields[len(fields)-1] != want[2] {
+			t.Fatalf("row %d status = %q, want %q", i, fields[len(fields)-1], want[2])
+		}
+	}
+	if strings.Contains(out.String(), branch) {
+		t.Fatal("a long branch name widened every row")
+	}
+	for _, line := range lines {
+		if len([]rune(line)) > 110 {
+			t.Fatalf("row is too wide for a terminal: %d %q", len([]rune(line)), line)
+		}
+	}
+	// One target named by its own path has nothing to be relative to.
+	out.Reset()
+	if err := printTable(&out, "/home/dev/code/one", []worktree.Worktree{{Path: "/home/dev/code/one", Branch: "topic"}}); err != nil || strings.Contains(out.String(), "Under ") || !strings.Contains(out.String(), "/home/dev/code/one") {
+		t.Fatalf("single target: %v %s", err, out.String())
+	}
+	if got := shorten("short", 40); got != "short" {
+		t.Fatalf("a short name changed: %q", got)
+	}
+	if got := shorten(strings.Repeat("é", 50), 40); len([]rune(got)) != 40 {
+		t.Fatalf("shortening must count characters, not bytes: %d", len([]rune(got)))
 	}
 }
 
@@ -217,8 +272,8 @@ func TestCLICleanupPreviewsThenRemovesRetainingBranch(t *testing.T) {
 		t.Fatal("cleanup did not remove target")
 	}
 	git("show-ref", "--verify", "refs/heads/finished")
-	// Manual deletion matches the GUI: local files are described in preview,
-	// and --yes confirms disposal without requiring an extra force flag.
+	// Like git worktree remove, --yes alone never discards local files. The
+	// preview says what --force would lose; only --force loses it.
 	dirty := filepath.Join(root, "old-session")
 	git("worktree", "add", "-b", "old-session", dirty)
 	if err := os.WriteFile(filepath.Join(dirty, "scratch.txt"), []byte("local work"), 0600); err != nil {
@@ -229,18 +284,39 @@ func TestCLICleanupPreviewsThenRemovesRetainingBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	preview.Worktrees = nil
+	var needsForce struct {
+		RequiresForce bool `json:"requiresForce"`
+	}
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil || !preview.DryRun || len(preview.Worktrees) != 1 || !preview.Worktrees[0].CanDiscard {
 		t.Fatalf("manual preview: %s (%v)", out.String(), err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &needsForce); err != nil || !needsForce.RequiresForce {
+		t.Fatalf("preview must say --yes alone will not remove this: %s (%v)", out.String(), err)
+	}
+	out.Reset()
+	if err := execute(context.Background(), []string{"remove", "--", dirty}, &out, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"Uncommitted changes and untracked files will be deleted.", "Pass --force --yes to remove"} {
+		if !strings.Contains(out.String(), text) {
+			t.Fatalf("human preview omits %q: %s", text, out.String())
+		}
 	}
 	if _, err := os.Stat(filepath.Join(dirty, "scratch.txt")); err != nil {
 		t.Fatal("preview touched local file")
 	}
-	out.Reset()
-	if err := execute(context.Background(), []string{"remove", "--keep-local", "--yes", "--", dirty}, &out, &stderr); err == nil {
-		t.Fatal("keep-local discarded local work")
+	for _, args := range [][]string{{"remove", "--yes", "--", dirty}, {"remove", "--keep-local", "--yes", "--", dirty}, {"remove", "--json", "--yes", "--", dirty}} {
+		out.Reset()
+		err := execute(context.Background(), args, &out, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "--force") {
+			t.Fatalf("%v discarded local work or did not say how to: %v", args, err)
+		}
+		if data, readErr := os.ReadFile(filepath.Join(dirty, "scratch.txt")); readErr != nil || string(data) != "local work" {
+			t.Fatalf("%v touched local work: %q %v", args, data, readErr)
+		}
 	}
 	out.Reset()
-	if err := execute(context.Background(), []string{"remove", "--json", "--yes", "--", dirty}, &out, &stderr); err != nil {
+	if err := execute(context.Background(), []string{"remove", "--json", "--force", "--yes", "--", dirty}, &out, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dirty); !os.IsNotExist(err) {
@@ -340,7 +416,17 @@ func TestCLICleanAllWarningsIncludeExactPrintablePaths(t *testing.T) {
 		}
 	}
 	var out, stderr bytes.Buffer
+	// Without --force these are left alone, and the preview says how to
+	// include them rather than listing them as about to go.
 	if err := execute(context.Background(), []string{"clean", "--all", "--path", root}, &out, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No matching worktrees to remove") || strings.Count(stderr.String(), "(add --force to include it)") != len(targets) {
+		t.Fatalf("clean --all must skip worktrees with local files and say why:\n%s\n%s", out.String(), stderr.String())
+	}
+	out.Reset()
+	stderr.Reset()
+	if err := execute(context.Background(), []string{"clean", "--all", "--force", "--path", root}, &out, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	for _, target := range targets {
@@ -376,6 +462,9 @@ func TestCLIRemovalReportsActualCommitRetention(t *testing.T) {
 				cliTestGit(t, target, "commit", "--allow-empty", "-m", "Detached-only work")
 			}
 			args := []string{"remove", "--yes"}
+			if tc.detached {
+				args = append(args, "--force")
+			}
 			if tc.json {
 				args = append(args, "--json")
 			}
@@ -410,7 +499,8 @@ func TestCLIRemovalReportsActualCommitRetention(t *testing.T) {
 
 func TestCLIHelpDocumentsRemovalPolicies(t *testing.T) {
 	for command, required := range map[string][]string{
-		"remove": {"--keep-local", "--force", "--repo", "only when no branch retains the commit"},
+		"remove": {"--force", "--repo", "that alone is refused", "uncommitted,\nuntracked or ignored files", "only when no\nbranch already holds them"},
+		"clean":  {"--all", "--force", "skipped unless --force"},
 		"list":   {"--linked-only=false", "--exclude"},
 	} {
 		var out, stderr bytes.Buffer

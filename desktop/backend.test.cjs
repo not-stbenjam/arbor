@@ -68,7 +68,7 @@ test("cached manual cleanup binds consent and missing/empty expectations without
         const dialog = removalConfirmationOptions(rows, discardLocal);
         if (kind === "locked" || kind === "detached") {
           assert.match(dialog.detail, /Any local files.*permanently discarded/);
-          assert.equal(dialog.buttons[1], "Discard & Remove");
+          assert.equal(dialog.buttons[1], "Discard & Delete");
         } else assert.doesNotMatch(dialog.detail, /permanently discarded/);
         return true;
       },

@@ -33,7 +33,7 @@ test("bulk mixed-host consent names hosts beyond the bounded path preview", () =
     })),
   ];
   const options = removalConfirmationOptions(trees, false);
-  assert.equal(options.message, "Remove 8 worktrees on 2 hosts?");
+  assert.equal(options.message, "Delete 8 worktrees on 2 hosts?");
   assert.match(
     options.detail,
     /Hosts: This computer: 6 · Build server \[vps\]: 2/,
@@ -60,9 +60,12 @@ test("confirmation follows force disposal even when detached and locked snapshot
     [{ ...row, branch: "", detached: true, canRemove: false }],
     true,
   );
-  assert.equal(cleanDetached.message, "Remove “topic”?");
-  assert.equal(cleanDetached.title, "Discard local data and remove?");
-  assert.equal(cleanDetached.buttons[1], "Discard & Remove");
+  assert.equal(
+    cleanDetached.message,
+    "Delete “topic” and discard its local files?",
+  );
+  assert.equal(cleanDetached.title, "Discard local files and delete?");
+  assert.equal(cleanDetached.buttons[1], "Discard & Delete");
   assert.match(cleanDetached.detail, /recovery branches/);
   assert.match(cleanDetached.detail, /only if needed/);
   assert.match(
@@ -87,7 +90,7 @@ test("force confirmation covers all local-file categories once, independent of c
     [{ ...row, dirty: true, canRemove: false }],
     true,
   );
-  assert.equal(dirty.title, "Discard local data and remove?");
+  assert.equal(dirty.title, "Discard local files and delete?");
   assert.match(dirty.detail, /uncommitted, untracked, and ignored files/);
   const ignored = removalConfirmationOptions(
     [{ ...row, ignored: true, canRemove: false }],
@@ -108,9 +111,12 @@ test("bulk confirmation bounds long path previews and summarizes warnings once",
     discardWarnings: Array(20).fill("Repeated per-worktree warning"),
   }));
   const options = removalConfirmationOptions(rows, true);
-  assert.equal(options.message, "Remove 1000 worktrees?");
+  assert.equal(
+    options.message,
+    "Delete 1000 worktrees and discard their local files?",
+  );
   assert.ok(options.detail.length < 1500);
-  assert.ok(options.detail.split("\n").length <= 12);
+  assert.ok(options.detail.split("\n").length <= 13);
   const previews = options.detail
     .split("\n")
     .filter((line) => line.startsWith("/work/"));
@@ -131,7 +137,7 @@ test("confirmation keeps exact short previews without inventing warnings", () =>
     discardWarnings: ["Ignored files will be discarded"],
   }));
   const options = removalConfirmationOptions(rows, true);
-  assert.equal(options.message, "Remove 6 worktrees?");
+  assert.equal(options.message, "Delete 6 worktrees?");
   for (let index = 0; index < 5; index++)
     assert.ok(options.detail.includes(`/work/tree-${index}`));
   assert.doesNotMatch(options.detail, /tree-5/);
@@ -160,7 +166,7 @@ test("missing-only confirmations remove registrations without claiming folder or
   assert.match(single.detail, /Only Git worktree registrations/);
   assert.doesNotMatch(
     single.detail,
-    /folders will be deleted|permanently discarded/,
+    /folders are deleted|permanently discarded/,
   );
   assert.match(single.detail, /locks.*overridden/);
   const multiple = removalConfirmationOptions(
@@ -173,6 +179,96 @@ test("missing-only confirmations remove registrations without claiming folder or
     mixed.detail,
     /1 missing worktree registration will also be removed/,
   );
-  assert.match(mixed.detail, /folders will be deleted/);
+  assert.match(mixed.detail, /folders are deleted permanently, not moved to Trash/);
   assert.doesNotMatch(mixed.detail, /permanently discarded/);
+});
+
+test("a large selection previews the worktrees that would lose files before the safe ones", () => {
+  const clean = (index) => ({
+    path: `/work/clean-${index}`,
+    canRemove: true,
+    canDiscard: true,
+  });
+  const risky = (name, facts) => ({
+    path: `/work/${name}`,
+    canRemove: false,
+    canDiscard: true,
+    ...facts,
+  });
+  const trees = [
+    ...Array.from({ length: 8 }, (_, index) => clean(index)),
+    risky("dirty", { dirty: true }),
+    risky("held", { locked: true }),
+    risky("deps", { ignored: true }),
+    { path: "/work/gone", missing: true, dirty: true, canDiscard: true },
+  ];
+  const options = removalConfirmationOptions(trees, true);
+  const preview = options.detail.split("\n\n")[1].split("\n");
+  assert.deepEqual(preview, [
+    "/work/dirty — uncommitted changes",
+    "/work/held — locked",
+    "/work/deps — ignored files",
+    "/work/clean-0",
+    "/work/clean-1",
+    "and 7 more selected worktrees",
+  ]);
+  assert.match(
+    options.detail,
+    /At the last scan: 1 with uncommitted changes, 1 with ignored files only\./,
+  );
+  assert.equal(options.title, "Discard local files and delete?");
+  assert.equal(options.buttons[1], "Discard & Delete");
+  // Without consent to discard, nothing is discarded, so nothing is flagged.
+  const kept = removalConfirmationOptions(trees.slice(0, 9), false);
+  assert.doesNotMatch(kept.detail, /uncommitted|At the last scan/);
+  assert.equal(kept.title, "Delete worktrees?");
+  assert.equal(kept.buttons[1], "Delete Worktrees");
+  // One worktree needs no tally; its own line already says what it has.
+  const one = removalConfirmationOptions([trees[8]], true);
+  assert.doesNotMatch(one.detail, /At the last scan/);
+  assert.match(one.detail, /\/work\/dirty — uncommitted changes$/);
+  assert.equal(one.message, "Delete “dirty” and discard its local files?");
+});
+
+test("the gravest consequence leads, and a single remote host is named up front", () => {
+  const dirty = {
+    path: "/srv/topic",
+    host: "vps",
+    hostLabel: "Build server",
+    canRemove: false,
+    canDiscard: true,
+    dirty: true,
+  };
+  const lines = removalConfirmationOptions([dirty], true).detail.split("\n");
+  assert.equal(lines[0], "On Build server [vps].");
+  assert.match(lines[1], /^Any local files.*permanently discarded\.$/);
+  assert.match(lines[2], /^Worktree folders are deleted permanently/);
+  const local = removalConfirmationOptions(
+    [{ ...dirty, host: "", hostLabel: "This computer" }],
+    true,
+  );
+  assert.doesNotMatch(local.detail, /^On /, "this computer needs no naming");
+  const clean = removalConfirmationOptions(
+    [{ path: "/work/topic", canRemove: true, canDiscard: true }],
+    true,
+  );
+  assert.equal(clean.message, "Delete “topic”?");
+  assert.match(clean.detail, /^Worktree folders are deleted permanently/);
+});
+
+test("deleting several worktrees says the folders that hold them are kept", () => {
+  const row = (name) => ({
+    path: `/work/group/${name}`,
+    canRemove: true,
+    canDiscard: true,
+  });
+  assert.match(
+    removalConfirmationOptions([row("a"), row("b")], false).detail,
+    /Only these worktrees are deleted; a folder that holds them.*is kept\./,
+  );
+  // One worktree is its own folder; there is nothing else to reassure about.
+  assert.doesNotMatch(
+    removalConfirmationOptions([row("a")], false).detail,
+    /a folder that holds them/,
+  );
 });

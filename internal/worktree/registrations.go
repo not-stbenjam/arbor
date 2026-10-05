@@ -22,9 +22,9 @@ func collectRegistrations(ctx context.Context, report *Report, paths []string, e
 		if registeredPaths[path] {
 			continue
 		}
-		common, explicitGitDir := resolveCommonDirectory(ctx, path)
+		common, explicitGitDir, reason := resolveCommonDirectory(ctx, path)
 		if common == "" {
-			report.Warnings = append(report.Warnings, "Could not inspect repository: "+path)
+			report.Warnings = append(report.Warnings, "Could not inspect repository: "+path+gitReason(reason))
 			continue
 		}
 		if resolved, err := filepath.EvalSymlinks(common); err == nil {
@@ -67,12 +67,41 @@ func collectRegistrations(ctx context.Context, report *Report, paths []string, e
 	return nil
 }
 
+// gitReason reduces a Git failure to the one line that says why, for a
+// warning that already names the repository.
+func gitReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(err.Error()), "\n")
+	line = strings.TrimPrefix(strings.TrimPrefix(line, "git: "), "fatal: ")
+	// Git names the directory it gave up on, or "(null)" when it had none.
+	line = strings.TrimSuffix(line, ": (null)")
+	if line == "" {
+		return ""
+	}
+	return " (" + line + ")"
+}
+
 func fetchRepository(ctx context.Context, path string) error {
 	// Fetch only on explicit request; never prune or change a local branch.
 	// Unlike read-only recognition/listing, fetch must use ordinary Git
 	// discovery so explicit-only bare and ownership policies still apply.
-	_, err := run(ctx, 2*time.Minute, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "fetch", "--all", "--no-recurse-submodules")
-	return err
+	if _, err := run(ctx, 2*time.Minute, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "fetch", "--all", "--no-recurse-submodules"); err != nil {
+		return err
+	}
+	// A fetch updates branches, not which of them the remote calls its
+	// default. After a project renames that branch, the old name would keep
+	// deciding what counts as merged, so ask the remotes that decide it. The
+	// fetch just reached them; what is left to fail here is a repository that
+	// does not track the remote's default branch at all, such as a bare or
+	// single-branch clone, which has no stale selector to correct.
+	for _, remote := range defaultRemotes {
+		if gitText(ctx, path, "remote", "get-url", remote) != "" {
+			_, _ = run(ctx, 30*time.Second, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "remote", "set-head", remote, "--auto")
+		}
+	}
+	return nil
 }
 
 // selectRegistrations applies scan scope and assigns stable repository identity.

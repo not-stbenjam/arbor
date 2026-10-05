@@ -42,3 +42,22 @@ test("normal nonzero diagnostics retain their complete message", async () => {
     },
   );
 });
+
+test("the CLI's terminal prefix is not part of a message shown in a window", async () => {
+  for (const [stderr, shown] of [
+    ["arbor: folder does not exist: /work\n", "folder does not exist: /work"],
+    // Only the leading prefix is the CLI's; a path may contain the word.
+    ["arbor: cannot read /srv/arbor: denied\n", "cannot read /srv/arbor: denied"],
+    ["Warning: skipped\narbor: failed\n", "Warning: skipped\narbor: failed"],
+  ])
+    await assert.rejects(
+      execute(process.execPath, [
+        "-e",
+        `process.stderr.write(${JSON.stringify(stderr)});process.exitCode=1;`,
+      ]),
+      (error) => {
+        assert.equal(error.message, shown);
+        return true;
+      },
+    );
+});

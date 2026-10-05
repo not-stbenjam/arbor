@@ -4,7 +4,7 @@ import {
   MAX_HOST_LENGTH,
   MAX_HOST_LABEL_LENGTH,
 } from "../common/ssh-host.mjs";
-import { readExcludes } from "./input-values.mjs";
+import { readExcludes, summarizeExcludes } from "./input-values.mjs";
 
 // Owns preference editors and the last canonical preferences read from main.
 // Scan requests are emitted as commands; only main persists active scan choices.
@@ -20,6 +20,10 @@ export function createPreferencesController({
 }) {
   const $ = (selector) => document.querySelector(selector);
   $("#host-input").maxLength = MAX_HOST_LENGTH;
+  const showExcludeCount = summarizeExcludes(
+    $("#scan-excludes"),
+    $("#scan-excludes-count"),
+  );
   let prefs = { hosts: [], roots: [], theme: "system", scan: {} };
   let context = {
     root: "",
@@ -104,7 +108,7 @@ export function createPreferencesController({
     const machine = hostName(selected);
     const path =
       selected === null
-        ? "All configured hosts"
+        ? "Folders on all hosts"
         : `${selected ? `${selected}:` : ""}${context.root || "Home folder"}`;
     $("#machine-label").textContent = machine;
     $("#machine-label").title = machine;
@@ -112,7 +116,15 @@ export function createPreferencesController({
     $("#machine-icon").innerHTML = icon(kind);
     $("#machine-icon").dataset.kind = kind;
     $("#root-label").textContent = path;
-    $("#path-button").title = `Scan folder: ${path}`;
+    $("#root-label").dataset.kind = selected === null ? "scope" : "path";
+    // The local folder opens a picker; a remote one is edited in Settings.
+    // All hosts is a scope with no single folder behind it.
+    $("#path-button").title =
+      selected === null
+        ? "Each host has its own scan folder. Open Settings…"
+        : selected === ""
+          ? `Scanning ${path}. Choose another folder…`
+          : `Scanning ${path}. Change in Settings…`;
     $("#machine-button").disabled = context.blocked;
     $("#path-button").disabled = context.blocked;
     const editingState = context.hosts.find(
@@ -152,10 +164,11 @@ export function createPreferencesController({
     $("#scan-github").checked = !!scan.github;
     $("#scan-fetch").checked = !!scan.fetch;
     $("#scan-excludes").value = (scan.excludes || defaults.excludes).join("\n");
+    showExcludeCount();
     $("#choose-folder").hidden = !!host;
     $("#root-help").textContent = host
-      ? `Search folder on ${host}. Use ~ for your remote home folder.`
-      : "Discover Git repositories and registered worktrees in this folder.";
+      ? `A folder on ${host}. ~ is its home folder. Arbor finds the Git repositories there and lists their linked worktrees.`
+      : "Arbor finds the Git repositories in this folder and lists their linked worktrees.";
     renderStatus(context);
   }
   function openSettings() {
@@ -174,18 +187,31 @@ export function createPreferencesController({
     $("#theme-select").value = prefs.theme;
     if (!$("#settings-dialog").open) $("#settings-dialog").showModal();
   }
+  // A dialog covers the window's notifications, so its own problems are
+  // reported inside it, beside the field they concern.
+  function fieldError(selector, message = "") {
+    $(selector).textContent = message;
+    $(selector).hidden = !message;
+  }
   function openMachines() {
     if (context.blocked) return;
+    const failed = new Set(
+      context.hosts
+        .filter((source) => source.error && !source.busy)
+        .map((source) => source.host),
+    );
     $("#machine-list").innerHTML = [
       { host: null, name: "All hosts" },
       ...machines(),
     ]
-      .map(
-        (h) =>
-          `<div class="machine-row"><button class="machine-option${h.host === hostFilter() ? " active" : ""}" ${h.host === null ? "data-all-hosts" : `data-host="${esc(h.host)}"`}>${icon(h.host !== "" ? "server" : "monitor")}<span>${esc(h.name || h.host)}</span>${h.host === hostFilter() ? icon("check") : ""}</button>${h.host && !h.sessionOnly ? `<button class="icon-button" data-forget-host="${esc(h.host)}" title="Forget saved host" aria-label="Forget ${esc(h.host)}">${icon("close")}</button>` : ""}</div>`,
-      )
+      .map((h) => {
+        const current = h.host === hostFilter();
+        return `<div class="machine-row"><button class="machine-option${current ? " active" : ""}" ${h.host === null ? "data-all-hosts" : `data-host="${esc(h.host)}"`}${current ? ' aria-current="true"' : ""}>${icon(h.host !== "" ? "server" : "monitor")}<span>${esc(h.name || h.host)}</span>${failed.has(h.host) ? `<span class="machine-status" title="Its last scan failed. Select it to see why.">Unavailable</span>` : ""}${current ? icon("check") : ""}</button>${h.host && !h.sessionOnly ? `<button class="icon-button" data-forget-host="${esc(h.host)}" title="Forget this host. Its worktrees are not touched." aria-label="Forget ${esc(h.host)}; its worktrees are not touched">${icon("minus")}</button>` : ""}</div>`;
+      })
       .join("");
+    fieldError("#host-error");
     if (!$("#machine-dialog").open) $("#machine-dialog").showModal();
+    $("#machine-list").querySelector(".machine-option.active")?.focus();
   }
   function switchHost(host) {
     $("#machine-dialog").close();
@@ -202,6 +228,7 @@ export function createPreferencesController({
       saved.scan?.excludes ||
       defaults.excludes
     ).join("\n");
+    showExcludeCount();
     $("#scan-root").value = state.root || saved.scan?.root || "~";
     $("#scan-github").checked = !!saved.scan?.github;
     $("#scan-fetch").checked = !!saved.scan?.fetch;
@@ -216,6 +243,12 @@ export function createPreferencesController({
   };
   $("#scan-reset-excludes").onclick = () => {
     $("#scan-excludes").value = defaults.excludes.join("\n");
+    showExcludeCount();
+  };
+  // Appearance is not a scan setting: it applies at once, like the toggle.
+  $("#theme-select").onchange = () => {
+    setTheme($("#theme-select").value);
+    save();
   };
   $("#reset-preferences").onclick = () => {
     if (!$("#reset-preferences").disabled) onReset();
@@ -228,11 +261,12 @@ export function createPreferencesController({
     save();
   };
   $("#choose-folder").onclick = async () => {
+    fieldError("#settings-error");
     try {
       const root = await api.chooseFolder();
       if (root) $("#scan-root").value = root;
     } catch (error) {
-      notify(error.message, true);
+      fieldError("#settings-error", error.message);
     }
   };
   $("#path-button").onclick = async () => {
@@ -250,7 +284,6 @@ export function createPreferencesController({
   $("#settings-form").onsubmit = (event) => {
     event.preventDefault();
     if ($("#settings-save").disabled) return;
-    setTheme($("#theme-select").value);
     $("#settings-dialog").close();
     return onScan({
       root: $("#scan-root").value.trim(),
@@ -265,25 +298,32 @@ export function createPreferencesController({
     event.preventDefault();
     const host = $("#host-input").value.trim();
     if (!isValidSSHHost(host)) {
-      notify(
-        `Enter an SSH alias or user@hostname, up to ${MAX_HOST_LENGTH} characters, without spaces or options.`,
-        true,
+      fieldError(
+        "#host-error",
+        host.length > MAX_HOST_LENGTH
+          ? `An SSH host can be at most ${MAX_HOST_LENGTH} characters.`
+          : "Enter an SSH alias or user@hostname, without spaces or options.",
       );
+      $("#host-input").focus();
       return;
     }
+    // Its first scan starts as soon as it is saved, so the folder is chosen
+    // here rather than discovered afterwards to be the whole home folder.
     if (!prefs.hosts.some((h) => h.host === host))
       prefs.hosts.push({
         name: host.slice(0, MAX_HOST_LABEL_LENGTH),
         host,
-        root: "~",
+        root: $("#host-root").value.trim() || "~",
       });
     try {
       await save(true);
     } catch (error) {
-      notify(`Could not save settings: ${error.message}`, true);
+      fieldError("#host-error", `Could not save this host: ${error.message}`);
       return;
     }
+    fieldError("#host-error");
     $("#host-input").value = "";
+    $("#host-root").value = "~";
     return switchHost(host);
   };
   $("#machine-list").addEventListener("click", async (event) => {
@@ -301,6 +341,9 @@ export function createPreferencesController({
   });
   $("#empty-state").addEventListener("click", (event) => {
     if (event.target.closest("[data-open-settings]")) openSettings();
+    // Offer the same thing the path bar does: a picker for this computer,
+    // Settings for anywhere a picker cannot reach.
+    if (event.target.closest("[data-choose-folder]")) $("#path-button").onclick();
   });
   return {
     initialize,

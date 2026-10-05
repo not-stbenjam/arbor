@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -346,5 +347,97 @@ func TestScanResolvesSymlinkRoot(t *testing.T) {
 	w := testTree(t, report, wt)
 	if w.OutsideRoot || !w.Recommended {
 		t.Fatalf("symlink root incorrectly protects in-scope tree: %+v", w)
+	}
+}
+
+// A fetch updates branches, not which one the remote calls its default. When a
+// project renames that branch, the old name must stop deciding what is merged.
+func TestFetchRefreshesTheRemoteDefaultBranch(t *testing.T) {
+	root := t.TempDir()
+	seed := testRepo(t, filepath.Join(t.TempDir(), "seed"))
+	testGit(t, seed, "branch", "trunk")
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	testGit(t, seed, "clone", "--bare", seed, remote)
+	repo := filepath.Join(root, "repo")
+	testGit(t, root, "clone", remote, repo)
+	identity := []string{"-c", "user.name=Arbor Test", "-c", "user.email=arbor@example.invalid"}
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
+	testGit(t, wt, append(identity, "commit", "-am", "Topic work")...)
+	testGit(t, repo, append(identity, "merge", "--no-ff", "-m", "Merge topic", "topic")...)
+	testGit(t, repo, "push", "origin", "main")
+	if w := testTree(t, testScan(t, root), wt); w.DefaultRef != "refs/remotes/origin/main" || !w.Recommended {
+		t.Fatalf("fixture must begin merged into the remote default branch: %+v", w)
+	}
+	// The project makes trunk its default. Trunk never received the topic.
+	testGit(t, remote, "symbolic-ref", "HEAD", "refs/heads/trunk")
+	report, err := Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil || !report.Fetched || len(report.Warnings) != 0 {
+		t.Fatalf("fetch: %v, fetched=%v, warnings=%v", err, report.Fetched, report.Warnings)
+	}
+	if w := testTree(t, report, wt); w.DefaultRef != "refs/remotes/origin/trunk" || w.Merged || w.Recommended {
+		t.Fatalf("a renamed default branch left the old one deciding merges: %+v", w)
+	}
+}
+
+// A repository with no remote and a default branch that is not main or master
+// still has finished work to recognize.
+func TestLocalDefaultBranchNames(t *testing.T) {
+	for _, tc := range []struct {
+		name, initial, configured, want string
+	}{
+		{"trunk", "trunk", "", "refs/heads/trunk"},
+		{"the name Git is configured to give new repositories", "stable", "stable", "refs/heads/stable"},
+		{"an unconventional name nothing vouches for", "stable", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			repo := filepath.Join(root, "repo")
+			if err := os.MkdirAll(repo, 0700); err != nil {
+				t.Fatal(err)
+			}
+			testGit(t, repo, "init", "--initial-branch="+tc.initial)
+			testGit(t, repo, "config", "user.name", "Arbor Test")
+			testGit(t, repo, "config", "user.email", "arbor@example.invalid")
+			if tc.configured != "" {
+				testGit(t, repo, "config", "init.defaultBranch", tc.configured)
+			}
+			testWrite(t, filepath.Join(repo, "tracked.txt"), "initial\n")
+			testGit(t, repo, "add", ".")
+			testGit(t, repo, "commit", "-m", "Initial tree")
+			wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+			testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
+			testGit(t, wt, "commit", "-am", "Topic work")
+			testGit(t, repo, "merge", "--ff-only", "topic")
+			w := testTree(t, testScan(t, root), wt)
+			if w.DefaultRef != tc.want || w.Recommended != (tc.want != "") {
+				t.Fatalf("default ref %q recommended %v, want %q: %+v", w.DefaultRef, w.Recommended, tc.want, w)
+			}
+		})
+	}
+}
+
+// A warning that only names a repository leaves its owner guessing. Git said
+// why it refused; that one line belongs in the warning.
+func TestUninspectableRepositoryWarningSaysWhy(t *testing.T) {
+	root := t.TempDir()
+	broken := filepath.Join(root, "broken")
+	if err := os.Mkdir(broken, 0700); err != nil {
+		t.Fatal(err)
+	}
+	testWrite(t, filepath.Join(broken, ".git"), "gitdir: /nonexistent/arbor-fixture\n")
+	report, err := Scan(context.Background(), Options{Root: root})
+	if err != nil || len(report.Warnings) != 1 {
+		t.Fatalf("scan: %v %v", err, report.Warnings)
+	}
+	warning := report.Warnings[0]
+	if !strings.HasPrefix(warning, "Could not inspect repository: "+broken+" (") || !strings.Contains(warning, "not a git repository") || strings.Contains(warning, "\n") || strings.Contains(warning, "(null)") {
+		t.Fatalf("warning does not carry Git's reason on one line: %q", warning)
+	}
+	if gitReason(nil) != "" || gitReason(errors.New("git: fatal: detected dubious ownership in repository at '/srv/x'\nTo add an exception, run a command")) != " (detected dubious ownership in repository at '/srv/x')" {
+		t.Fatal("a Git failure should reduce to its first line without prefixes")
+	}
+	if got := gitReason(errors.New("fatal: not a git repository: (null)")); got != " (not a git repository)" {
+		t.Fatalf("Git's placeholder for no directory leaked: %q", got)
 	}
 }

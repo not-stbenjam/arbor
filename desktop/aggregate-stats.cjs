@@ -21,8 +21,9 @@ function aggregateStats(results) {
   for (const key of totals) report[key] = 0;
   const days = new Map(),
     warnings = [];
-  for (const { host, report: source, error } of results) {
-    const label = host || "This computer";
+  for (const { host, label: name, report: source, error } of results) {
+    // The name its owner gave it, as everywhere else the host is mentioned.
+    const label = name || host || "This computer";
     if (!source) {
       warnings.push(
         `${label}: ${String(error?.message || error || "Statistics unavailable").slice(0, 1024)}`,

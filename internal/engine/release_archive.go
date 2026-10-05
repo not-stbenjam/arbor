@@ -73,6 +73,14 @@ func extractBinary(archive []byte, member string) ([]byte, error) {
 			return nil, errors.New("release executable size does not match archive header")
 		}
 	}
+	// The tar reader stops at the archive's end marker. Read on to the end of
+	// the compressed stream, where gzip verifies its length and checksum.
+	if _, err := io.Copy(io.Discard, bounded); err != nil {
+		return nil, fmt.Errorf("read release archive: %w", err)
+	}
+	if bounded.N <= 0 {
+		return nil, errors.New("expanded release archive exceeds size limit")
+	}
 	if len(binary) == 0 {
 		return nil, errors.New("release archive does not contain the expected Arbor executable")
 	}

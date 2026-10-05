@@ -143,24 +143,28 @@ func plausibleGitDirectory(directory string) (bool, error) {
 // resolveCommonDirectory retains normal checkout discovery, but explicitly
 // selects a verified bare candidate when Git disallows implicit bare discovery.
 // The second result is an optional --git-dir selector for subsequent commands.
-func resolveCommonDirectory(ctx context.Context, directory string) (common, explicitGitDir string) {
-	output, err := git(ctx, directory, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err == nil && strings.TrimSuffix(output, "\n") != directory {
-		return strings.TrimSuffix(output, "\n"), ""
+// When nothing is found, the error is Git's own reason, such as an ownership
+// or safety policy that only the user can decide to change.
+func resolveCommonDirectory(ctx context.Context, directory string) (common, explicitGitDir string, reason error) {
+	output, reason := git(ctx, directory, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if reason == nil && strings.TrimSuffix(output, "\n") != directory {
+		return strings.TrimSuffix(output, "\n"), "", nil
 	}
 	entries, err := os.ReadDir(directory)
 	if err == nil {
 		kind, probeErr := recognizeRepository(ctx, directory, entries)
 		if probeErr == nil {
 			if kind == repositoryBare {
-				return directory, directory
+				return directory, directory, nil
 			}
 			if kind == repositoryMetadata {
-				return directory, ""
+				return directory, "", nil
 			}
+		} else if reason == nil {
+			reason = probeErr
 		}
 	}
-	return "", ""
+	return "", "", reason
 }
 
 // Commands against an already verified common Git directory should identify it

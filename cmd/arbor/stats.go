@@ -15,7 +15,7 @@ func newStatsCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use: "stats", Short: "Show cleanup statistics for this computer or an SSH host",
-		Long:    "Show persistent cleanup statistics from the selected machine, including\nremovals made through the desktop app, this CLI, and SSH. Disk recovery is\nestimated from checkout files; missing registrations reclaim zero checkout bytes.\nHistory starts when a statistics-capable Arbor version first removes a worktree.",
+		Long:    "Show persistent cleanup statistics from this computer or an SSH host, including\nremovals made through the desktop app, this CLI, and SSH. Disk recovery is\nestimated from checkout files; missing registrations reclaim zero checkout bytes.\nHistory starts when a statistics-capable Arbor version first removes a worktree.",
 		Example: "  arbor stats\n  arbor stats --json\n  arbor stats --host my-vps",
 		Args:    checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {

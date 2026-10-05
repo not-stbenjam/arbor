@@ -81,21 +81,22 @@ function createWorktreeContextMenu({
             });
         });
     };
-    const localLabel = target.host ? " (local worktrees only)" : "";
     const terminal = target.local
       ? terminalCommand(platform, target.path, findExecutable)
       : null;
+    const name = path.basename(target.path) || target.path;
     Menu.buildFromTemplate([
       {
-        label: "Copy Path",
+        label: "Copy path",
         click: click((row) => clipboard.writeText(row.path)),
       },
       { type: "separator" },
+      // Said once, rather than on each of the three actions it explains.
+      ...(target.host
+        ? [{ label: "Available on this computer only", enabled: false }]
+        : []),
       {
-        label:
-          (platform === "darwin"
-            ? "Reveal in Finder"
-            : "Show in File Manager") + localLabel,
+        label: platform === "darwin" ? "Reveal in Finder" : "Show in file manager",
         enabled: target.local,
         click: click(async (row) => {
           await localDirectory(row);
@@ -103,7 +104,7 @@ function createWorktreeContextMenu({
         }),
       },
       {
-        label: "Open Folder" + localLabel,
+        label: "Open folder",
         enabled: target.local,
         click: click(async (row) => {
           await localDirectory(row);
@@ -113,30 +114,34 @@ function createWorktreeContextMenu({
       },
       {
         label:
-          "Open in Terminal" +
-          localLabel +
-          (target.local && !terminal ? " (not installed)" : ""),
+          target.local && !terminal
+            ? "Open in terminal (none found)"
+            : platform === "darwin"
+              ? "Open in Terminal"
+              : "Open in terminal",
         enabled: !!terminal,
         click: click(async (row) => {
           await localDirectory(row);
           const command = terminalCommand(platform, row.path, findExecutable);
-          if (!command) throw new Error("No supported terminal is installed");
+          if (!command)
+            throw new Error("Arbor could not find a supported terminal application");
           await launchTerminal(command);
         }),
       },
-      { type: "separator" },
       ...(target.retryInspection
         ? [
             {
-              label: "Retry Inspection",
+              label: "Check again",
               click: click((row) =>
                 backend.inspectWorktree({ id: row.id, revision: row.revision }),
               ),
             },
           ]
         : []),
+      { type: "separator" },
       {
-        label: "Delete Worktree…",
+        // The menu belongs to one row, whatever else is selected.
+        label: `Delete “${name.length > 40 ? `${name.slice(0, 39)}…` : name}”…`,
         enabled: target.removable,
         click: click((row) => {
           if (!row.removable)

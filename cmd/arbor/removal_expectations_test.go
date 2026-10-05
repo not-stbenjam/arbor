@@ -123,7 +123,7 @@ func TestCLIStaleExpectationsPermitOnlyConfirmedEmptyOrMissingStates(t *testing.
 				}
 			}
 			var result worktree.RemovalResult
-			if err := json.Unmarshal(runRemovalStatsCLI(t, "remove", target, "--repo", repo, flag, "--yes", "--json"), &result); err != nil || !result.Removed {
+			if err := json.Unmarshal(runRemovalStatsCLI(t, "remove", target, "--repo", repo, flag, "--force", "--yes", "--json"), &result); err != nil || !result.Removed {
 				t.Fatalf("valid narrow cleanup refused: %+v %v", result, err)
 			}
 		})

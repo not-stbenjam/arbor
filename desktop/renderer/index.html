@@ -13,21 +13,9 @@
     <script src="app.js" type="module"></script>
   </head>
   <body>
+    <!-- macOS only: the window has no system title bar there. -->
     <header class="titlebar">
-      <div class="window-brand">
-        <span data-icon="branch"></span><span>Arbor</span>
-      </div>
-      <span id="window-context">Worktrees</span>
-      <div class="titlebar-right">
-        <button
-          id="theme-button"
-          class="icon-button"
-          title="Appearance"
-          aria-label="Change appearance"
-        >
-          <span data-icon="sun"></span>
-        </button>
-      </div>
+      <span id="window-context">Arbor</span>
     </header>
     <div class="workspace">
       <aside
@@ -66,8 +54,15 @@
             ><span class="shortcut" id="settings-shortcut">⌘,</span>
           </button>
           <div class="sidebar-version">
-            <span id="connection-label">Local workspace</span
-            ><span id="version"></span>
+            <span id="version"></span
+            ><button
+              id="theme-button"
+              class="icon-button"
+              title="Appearance"
+              aria-label="Change appearance"
+            >
+              <span data-icon="sun"></span>
+            </button>
           </div>
         </div>
       </aside>
@@ -89,34 +84,35 @@
             ><button id="refresh-button" class="button">
               <span data-icon="refresh"></span><span>Refresh</span></button
             ><button id="cleanup-button" class="button button-accent" disabled>
-              <span data-icon="cleanup"></span><span>Delete merged</span>
+              <span data-icon="trash"></span><span>Delete recommended</span>
             </button>
           </div>
         </header>
         <div class="pathbar">
           <div class="path-location">
             <span data-icon="folder"></span
-            ><button id="path-button" title="Change scan folder">
+            ><button id="path-button" title="Change scan folder…">
               <span id="root-label">Home folder</span
-              ><span data-icon="chevron-down"></span>
+              ><span data-icon="edit"></span>
             </button>
           </div>
           <div class="path-actions">
             <label class="tree-sort-label"
               >Sort
-              <select id="tree-sort" aria-label="Sort worktrees">
-                <option value="path">Path</option>
+              <select id="tree-sort" aria-label="Sort worktrees within folders">
+                <option value="path">Name</option>
                 <option value="branch">Branch</option>
                 <option value="repo">Repository</option>
                 <option value="activity">Last active</option>
                 <option value="size">Size</option>
               </select></label
             >
+            <button id="sort-direction" class="icon-button"></button>
             <button
               id="scan-options-button"
               class="icon-button"
-              title="Scan options"
-              aria-label="Scan options"
+              title="Scan settings…"
+              aria-label="Scan settings"
             >
               <span data-icon="sliders"></span>
             </button>
@@ -128,10 +124,9 @@
           aria-label="Scan progress"
           hidden
         >
-          <div class="progress-heading" id="progress-heading">
-            <span data-icon="refresh"></span
-            ><strong id="progress-stage" role="status">Starting scan…</strong
-            ><button class="button" id="stop-scan">Stop scan</button>
+          <div class="progress-heading" id="progress-heading" hidden>
+            <strong id="progress-stage" role="status"></strong
+            ><button class="button" id="stop-scan">Stop all</button>
           </div>
           <div id="host-progress-list" hidden></div>
         </section>
@@ -148,7 +143,8 @@
         <div id="recommendation-note" class="recommendation-note" hidden>
           <span data-icon="check-circle"></span
           ><span
-            >Clean worktrees whose commits are already merged. Cleanup keeps
+            >Clean worktrees whose commits are already merged.
+            <strong>Delete recommended</strong> removes exactly these and keeps
             their branches. Worktrees created in the last day wait until they
             are used.</span
           >
@@ -168,7 +164,7 @@
                   <tr>
                     <th class="branch-column">
                       <button data-sort="path">
-                        Folder / Worktree <span data-icon="sort"></span>
+                        Worktree <span data-icon="sort"></span>
                       </button>
                     </th>
                     <th class="activity-column">
@@ -178,7 +174,7 @@
                     </th>
                     <th class="size-column">
                       <button data-sort="size">
-                        Size <span data-icon="sort"></span>
+                        <span data-icon="sort"></span> Size
                       </button>
                     </th>
                     <th class="action-column">
@@ -192,9 +188,13 @@
             </div>
             <div class="selection-bar" id="selection-bar" hidden>
               <span id="selection-label"></span
-              ><button class="button" id="remove-selected">
-                <span data-icon="trash"></span>Delete selected
-              </button>
+              ><span class="selection-actions"
+                ><button class="button" id="clear-selection">
+                  Clear selection</button
+                ><button class="button" id="remove-selected">
+                  <span data-icon="trash"></span>Delete selected…
+                </button></span
+              >
             </div>
           </section>
         </div>
@@ -209,7 +209,7 @@
     <dialog id="settings-dialog">
       <form id="settings-form">
         <div class="dialog-header">
-          <h2>Workspace settings</h2>
+          <h2>Settings</h2>
           <button
             type="button"
             class="icon-button"
@@ -220,8 +220,9 @@
           </button>
         </div>
         <div class="dialog-body">
+          <h3 class="settings-group">What to scan</h3>
           <label class="field-label" for="settings-host">Host</label>
-          <select id="settings-host" class="text-input"></select>
+          <select id="settings-host" class="text-input" autofocus></select>
           <label class="field-label" for="scan-root">Scan folder</label>
           <div class="input-group">
             <input id="scan-root" class="text-input" required /><button
@@ -232,26 +233,62 @@
               Choose…
             </button>
           </div>
+          <p id="settings-error" class="form-error" role="alert" hidden></p>
           <p class="field-hint" id="root-help">
-            Discover Git repositories and registered worktrees in this folder.
+            Arbor finds the Git repositories in this folder and lists their
+            linked worktrees.
           </p>
           <div class="setting-row">
             <label for="scan-github"
-              ><strong>Verify pull requests with GitHub</strong
+              ><strong>Check GitHub pull requests</strong
               ><span
-                >Use the GitHub CLI signed in on the selected machine.</span
+                >Recognizes squash and rebase merges. Needs the GitHub CLI,
+                signed in, on the host being scanned.</span
               ></label
             ><input type="checkbox" id="scan-github" />
           </div>
           <div class="setting-row">
             <label for="scan-fetch"
-              ><strong>Fetch remote branches</strong
+              ><strong>Fetch before scanning</strong
               ><span
-                >Refresh remote references before checking push and merge
-                status.</span
+                >Updates remote branches first, so merge status is current.
+                Scans take longer.</span
               ></label
             ><input type="checkbox" id="scan-fetch" />
           </div>
+          <details class="exclusion-setting">
+            <summary>
+              <span class="exclusion-title">Folders to skip</span
+              ><span class="exclusion-count" id="scan-excludes-count"></span>
+            </summary>
+            <p class="field-hint">
+              These folders are not searched for repositories. Files inside a
+              listed worktree are still measured, and are deleted with it.
+            </p>
+            <textarea
+              id="scan-excludes"
+              class="text-input exclusions-input"
+              rows="5"
+              spellcheck="false"
+              aria-label="Folders to skip, one name or path per line"
+            ></textarea>
+            <div class="exclusion-heading">
+              <p class="field-hint">
+                One name or path per line, such as <code>node_modules</code> or
+                <code>~/scratch</code>. A name matches at any depth. *, ? and
+                [abc] match within a name; ** spans folders. Leave empty to
+                search everywhere.
+              </p>
+              <button
+                type="button"
+                class="text-button"
+                id="scan-reset-excludes"
+              >
+                Restore defaults
+              </button>
+            </div>
+          </details>
+          <h3 class="settings-group">Arbor</h3>
           <div class="setting-row">
             <label for="theme-select"
               ><strong>Appearance</strong
@@ -262,34 +299,14 @@
               <option value="dark">Dark</option>
             </select>
           </div>
-          <div class="exclusion-setting">
-            <div class="exclusion-heading">
-              <label class="field-label" for="scan-excludes"
-                >Excluded directories</label
-              ><button
-                type="button"
-                class="text-button"
-                id="scan-reset-excludes"
+          <div class="setting-row reset-setting">
+            <div>
+              <strong>Start over</strong
+              ><span
+                >Forgets hosts, folders and settings. Repositories, worktrees
+                and statistics are not touched.</span
               >
-                Restore defaults
-              </button>
             </div>
-            <textarea
-              id="scan-excludes"
-              class="text-input exclusions-input"
-              rows="4"
-              spellcheck="false"
-            ></textarea>
-            <p class="field-hint">
-              One name or path pattern per line. Names match any directory;
-              paths exclude an anchored subtree. Use *, ?, or [abc] within
-              names, and a whole ** path component across directories. For
-              example, ~/.codex*/.tmp. Leave empty to scan all directories. The
-              chosen scan folder is always included.
-            </p>
-          </div>
-          <div class="reset-setting">
-            <p>Resets settings, not repositories, worktrees, or statistics.</p>
             <button type="button" id="reset-preferences" class="button">
               Reset to defaults…
             </button>
@@ -328,13 +345,13 @@
           <span id="setup-step-label">1 of 3</span>
         </div>
         <div class="dialog-body setup-body">
-          <h2 id="setup-title" tabindex="-1">Choose your workspace</h2>
+          <h2 id="setup-title" tabindex="-1">Choose what to scan</h2>
           <p id="setup-description">
-            Start with the machine and folder where you keep your Git projects.
+            Start with the computer and folder where you keep your Git projects.
           </p>
-          <section id="setup-step-1" aria-label="Workspace location">
+          <section id="setup-step-1" aria-label="Host and folder">
             <fieldset class="setup-machine-options">
-              <legend class="sr-only">Machine</legend>
+              <legend class="sr-only">Host</legend>
               <label class="setup-machine-option"
                 ><input
                   type="radio"
@@ -356,7 +373,7 @@
                 /><span data-icon="server"></span
                 ><span
                   ><strong>SSH host</strong
-                  ><small>Scan a remote machine</small></span
+                  ><small>Scan another computer</small></span
                 ></label
               >
             </fieldset>
@@ -368,8 +385,9 @@
                 placeholder="user@hostname or SSH alias"
               />
               <p class="field-hint">
-                Uses your SSH config and keys. Arbor installs its matching CLI
-                on the host.
+                Uses your SSH config and keys, and needs a connection that
+                works without a password or host-key prompt. Arbor installs
+                its matching command-line tool on the host.
               </p>
             </div>
             <label class="field-label" for="setup-root">Scan folder</label>
@@ -380,46 +398,65 @@
                 value="~"
                 required
               /><button class="button" type="button" id="setup-choose-folder">
-                Choose…
+                Choose folder…
               </button>
             </div>
             <p class="field-hint">
-              Choose your projects folder for a faster first scan. Scanning your
-              entire home folder can take longer: Arbor walks directories, then
-              checks Git status and measures worktree files.
+              Choose your projects folder for a quick first scan. Your whole
+              home folder (~) works too, but can take a few minutes; you can
+              stop a scan at any time.
             </p>
           </section>
           <section id="setup-step-2" aria-label="Scan options" hidden>
             <div class="setting-row">
               <label for="setup-github"
-                ><strong>Verify pull requests with GitHub</strong
+                ><strong>Check GitHub pull requests</strong
                 ><span
-                  >Uses your signed-in GitHub CLI. Adds network requests to
-                  check merged pull requests.</span
+                  >Recognizes squash and rebase merges. Needs the GitHub CLI,
+                  signed in, on the host being scanned.</span
                 ></label
               ><input type="checkbox" id="setup-github" />
             </div>
             <div class="setting-row">
               <label for="setup-fetch"
-                ><strong>Fetch remote branches</strong
+                ><strong>Fetch before scanning</strong
                 ><span
-                  >Runs a fetch for discovered repositories. More current merge
-                  and push information, but a slower scan.</span
+                  >Updates remote branches first, so merge status is current.
+                  Scans take longer.</span
                 ></label
               ><input type="checkbox" id="setup-fetch" />
             </div>
             <p class="setup-local-note">
               <span data-icon="info"></span
               ><span
-                >Both are optional. With them off, Arbor uses local Git data and
-                cached remote references. You can change this later.</span
+                >Both are optional and can be changed later. Without them,
+                Arbor uses the Git data already on disk.</span
               >
             </p>
-            <div class="exclusion-setting">
+            <details class="exclusion-setting">
+              <summary>
+                <span class="exclusion-title">Folders to skip</span
+                ><span class="exclusion-count" id="setup-excludes-count"></span>
+              </summary>
+              <p class="field-hint">
+                These folders are not searched for repositories. Files inside a
+                listed worktree are still measured, and are deleted with it.
+              </p>
+              <textarea
+                id="setup-excludes"
+                class="text-input exclusions-input"
+                rows="5"
+                spellcheck="false"
+                aria-label="Folders to skip, one name or path per line"
+              ></textarea>
               <div class="exclusion-heading">
-                <label class="field-label" for="setup-excludes"
-                  >Excluded directories</label
-                ><button
+                <p class="field-hint">
+                  One name or path per line, such as <code>node_modules</code> or
+                  <code>~/scratch</code>. A name matches at any depth. *, ? and
+                  [abc] match within a name; ** spans folders. Leave empty to
+                  search everywhere.
+                </p>
+                <button
                   type="button"
                   class="text-button"
                   id="setup-reset-excludes"
@@ -427,19 +464,7 @@
                   Restore defaults
                 </button>
               </div>
-              <textarea
-                id="setup-excludes"
-                class="text-input exclusions-input"
-                rows="4"
-                spellcheck="false"
-              ></textarea>
-              <p class="field-hint">
-                One name or path pattern per line. Names match any directory;
-                paths exclude an anchored subtree. Use *, ?, or [abc] within
-                names, and a whole ** path component across directories.
-                Example: ~/.codex*/.tmp. Empty means scan all.
-              </p>
-            </div>
+            </details>
             <div class="setting-row">
               <label for="setup-theme"
                 ><strong>Appearance</strong
@@ -454,23 +479,23 @@
           <section id="setup-step-3" aria-label="Review setup" hidden>
             <dl class="setup-summary">
               <div>
-                <dt>Machine</dt>
+                <dt>Host</dt>
                 <dd id="setup-review-machine"></dd>
               </div>
               <div>
-                <dt>Folder</dt>
+                <dt>Scan folder</dt>
                 <dd id="setup-review-root"></dd>
               </div>
               <div>
-                <dt>GitHub verification</dt>
+                <dt>GitHub pull requests</dt>
                 <dd id="setup-review-github"></dd>
               </div>
               <div>
-                <dt>Remote fetch</dt>
+                <dt>Fetch before scanning</dt>
                 <dd id="setup-review-fetch"></dd>
               </div>
               <div>
-                <dt>Excluded directories</dt>
+                <dt>Folders to skip</dt>
                 <dd id="setup-review-excludes"></dd>
               </div>
               <div>
@@ -481,9 +506,9 @@
             <div class="setup-explanation">
               <span data-icon="search"></span>
               <p>
-                Arbor discovers repositories, checks their registered worktrees,
-                and reads changes, commits, and disk usage. Progress appears as
-                it works. Scanning never deletes a worktree.
+                Arbor finds linked worktrees and checks their status and size.
+                You can watch it work and stop it at any time. Scanning never
+                deletes anything.
               </p>
             </div>
           </section>
@@ -508,11 +533,11 @@
     </dialog>
     <dialog id="machine-dialog">
       <div class="dialog-header">
-        <h2>Machines</h2>
+        <h2>Hosts</h2>
         <button
           class="icon-button"
           data-close="machine-dialog"
-          aria-label="Close machines"
+          aria-label="Close hosts"
         >
           <span data-icon="close"></span>
         </button>
@@ -520,36 +545,46 @@
       <div class="dialog-body">
         <div id="machine-list" class="machine-list"></div>
         <form id="host-form">
-          <label class="field-label" for="host-input">Connect over SSH</label>
+          <h3 class="settings-group">Add an SSH host</h3>
+          <label class="field-label" for="host-input">SSH host</label>
+          <input
+            id="host-input"
+            class="text-input"
+            placeholder="user@hostname or SSH alias"
+            required
+          />
+          <label class="field-label" for="host-root"
+            >Scan folder on that host</label
+          >
           <div class="input-group">
-            <input
-              id="host-input"
-              class="text-input"
-              placeholder="user@hostname or SSH alias"
-              required
-            /><button class="button button-accent" type="submit">
-              Connect
+            <input id="host-root" class="text-input" value="~" required /><button
+              class="button button-accent"
+              type="submit"
+            >
+              Add & scan
             </button>
           </div>
+          <p id="host-error" class="form-error" role="alert" hidden></p>
           <p class="field-hint">
-            Uses your SSH config and keys. Arbor automatically installs its
-            matching CLI on the host.
+            ~ is the host's home folder. Arbor uses your SSH config and keys,
+            needs a connection that works without a password or host-key
+            prompt, and installs its matching command-line tool on the host.
           </p>
         </form>
       </div>
     </dialog>
     <dialog id="notes-dialog">
       <div class="dialog-header">
-        <h2>Scan notes</h2>
+        <h2>Scan warnings</h2>
         <button
           class="icon-button"
           data-close="notes-dialog"
-          aria-label="Close scan notes"
+          aria-label="Close scan warnings"
         >
           <span data-icon="close"></span>
         </button>
       </div>
-      <div class="dialog-body" id="notes-content"></div>
+      <div class="dialog-body" id="notes-content" tabindex="-1" autofocus></div>
     </dialog>
     <dialog id="statistics-dialog">
       <div class="dialog-header">
@@ -562,10 +597,14 @@
           <span data-icon="close"></span>
         </button>
       </div>
-      <div id="statistics-content" class="dialog-body" aria-live="polite"></div>
-      <div class="statistics-footer">
-        Desktop + CLI · Stored on this machine · No worktree path history
-      </div>
+      <div
+        id="statistics-content"
+        class="dialog-body"
+        aria-live="polite"
+        tabindex="-1"
+        autofocus
+      ></div>
+      <div class="statistics-footer"></div>
     </dialog>
     <div class="toast-region" id="toast-region" aria-live="polite"></div>
   </body>

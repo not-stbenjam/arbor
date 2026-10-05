@@ -1,4 +1,4 @@
-import { readExcludes } from "./input-values.mjs";
+import { readExcludes, summarizeExcludes } from "./input-values.mjs";
 import { isValidSSHHost, MAX_HOST_LENGTH } from "../common/ssh-host.mjs";
 
 // Wizard owns only its steps, per-machine draft roots, and submission state.
@@ -11,6 +11,10 @@ export function createSetupController({
 }) {
   const $ = (selector) => document.querySelector(selector);
   $("#setup-host").maxLength = MAX_HOST_LENGTH;
+  const showExcludeCount = summarizeExcludes(
+    $("#setup-excludes"),
+    $("#setup-excludes-count"),
+  );
   let setupStep = 1,
     setupInitialized = false,
     setupSubmitting = false;
@@ -32,12 +36,12 @@ export function createSetupController({
   }
   function renderSetupStep(focus = true) {
     const titles = [
-      "Choose your workspace",
+      "Choose what to scan",
       "Set your scan preferences",
       "Ready to scan",
     ];
     const descriptions = [
-      "Start with the machine and folder where you keep your Git projects.",
+      "Start with the computer and folder where you keep your Git projects.",
       "Choose how much to check. These settings are saved for future scans.",
       "Review your choices. You can change them later in Settings.",
     ];
@@ -55,16 +59,13 @@ export function createSetupController({
     if (setupStep === 3) {
       const options = setupOptions();
       $("#setup-review-machine").textContent = options.host || "This computer";
-      $("#setup-review-root").textContent = options.root;
-      $("#setup-review-github").textContent = options.github
-        ? "On · network requests"
-        : "Off · local Git data";
-      $("#setup-review-fetch").textContent = options.fetch
-        ? "On · fetch each repository"
-        : "Off · cached references";
+      $("#setup-review-root").textContent =
+        options.root === "~" ? "Home folder (~)" : options.root;
+      $("#setup-review-github").textContent = options.github ? "On" : "Off";
+      $("#setup-review-fetch").textContent = options.fetch ? "On" : "Off";
       $("#setup-review-excludes").textContent = options.excludes.length
-        ? `${options.excludes.length} entries`
-        : "None · scan all directories";
+        ? `${options.excludes.length} ${options.excludes.length === 1 ? "pattern" : "patterns"}`
+        : "None · search everywhere";
       $("#setup-review-excludes").title = options.excludes.join("\n");
       $("#setup-review-theme").textContent =
         $("#setup-theme").selectedOptions[0].textContent;
@@ -84,6 +85,7 @@ export function createSetupController({
       $("#setup-root").value = context.root || "~";
       $("#setup-theme").value = context.theme;
       $("#setup-excludes").value = context.excludes.join("\n");
+      showExcludeCount();
       $("#setup-github").checked = false;
       $("#setup-fetch").checked = false;
       renderSetupStep(false);
@@ -186,6 +188,7 @@ export function createSetupController({
 
   $("#setup-reset-excludes").onclick = () => {
     $("#setup-excludes").value = defaults.excludes.join("\n");
+    showExcludeCount();
   };
   function reset() {
     setupStep = 1;

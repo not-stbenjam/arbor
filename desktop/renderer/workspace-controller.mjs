@@ -244,8 +244,15 @@ export function createWorkspaceController({
         const freed = list
           .filter((w) => !w.missing && gone.has(key(w.host, w.path)))
           .reduce((total, w) => total + Math.max(0, w.sizeBytes || 0), 0);
+        // Sizes come from the last scan, so the figure is an estimate.
+        const folders = list.filter(
+          (w) => !w.missing && gone.has(key(w.host, w.path)),
+        ).length;
+        const count = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
         notify(
-          `Deleted ${removed.length} ${removed.length === 1 ? "worktree" : "worktrees"}${freed ? `, freeing ${size(freed)}` : ""}.`,
+          folders
+            ? `Deleted ${count(removed.length, "worktree")}${freed ? ` · About ${size(freed)} recovered` : ""}.`
+            : `Removed ${count(removed.length, "missing worktree registration")}.`,
         );
       }
       if (failed.length)

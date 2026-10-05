@@ -10,6 +10,10 @@ import { createWorktreeView } from "./worktree-view.mjs";
 // Composition root: connect controllers through commands and read-only accessors.
 // Backend state, tree interaction, preferences, and each dialog have separate owners.
 const $ = (selector) => document.querySelector(selector);
+document.body.classList.toggle(
+  "platform-darwin",
+  window.arbor?.platform === "darwin",
+);
 initializeDOM();
 function notify(message, error = false) {
   const el = document.createElement("div");
@@ -17,7 +21,16 @@ function notify(message, error = false) {
   el.innerHTML = `${icon(error ? "warning" : "check-circle")}<span>${esc(message)}</span><button class="icon-button" aria-label="Dismiss notification">${icon("close")}</button>`;
   el.querySelector("button").onclick = () => el.remove();
   $("#toast-region").append(el);
-  setTimeout(() => el.remove(), error ? 12000 : 5500);
+  // It leaves on its own, but not while someone is reading or reaching for it.
+  let timer;
+  const leave = () => {
+    timer = setTimeout(() => el.remove(), error ? 12000 : 5500);
+  };
+  const stay = () => clearTimeout(timer);
+  for (const type of ["mouseenter", "focusin"]) el.addEventListener(type, stay);
+  for (const type of ["mouseleave", "focusout"])
+    el.addEventListener(type, leave);
+  leave();
 }
 
 async function bootstrap() {
@@ -101,8 +114,9 @@ async function bootstrap() {
       theme: preferences.theme,
       excludes: preferences.options.excludes,
     });
-    trees?.render();
-    chrome?.render();
+    // The list reports each projection to the chrome, which draws around it.
+    if (trees) trees.render();
+    else chrome?.render();
   }
   setup = createSetupController({
     document,
@@ -129,18 +143,18 @@ async function bootstrap() {
     workspace,
     tree,
     showWorktreeMenu,
-    // Filtering changes what Delete merged acts on, and so its count.
-    onRender: () => chrome?.renderControls(),
+    // Filtering changes what Delete recommended acts on, and so its count.
+    onRender: () => chrome?.render(),
   });
   chrome = createWorkspaceView({ document, workspace, shown: () => trees });
   $("#statistics-button").onclick = statistics.open;
   $("#warning-button").onclick = () => {
-    $("#notes-content").innerHTML = (workspace.snapshot.report?.warnings || [])
-      .map(
-        (message) =>
-          `<p class="detail-note warning">${icon("warning")}<span>${esc(message)}</span></p>`,
+    $("#notes-content").innerHTML =
+      `<p class="field-hint">These were skipped. Everything else was scanned normally.</p><ul class="scan-warnings">${(
+        workspace.snapshot.report?.warnings || []
       )
-      .join("");
+        .map((message) => `<li>${icon("warning")}<span>${esc(message)}</span></li>`)
+        .join("")}</ul>`;
     $("#notes-dialog").showModal();
   };
   document.querySelectorAll("[data-close]").forEach((button) => {

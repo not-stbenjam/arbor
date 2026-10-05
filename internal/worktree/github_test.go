@@ -129,3 +129,84 @@ func TestGitHubMergedRecommendationsRequireTrustedDefaultBase(t *testing.T) {
 		})
 	}
 }
+
+// A pull request merged into a fork's own default branch has not landed where
+// the project's default branch lives. Only the repository the default ref was
+// read from can say that work is finished.
+func TestGitHubMergeIntoAForkIsNotMergeEvidence(t *testing.T) {
+	cases := []struct {
+		name, baseRepo string
+		upstreamRef    bool
+		wantMerged     bool
+	}{
+		{"merged upstream, tracked", "owner/project", true, true},
+		{"merged into the fork, upstream tracked", "me/project", true, false},
+		{"merged upstream, no tracking ref yet", "owner/project", false, true},
+		{"merged into the fork, no tracking ref yet", "me/project", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			repo := testRepo(t, filepath.Join(root, "repo"))
+			initial := testGit(t, repo, "rev-parse", "HEAD")
+			wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+			testWrite(t, filepath.Join(wt, "tracked.txt"), "topic commit\n")
+			testGit(t, wt, "commit", "-am", "Topic work")
+			testGit(t, repo, "remote", "add", "origin", "https://github.com/me/project.git")
+			testGit(t, repo, "remote", "add", "upstream", "https://github.com/owner/project.git")
+			if tc.upstreamRef {
+				// The project's default branch does not contain the topic commit.
+				testGit(t, repo, "update-ref", "refs/remotes/upstream/main", initial)
+			}
+			w := testTree(t, testScan(t, root), wt)
+			if w.Merged {
+				t.Fatalf("fixture must start unmerged: %+v", w)
+			}
+			data, err := json.Marshal([]githubPull{testPull(t, w.Head, w.Branch, "me/project", tc.baseRepo, "main", true)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			bin := t.TempDir()
+			quotedJSON := "'" + strings.ReplaceAll(string(data), "'", "'\\''") + "'"
+			script := "#!/bin/sh\ncase \"$*\" in\n  *'/pulls?per_page=100') printf '%s\\n' " + quotedJSON + ";;\n  *) printf '%s\\n' '{\"default_branch\":\"main\"}';;\nesac\n"
+			if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			inspect(context.Background(), &w, Options{GitHub: true})
+			if w.Merged != tc.wantMerged || w.Recommended != tc.wantMerged {
+				t.Fatalf("merged=%v recommended=%v, want %v; default ref %q, reason %q", w.Merged, w.Recommended, tc.wantMerged, w.DefaultRef, w.MergeReason)
+			}
+			if w.PR == nil || !w.PR.Merged {
+				t.Fatalf("the pull request itself should still be reported: %+v", w.PR)
+			}
+		})
+	}
+}
+
+func TestMergeDestinationFollowsTheDefaultRef(t *testing.T) {
+	slugs := map[string]string{"origin": "me/project", "upstream": "owner/project", "mirror": ""}
+	ordered := []string{"me/project", "owner/project"}
+	for ref, want := range map[string]string{
+		"refs/remotes/upstream/main": "owner/project",
+		"refs/remotes/origin/main":   "me/project",
+		"refs/heads/main":            "owner/project",
+		"":                           "owner/project",
+		"refs/remotes/mirror/main":   "",
+	} {
+		if got := mergeDestination(ref, slugs, ordered); got != want {
+			t.Errorf("mergeDestination(%q) = %q, want %q", ref, got, want)
+		}
+	}
+	// A default branch read from a remote that is not on GitHub leaves no
+	// GitHub repository entitled to declare the work merged.
+	if got := mergeDestination("refs/remotes/upstream/main", map[string]string{"upstream": "", "origin": "me/project"}, []string{"me/project"}); got != "" {
+		t.Errorf("a fork was trusted in place of a non-GitHub upstream: %q", got)
+	}
+	if got := mergeDestination("refs/heads/main", map[string]string{"company": "owner/project"}, []string{"owner/project"}); got != "owner/project" {
+		t.Errorf("a single GitHub remote should be the destination: %q", got)
+	}
+	if got := mergeDestination("refs/heads/main", map[string]string{"a": "one/project", "b": "two/project"}, []string{"one/project", "two/project"}); got != "" {
+		t.Errorf("an ambiguous destination must not be guessed: %q", got)
+	}
+}

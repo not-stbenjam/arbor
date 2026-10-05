@@ -426,7 +426,7 @@ class Backend {
       ...(row.blockers || []).filter(
         (message) => !message.startsWith("Inspection failed:"),
       ),
-      `Inspection failed: ${error.message}. Use Retry Inspection from the context menu.`,
+      `Inspection failed: ${error.message}. Choose Check again from its menu.`,
     ];
   }
 

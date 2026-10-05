@@ -165,16 +165,19 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
   };
   const markup = renderTreeRows([row], options);
   const escapedContext =
-    "Missing checkout · &lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt; · &lt;repo&gt;&amp;&quot;";
+    "Folder missing · &lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt; · &lt;repo&gt;&amp;&quot;";
   assert.ok(markup.includes(`title="${escapedContext}"`));
   assert.ok(
     markup.includes(
-      '<span class="worktree-state" data-tone="muted" title="The folder is gone. Only its Git registration remains.">Missing checkout</span> · &lt;script&gt;',
+      '<span class="worktree-state" data-tone="muted" title="The folder is gone. Deleting removes only its leftover Git registration.">Folder missing</span><span> · </span><span class="worktree-branch">&lt;script&gt;',
     ),
   );
+  // The row leads with the worktree's name. Its folder rows carry the rest
+  // of the path, which stays available as a tooltip and in every action.
+  assert.doesNotMatch(markup, /path-parent|&lt;parent&gt;/);
   assert.ok(markup.includes('id="worktree-row-id&quot;unsafe"'));
   assert.doesNotMatch(markup, /<script>|data-id="id"unsafe/);
-  assert.match(markup, /Missing checkout/);
+  assert.match(markup, /Folder missing/);
   assert.match(markup, /class="size-cell">—</);
   assert.match(markup, /aria-selected="true"/);
   assert.match(markup, /data-delete="id&amp;|data-delete="id&quot;unsafe"/);
@@ -182,14 +185,12 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
   for (const expected of [
     'data-path="/work/&lt;topic&gt;"',
     'title="/work/&lt;topic&gt;"',
-    'aria-label="/work/&lt;topic&gt;"',
-    '<span class="path-parent">/work/&lt;parent&gt;/</span>',
-    '<span class="path-basename">&lt;topic&gt;</span>',
+    '<span class="path-leaf"><span class="path-basename">&lt;topic&gt;</span></span>',
     'data-id="id&quot;unsafe"',
     'data-worktree-menu="id&quot;unsafe"',
     'aria-label="Actions for /work/&lt;topic&gt;"',
     'aria-label="Delete /work/&lt;topic&gt;"',
-    "&lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt; · &lt;repo&gt;&amp;&quot;",
+    '<span class="worktree-branch">&lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt;</span><span> · &lt;repo&gt;&amp;&quot;</span>',
   ])
     assert.ok(markup.includes(expected), `missing escaped markup: ${expected}`);
   assert.match(
@@ -211,6 +212,9 @@ test("a row states the one fact that decides cleanup, and stays quiet otherwise"
     [{ ...removable }, null],
     [{ ...removable, pending: true, merged: true }, null],
     [{ ...removable, merged: true, recommended: true }, "safe", "Merged"],
+    // Green marks exactly what Delete recommended removes. A merged commit that
+    // is not offered for one-click cleanup must not look as if it were.
+    [{ ...removable, merged: true, recommended: false }, null],
     // Ancestry alone is not finished work in a checkout created moments ago.
     [{ ...removable, merged: true, fresh: true }, "muted", "New"],
     [{ ...discardable, locked: true, merged: true }, "muted", "Locked"],
@@ -218,14 +222,15 @@ test("a row states the one fact that decides cleanup, and stays quiet otherwise"
     [
       { ...discardable, dirty: true, changedFiles: 1, ignored: true },
       "caution",
-      "1 uncommitted change",
+      "1 changed file",
     ],
     [
       { ...discardable, dirty: true, changedFiles: 12 },
       "caution",
-      "12 uncommitted changes",
+      "12 changed files",
     ],
-    [{ ...discardable, empty: true }, "muted", "Empty checkout"],
+    [{ ...discardable, dirty: true }, "caution", "Uncommitted changes"],
+    [{ ...discardable, empty: true }, "muted", "Empty folder"],
     [{ blockers: ["Contains submodules"] }, "blocked", "Contains submodules"],
     [
       { blockers: ["Inspection failed: ssh: timeout. Use Retry Inspection."] },
@@ -268,7 +273,7 @@ test("a row states the one fact that decides cleanup, and stays quiet otherwise"
   );
   assert.ok(
     markup.includes(
-      '<span class="worktree-state" data-tone="muted" title="&lt;held&gt; &amp; &quot;kept&quot;">Locked</span> · topic · repo',
+      '<span class="worktree-state" data-tone="muted" title="&lt;held&gt; &amp; &quot;kept&quot;">Locked</span><span> · </span><span class="worktree-branch">topic</span><span> · repo</span>',
     ),
   );
   assert.ok(markup.includes('title="Locked · topic · repo"'));
@@ -719,6 +724,16 @@ test("settings warnings stay visible without failing scans and errors take prior
   assert.equal(element("#error-message").textContent, "Operation failed");
   assert.equal(element("#error-banner").attributes.role, "alert");
   assert.equal(element("#error-banner").dataset.kind, "error");
+  // The command line's lower-case messages read as sentences, while a host's
+  // name at the start of a line keeps the spelling its owner gave it.
+  fixture.workspace.showError(
+    "folder does not exist: /srv/code\nbuild-vps: Could not connect to build-vps over SSH\nées introuvables\nmyhost: folder does not exist",
+  );
+  view.render();
+  assert.equal(
+    element("#error-message").textContent,
+    "Folder does not exist: /srv/code\nbuild-vps: Could not connect to build-vps over SSH\nÉes introuvables\nmyhost: folder does not exist",
+  );
   element("#dismiss-error").onclick();
   view.render();
   assert.equal(element("#error-message").textContent, warning);
@@ -792,7 +807,11 @@ test("workspace chrome stops coordinator scans and reset publishes a clean coord
     element("#host-progress-list").innerHTML,
     /data-stop-host="vps"/,
   );
-  assert.equal(element("#stop-scan").textContent, "Stop all scans");
+  assert.equal(
+    element("#progress-heading").hidden,
+    true,
+    "one scanning host has its own Stop and needs no shared heading",
+  );
   assert.equal(
     fixture.workspace.canDelete(cached),
     true,
@@ -910,6 +929,15 @@ function preferenceDocument() {
         open: false,
         dataset: {},
         attributes: {},
+        classes: new Set(),
+        classList: {
+          toggle(name, on) {
+            const classes = elements.get(selector).classes;
+            if (on) classes.add(name);
+            else classes.delete(name);
+          },
+        },
+        listeners: {},
         setAttribute(name, value) {
           this.attributes[name] = value;
         },
@@ -917,7 +945,9 @@ function preferenceDocument() {
           delete this.attributes[name];
         },
         selectedOptions: [{ textContent: "System" }],
-        addEventListener() {},
+        addEventListener(type, listener) {
+          this.listeners[type] = listener;
+        },
         querySelectorAll() {
           return [];
         },
@@ -991,7 +1021,6 @@ test("workspace labels have single owners and tree rendering never touches them"
     "#root-label",
     "#path-button",
     "#window-context",
-    "#connection-label",
     "#version",
   ])
     assert.equal(visited.has(selector), false, `tree must not own ${selector}`);
@@ -1004,9 +1033,9 @@ test("workspace labels have single owners and tree rendering never touches them"
   assert.equal(element("#root-label").textContent, "build-vps:/sessions");
   assert.equal(
     element("#path-button").title,
-    "Scan folder: build-vps:/sessions",
+    "Scanning build-vps:/sessions. Change in Settings…",
   );
-  for (const selector of ["#window-context", "#connection-label", "#version"])
+  for (const selector of ["#window-context", "#version"])
     assert.equal(
       visited.has(selector),
       false,
@@ -1015,8 +1044,12 @@ test("workspace labels have single owners and tree rendering never touches them"
   visited.clear();
   chrome.render();
   assert.equal(element("#window-context").textContent, "build-vps — Arbor");
-  assert.equal(element("#connection-label").textContent, "SSH workspace");
-  assert.equal(element("#version").textContent, "test-version");
+  assert.equal(
+    document.title,
+    "build-vps — Arbor",
+    "the system title bar names the same host as the in-window one",
+  );
+  assert.equal(element("#version").textContent, "Arbor test-version");
   for (const selector of ["#machine-label", "#root-label", "#path-button"])
     assert.equal(
       visited.has(selector),
@@ -1171,11 +1204,21 @@ test("settings emit one scan command and never persist scan options themselves",
     }),
   );
   preferences.openSettings();
+  // Appearance is not a scan setting. It applies and saves when chosen,
+  // without waiting for, or causing, a scan.
   element("#theme-select").value = "dark";
+  await element("#theme-select").onchange();
+  assert.equal(preferences.theme, "dark");
+  assert.equal(document.documentElement.dataset.theme, "dark");
+  assert.deepEqual(
+    writes.map((value) => value.theme),
+    ["dark"],
+  );
+  assert.deepEqual(commands, [], "choosing a theme starts no scan");
   element("#scan-root").value = "/new";
   element("#scan-excludes").value = "**/build";
   await element("#settings-form").onsubmit({ preventDefault() {} });
-  assert.equal(writes.length, 0);
+  assert.equal(writes.length, 1, "submitting persists nothing itself");
   assert.deepEqual(commands, [
     {
       root: "/new",
@@ -1311,7 +1354,7 @@ test("a cleanup reports what it freed, counting only folders that existed", asyn
   });
   await fixture.workspace.deleteWorktrees(rows);
   assert.deepEqual(fixture.notifications, [
-    ["Deleted 3 worktrees, freeing 3 KB."],
+    ["Deleted 3 worktrees · About 3 KB recovered."],
   ]);
   assert.match(fixture.workspace.error, /\/work\/kept: locked/);
   fixture.notifications.length = 0;
@@ -1319,7 +1362,10 @@ test("a cleanup reports what it freed, counting only folders that existed", asyn
     results: [{ path: "/work/gone", removed: true }],
   });
   await fixture.workspace.deleteWorktrees([rows[2]]);
-  assert.deepEqual(fixture.notifications, [["Deleted 1 worktree."]]);
+  // A missing folder was never deleted; only its registration was removed.
+  assert.deepEqual(fixture.notifications, [
+    ["Removed 1 missing worktree registration."],
+  ]);
   fixture.workspace.dispose();
 });
 
@@ -1411,7 +1457,7 @@ test("polling continues after a snapshot that could not be drawn", async () => {
   fixture.workspace.dispose();
 });
 
-test("Delete merged acts on, counts, and describes exactly what the list shows", async () => {
+test("Delete recommended acts on, counts, and describes exactly what the list shows", async () => {
   const { createWorkspaceView } = await import(
     "../renderer/workspace-view.mjs"
   );
@@ -1435,28 +1481,67 @@ test("Delete merged acts on, counts, and describes exactly what the list shows",
   });
   const { document, element } = preferenceDocument();
   let shown = { filtered: all, filtering: false };
+  const timeouts = [];
   const view = createWorkspaceView({
     document,
     workspace: fixture.workspace,
     shown: () => shown,
+    timers: {
+      setTimeout: (expire) => timeouts.push(expire),
+      clearTimeout() {},
+    },
   });
+  const button = element("#cleanup-button");
   view.render();
-  assert.match(element("#cleanup-button").innerHTML, /Delete merged \(2\)/);
-  assert.match(element("#cleanup-button").title, /2 recommended worktrees on/);
+  assert.match(button.innerHTML, /Delete recommended \(2\)/);
+  assert.match(button.title, /Delete the 2 worktrees recommended on/);
   // A search or repository filter narrows the action along with the list.
   shown = { filtered: [all[1], all[2]], filtering: true };
   view.renderControls();
-  assert.match(element("#cleanup-button").innerHTML, /Delete merged \(1\)/);
+  assert.match(button.innerHTML, /Delete recommended \(1\)/);
   assert.match(
-    element("#cleanup-button").title,
-    /Remove 1 recommended worktree shown in this view and reclaim 2 KB/,
+    button.title,
+    /Delete the 1 worktree recommended shown in this view, about 2 KB/,
   );
-  await element("#cleanup-button").onclick();
+
+  // One click beside Refresh must never delete folders. The first click arms
+  // the button, which then says exactly what the second will do.
+  await button.onclick();
+  assert.deepEqual(removed, [], "the first click deletes nothing");
+  assert.match(button.innerHTML, /Confirm: delete 1 worktree</);
+  assert.equal(button.classes.has("armed"), true);
+  assert.match(button.title, /Click again to delete 1 worktree shown/);
+  await button.onclick();
   assert.deepEqual(removed.at(-1).items, [{ id: "b", head: "b" }]);
   assert.equal(removed.at(-1).recommendedOnly, true);
+  assert.equal(button.classes.has("armed"), false);
+
+  // Consent is for the rows it was given for. If the list changes under an
+  // armed button, the next click asks again instead of deleting the new set.
+  await button.onclick();
+  shown = { filtered: all, filtering: false };
+  view.renderControls();
+  assert.equal(button.classes.has("armed"), false, "a new scope disarms");
+  await button.onclick();
+  assert.equal(removed.length, 1, "the changed scope was not deleted unasked");
+  assert.match(button.innerHTML, /Confirm: delete 2 worktrees</);
+  // Waiting too long, or looking away, withdraws the question.
+  timeouts.at(-1)();
+  assert.match(button.innerHTML, /Delete recommended \(2\)/);
+  await button.onclick();
+  button.listeners.blur();
+  assert.match(button.innerHTML, /Delete recommended \(2\)/);
+  await button.onclick();
+  await button.onclick();
+  assert.equal(removed.length, 2);
+  assert.deepEqual(
+    removed.at(-1).items.map((item) => item.id),
+    ["a", "b"],
+  );
+
   shown = { filtered: [all[2]], filtering: true };
   view.renderControls();
-  assert.equal(element("#cleanup-button").disabled, true);
+  assert.equal(button.disabled, true);
   fixture.workspace.dispose();
 });
 

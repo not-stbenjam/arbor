@@ -63,11 +63,38 @@ func ghAPI(ctx context.Context, endpoint string, target any) error {
 	return json.Unmarshal([]byte(raw), target)
 }
 
+// mergeDestination names the one GitHub repository whose default branch
+// decides that work is finished: the remote the default ref was read from.
+// A fork is a normal place for a pull request to begin, and no evidence that
+// the work landed when the pull request was merged into the fork itself.
+func mergeDestination(defaultRef string, slugs map[string]string, ordered []string) string {
+	for _, remote := range []string{"upstream", "origin"} {
+		if strings.HasPrefix(defaultRef, "refs/remotes/"+remote+"/") {
+			return slugs[remote]
+		}
+	}
+	if strings.HasPrefix(defaultRef, "refs/remotes/") {
+		return ""
+	}
+	// With only a local default branch, follow the same preference order.
+	for _, remote := range []string{"upstream", "origin"} {
+		if slugs[remote] != "" {
+			return slugs[remote]
+		}
+	}
+	if len(ordered) == 1 {
+		return ordered[0]
+	}
+	return ""
+}
+
 func checkGitHub(ctx context.Context, w *Worktree) {
 	repos := map[string]bool{}
+	slugs := map[string]string{}
 	var ordered []string
 	for _, remote := range strings.Fields(gitText(ctx, w.Path, "remote")) {
 		slug := githubRepo(gitText(ctx, w.Path, "remote", "get-url", remote))
+		slugs[remote] = slug
 		if slug != "" && !repos[slug] {
 			repos[slug] = true
 			ordered = append(ordered, slug)
@@ -77,6 +104,7 @@ func checkGitHub(ctx context.Context, w *Worktree) {
 		w.GitHubState = "not_github"
 		return
 	}
+	destination := mergeDestination(w.DefaultRef, slugs, ordered)
 	w.GitHubState = "no_pr"
 	anySuccess := false
 	for _, repo := range ordered {
@@ -92,7 +120,7 @@ func checkGitHub(ctx context.Context, w *Worktree) {
 			w.GitHubState = "verified"
 			w.Published = true
 			w.PR = &PullRequest{Number: p.Number, URL: p.URL, Title: p.Title, State: p.State, Merged: p.MergedAt != nil}
-			if p.MergedAt != nil && repos[strings.ToLower(p.Base.Repo.FullName)] {
+			if p.MergedAt != nil && destination != "" && strings.ToLower(p.Base.Repo.FullName) == destination {
 				var base struct {
 					DefaultBranch string `json:"default_branch"`
 				}

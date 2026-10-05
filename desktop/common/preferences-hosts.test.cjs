@@ -29,6 +29,7 @@ async function fixture() {
         },
         focus() {},
         reset() {},
+        querySelector: () => null,
       });
     return elements.get(selector);
   };
@@ -100,7 +101,7 @@ test("host picker distinguishes All/null, local/empty and SSH aliases without st
     "background scanning must not lock navigation",
   );
   assert.equal(f.element("#machine-label").textContent, "All hosts");
-  assert.equal(f.element("#root-label").textContent, "All configured hosts");
+  assert.equal(f.element("#root-label").textContent, "Folders on all hosts");
   assert.equal(f.element("#machine-icon").dataset.kind, "server");
   f.controller.openMachines();
   const markup = f.element("#machine-list").innerHTML;
@@ -203,8 +204,16 @@ test("All-host settings edit a specific machine independently and gate only its 
   f.element("#scan-root").value = "/remote/new";
   f.element("#scan-excludes").value = "~/.codex*/.tmp\nfolder,with,commas";
   f.element("#theme-select").value = "dark";
+  f.element("#theme-select").onchange();
   f.element("#settings-form").onsubmit({ preventDefault() {} });
-  assert.deepEqual(f.calls, [
+  assert.deepEqual(
+    f.calls.filter(([name]) => name === "save").map(([, value]) => value.theme),
+    ["dark"],
+    "appearance saves when chosen, apart from any scan",
+  );
+  assert.deepEqual(
+    f.calls.filter(([name]) => name === "scan"),
+    [
     [
       "scan",
       {
@@ -216,7 +225,8 @@ test("All-host settings edit a specific machine independently and gate only its 
         theme: "dark",
       },
     ],
-  ]);
+    ],
+  );
   assert.equal(
     f.element("#machine-label").textContent,
     "All hosts",
@@ -233,12 +243,34 @@ test("All-host path control opens settings; adding a host saves before selecting
     [],
     "All-host settings must not choose a local filesystem path implicitly",
   );
+  // A new host's first scan starts as soon as it is saved, so the folder to
+  // scan is chosen with it rather than found afterwards to be all of home.
   f.element("#host-input").value = "_new-host";
+  f.element("#host-root").value = " ~/projects ";
   await f.element("#host-form").onsubmit({ preventDefault() {} });
   assert.deepEqual(
     f.calls.map(([name]) => name),
     ["save", "filter"],
   );
   assert.equal(f.calls[0][1].hosts.at(-1).host, "_new-host");
+  assert.equal(f.calls[0][1].hosts.at(-1).root, "~/projects");
   assert.deepEqual(f.calls[1], ["filter", "_new-host"]);
+  assert.equal(f.element("#host-root").value, "~", "the form resets");
+  f.element("#host-input").value = "second-host";
+  f.element("#host-root").value = "";
+  await f.element("#host-form").onsubmit({ preventDefault() {} });
+  assert.equal(f.calls.at(-2)[1].hosts.at(-1).root, "~");
+
+  // The dialog covers the window's notifications, so a problem with the form
+  // is reported inside it and the entry is kept for correction.
+  f.calls.length = 0;
+  f.element("#host-input").value = "not a host";
+  await f.element("#host-form").onsubmit({ preventDefault() {} });
+  assert.deepEqual(f.calls, [], "nothing is saved, selected, or toasted");
+  assert.equal(f.element("#host-error").hidden, false);
+  assert.match(f.element("#host-error").textContent, /without spaces/);
+  assert.equal(f.element("#host-input").value, "not a host");
+  f.element("#host-input").value = "third-host";
+  await f.element("#host-form").onsubmit({ preventDefault() {} });
+  assert.equal(f.element("#host-error").hidden, true);
 });

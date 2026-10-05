@@ -24,8 +24,35 @@ type sshExitError struct {
 	cause        error
 }
 
+// sshTransportStatus is ssh's own exit status: the connection failed and the
+// remote command never answered. Any other status is that command's answer.
+const sshTransportStatus = 255
+
 func (e *sshExitError) Error() string {
-	return fmt.Sprintf("SSH %s: %s. Check SSH keys, known_hosts, and the host configuration", e.host, e.detail)
+	if e.status != sshTransportStatus {
+		// The connection worked. What failed is said in the remote command's
+		// own words, which need no advice about SSH.
+		return fmt.Sprintf("%s: %s", e.host, strings.TrimPrefix(e.detail, "arbor: "))
+	}
+	return connectionError(e.host, e.detail)
+}
+
+// connectionError turns ssh's diagnostic into a sentence with the one check
+// that fits it, instead of the same list of everything SSH can get wrong.
+func connectionError(host, detail string) string {
+	detail = strings.TrimRight(strings.TrimPrefix(detail, "ssh: "), ".")
+	hint := "Check that `ssh " + host + "` connects from a terminal"
+	switch {
+	case strings.Contains(detail, "Could not resolve hostname"):
+		hint = "Check the SSH alias or hostname"
+	case strings.Contains(detail, "Permission denied"):
+		hint = "Check your SSH key and agent; Arbor cannot enter a password"
+	case strings.Contains(detail, "Host key verification failed"), strings.Contains(detail, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
+		hint = "Connect once with ssh in a terminal to verify the host's key"
+	case strings.Contains(detail, "timed out"), strings.Contains(detail, "Connection refused"), strings.Contains(detail, "No route to host"), strings.Contains(detail, "Network is unreachable"):
+		hint = "Check that the host is online and reachable"
+	}
+	return fmt.Sprintf("Could not connect to %s over SSH: %s. %s.", host, detail, hint)
 }
 
 func (e *sshExitError) Unwrap() error { return e.cause }
@@ -85,7 +112,7 @@ func runSSHProgress(ctx context.Context, host, command string, input io.Reader, 
 	err := cmd.Run()
 	stderr.flush()
 	if stdout.overflow {
-		return nil, fmt.Errorf("SSH %s: remote output exceeded %d bytes", host, maxSSHOutput)
+		return nil, fmt.Errorf("%s: remote output exceeded %d bytes", host, maxSSHOutput)
 	}
 	if err != nil {
 		if ctx.Err() != nil {
@@ -99,7 +126,7 @@ func runSSHProgress(ctx context.Context, host, command string, input io.Reader, 
 		if errors.As(err, &exited) {
 			return stdout.Bytes(), &sshExitError{host: host, detail: detail, status: exited.ExitCode(), cause: err}
 		}
-		return nil, fmt.Errorf("SSH %s: %s. Check SSH keys, known_hosts, and the host configuration", host, detail)
+		return nil, fmt.Errorf("could not run ssh for %s: %s", host, detail)
 	}
 	return stdout.Bytes(), nil
 }

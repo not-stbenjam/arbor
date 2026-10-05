@@ -163,7 +163,7 @@ func TestCLIRemovalStatisticsOnlyCountSuccessfulDeletion(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(target, "payload.txt")); err != nil || !bytes.Equal(got, payload) {
 		t.Fatalf("preview or refused removal touched data: %q, %v", got, err)
 	}
-	runRemovalStatsCLI(t, "remove", target, "--yes", "--json")
+	runRemovalStatsCLI(t, "remove", target, "--force", "--yes", "--json")
 	got := readCLIStats(t)
 	if got.RemovedWorktrees != 1 || got.EstimatedBytesReclaimed != int64(len(payload)) || got.LargestWorktreeBytes != int64(len(payload)) || got.CleanupSessions != 1 || got.MissingRegistrations != 0 {
 		t.Fatalf("incorrect successful deletion statistics: %+v", got)
@@ -247,7 +247,7 @@ func TestCLISSHRemovalRecordsOnlyOnRemoteMachine(t *testing.T) {
 	engine.Version = "v1.2.3"
 	t.Cleanup(func() { engine.Version = previousVersion })
 	var result worktree.RemovalResult
-	if err := json.Unmarshal(runRemovalStatsCLI(t, "remove", target, "--host", "stats-fixture-vps", "--yes", "--json"), &result); err != nil || !result.Removed {
+	if err := json.Unmarshal(runRemovalStatsCLI(t, "remove", target, "--host", "stats-fixture-vps", "--force", "--yes", "--json"), &result); err != nil || !result.Removed {
 		t.Fatalf("remote fixture removal failed: %+v, %v", result, err)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {

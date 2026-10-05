@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -32,21 +33,24 @@ func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
 		_, err := fmt.Fprintf(out, "No %sworktrees found under %s.\n", qualifier, printable(report.Root))
 		return err
 	}
-	return printTable(out, report.Worktrees)
+	return printTable(out, report.Root, report.Worktrees)
 }
 
-func writePreview(out io.Writer, r worktreeRequest, selected []worktree.Worktree, warnings []string) error {
+func writePreview(out io.Writer, r worktreeRequest, report worktree.Report, selection targetSelection) error {
+	selected := selection.selected
 	if r.json {
-		return json.NewEncoder(out).Encode(map[string]any{"dryRun": true, "worktrees": selected, "warnings": warnings})
+		return json.NewEncoder(out).Encode(map[string]any{"dryRun": true, "worktrees": selected, "warnings": report.Warnings, "requiresForce": selection.needsForce})
 	}
 	if len(selected) == 0 {
 		_, err := fmt.Fprintln(out, "No matching worktrees to remove. Nothing changed.")
 		return err
 	}
-	if err := printTable(out, selected); err != nil {
+	if err := printTable(out, report.Root, selected); err != nil {
 		return err
 	}
-	if r.discardLocal {
+	// Say what would be lost wherever that is the question: when --force was
+	// given, and when it would have to be.
+	if r.discardLocal || selection.needsForce {
 		for _, w := range selected {
 			for _, warning := range w.DiscardWarnings {
 				if _, err := fmt.Fprintf(out, "%s: %s\n", printable(w.Path), printable(warning)); err != nil {
@@ -55,7 +59,11 @@ func writePreview(out io.Writer, r worktreeRequest, selected []worktree.Worktree
 			}
 		}
 	}
-	_, err := fmt.Fprintf(out, "\nPreview only: %s, %s on disk. Pass --yes to remove; branches are retained.\n", count(len(selected), "worktree"), byteSize(totalSize(selected)))
+	consent := "--yes"
+	if selection.needsForce {
+		consent = "--force --yes"
+	}
+	_, err := fmt.Fprintf(out, "\nPreview only: %s, %s on disk. Pass %s to remove; branches are kept.\n", count(len(selected), "worktree"), byteSize(totalSize(selected)), consent)
 	return err
 }
 
@@ -102,11 +110,27 @@ func writeOutcome(out io.Writer, r worktreeRequest, outcome batchOutcome) error 
 	return outcome.err
 }
 
-func printTable(out io.Writer, entries []worktree.Worktree) error {
+// printTable lists worktrees for reading. Every path under the scanned folder
+// repeats that folder, so it is named once and the rows are relative to it;
+// --json keeps complete paths for programs.
+func printTable(out io.Writer, root string, entries []worktree.Worktree) error {
+	relative := false
+	paths := make([]string, len(entries))
+	for i, entry := range entries {
+		paths[i] = entry.Path
+		if rel, err := filepath.Rel(root, entry.Path); root != "" && err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			paths[i], relative = rel, true
+		}
+	}
+	if relative {
+		if _, err := fmt.Fprintf(out, "Under %s:\n", printable(root)); err != nil {
+			return err
+		}
+	}
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "PATH\tBRANCH\tREPOSITORY\tACTIVITY\tSIZE\tSTATUS")
-	for _, entry := range entries {
-		branch := entry.Branch
+	for i, entry := range entries {
+		branch := shorten(entry.Branch, 40)
 		if entry.Detached {
 			branch = "(detached)"
 		}
@@ -121,12 +145,23 @@ func printTable(out io.Writer, entries []worktree.Worktree) error {
 		if !entry.Missing {
 			size = byteSize(entry.SizeBytes)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", printable(entry.Path), printable(branch), printable(entry.Repo), age, size, status(entry))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", printable(paths[i]), printable(branch), printable(entry.Repo), age, size, status(entry))
 	}
 	return w.Flush()
 }
 
-// status names the one fact that most affects a cleanup decision.
+// shorten keeps both ends of a long name, where branch names differ.
+func shorten(s string, limit int) string {
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	head := (limit - 1) / 2
+	return string(runes[:head]) + "…" + string(runes[len(runes)-(limit-1-head):])
+}
+
+// status names the one fact that most affects a cleanup decision. "merged"
+// means what clean removes: merged, and nothing else in the way.
 func status(entry worktree.Worktree) string {
 	switch {
 	case !entry.CanRemove && !entry.CanDiscard && len(entry.Blockers) > 0:
@@ -143,7 +178,7 @@ func status(entry worktree.Worktree) string {
 		return "Git locked"
 	case entry.Fresh:
 		return "new"
-	case entry.Merged:
+	case entry.Recommended:
 		return "merged"
 	}
 	return "clean"

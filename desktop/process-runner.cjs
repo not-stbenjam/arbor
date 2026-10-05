@@ -155,7 +155,11 @@ function execute(
     );
     child.once("close", (code, signal) => {
       consumeStderr(null, true);
-      const detail = Buffer.concat(stderr).toString("utf8").trim();
+      // The CLI prefixes its errors for a terminal; a window needs no prefix.
+      const detail = Buffer.concat(stderr)
+        .toString("utf8")
+        .trim()
+        .replace(/^arbor: /, "");
       if (failure) return finish(failure);
       if (code !== 0)
         return finish(
