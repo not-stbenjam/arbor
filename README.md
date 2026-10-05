@@ -15,7 +15,7 @@ The desktop app uses Electron with a native window, system typography, compact c
 
 ## Download
 
-Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.1.0`.
+Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.1.19`.
 
 | Platform             | Desktop app                          | Standalone CLI                      |
 | -------------------- | ------------------------------------ | ----------------------------------- |
@@ -47,22 +47,57 @@ For an `arbor` command on your shell's `PATH`, install the standalone CLI as des
 Make the AppImage executable and open it:
 
 ```sh
-chmod +x arbor_v0.1.0_linux_amd64.AppImage
-./arbor_v0.1.0_linux_amd64.AppImage
+chmod +x arbor_v0.1.19_linux_amd64.AppImage
+./arbor_v0.1.19_linux_amd64.AppImage
 ```
 
 Use the ARM64 asset on ARM hardware. If AppImage cannot mount on your distribution, use the `.desktop.tar.gz` download, extract it, and run `./arbor-desktop` from that folder. Keep its `resources/` directory alongside the executable. Linux desktop builds depend on the standard desktop libraries provided by supported distributions.
 
 ### Standalone CLI
 
-Extract the matching CLI archive and run its `arbor` executable directly, or run this from the extracted folder:
+Extract the matching CLI archive. It contains a versioned directory; enter
+that directory before installing. For example, on Linux x86-64:
+
+```sh
+tar -xzf arbor_v0.1.19_linux_amd64.tar.gz
+cd arbor_v0.1.19_linux_amd64
+```
+
+Use `darwin` for macOS and `arm64` for Apple Silicon or Linux ARM64. Run the
+extracted `arbor` directly, or install it from that directory:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
 install -m 755 arbor "$HOME/.local/bin/arbor"
 ```
 
-Add `$HOME/.local/bin` to your shell's `PATH` if needed. `arbor list`, `clean`, and `remove` do not require the desktop app. Running `arbor` shows command help; `arbor gui` explicitly launches an installed Arbor desktop app.
+For Bash or Zsh, add `export PATH="$HOME/.local/bin:$PATH"` to your shell's
+startup file (`~/.bashrc` or `~/.zshrc`) if needed, then start a new shell. For
+Fish, run `fish_add_path "$HOME/.local/bin"`. Check the selected installation
+with `command -v arbor` and `arbor version`. `arbor list`, `clean`, and `remove` do not require the desktop app. Running `arbor` shows command help; `arbor gui` explicitly launches an installed Arbor desktop app.
+
+### Upgrade and uninstall
+
+To upgrade the CLI, verify and extract the new archive, then repeat the
+`install -m 755` command above. Check `command -v arbor` and `arbor version` for
+an older copy earlier on `PATH`. The standalone CLI and desktop are separate
+installations; replacing one does not replace the other. Quit the desktop
+before replacing `Arbor.app`, the AppImage, or the entire extracted Linux
+desktop directory. Never mix files from two desktop archives. A new local
+release provisions its matching remote CLI on the next SSH operation.
+
+To uninstall the standalone CLI installed above, remove only
+`~/.local/bin/arbor`. Remove completion files you installed using
+`arbor completion SHELL --help`. For the desktop, quit it and remove
+`/Applications/Arbor.app`, your AppImage, or the extracted desktop directory.
+These actions leave your repositories and worktrees in place. They also leave
+preferences, scan caches and statistics: the desktop's user-data directory is
+`~/Library/Application Support/Arbor` on macOS or normally `~/.config/Arbor` on
+Linux, and the separate statistics paths are listed under [Statistics](#statistics).
+Keep those files if you plan to reinstall; back up statistics before choosing
+to remove them. On each SSH host, Arbor's managed CLI cache is
+`~/.cache/arbor/bin`; remove it only when no Arbor operation is running there.
+Uninstalling the local app does not remove remote files.
 
 ### Verify downloads
 
@@ -298,13 +333,13 @@ make build                            # standalone Go CLI in bin/arbor
 make install                          # install CLI into ~/.local/bin
 make check                            # Go vet and race tests
 npm run test:desktop                  # backend/desktop bridge tests
-make package VERSION=v0.1.0           # standalone CLI archives, all 4 platforms
-make desktop-package VERSION=v0.1.0   # desktop app for this OS + architecture
+make package VERSION=v0.1.19           # standalone CLI archives, all 4 platforms
+make desktop-package VERSION=v0.1.19   # desktop app for this OS + architecture
 ```
 
 CLI packaging needs Go and `tar`, can cross-compile all four targets from either OS, and keeps `CGO_ENABLED=0`. Desktop packaging uses pinned Electron/electron-builder dependencies, builds the matching Go companion, and produces a macOS `.app.zip` or Linux AppImage and desktop archive. Build macOS packages on macOS. Outputs go into `dist/`.
 
-The release tag is embedded in the backend (for example `v0.1.0`) and the corresponding numeric version in the desktop app (`0.1.0`). Set `ARBOR_VERSION=v0.1.0` for direct npm packaging commands; otherwise the version comes from `package.json`.
+The release tag is embedded in the backend (for example `v0.1.19`) and the corresponding numeric version in the desktop app (`0.1.19`). Set `ARBOR_VERSION=v0.1.19` for direct npm packaging commands; otherwise the version comes from `package.json`.
 
 ## Code organization
 
