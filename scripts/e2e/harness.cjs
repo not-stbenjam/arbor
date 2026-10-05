@@ -274,7 +274,11 @@ async function evidence(window, directory, name, native) {
   }
 }
 
-const KEYS = { Space: " ", Esc: "Escape", Del: "Delete", Return: "Enter" };
+// Names a scenario may use, and what Electron calls the key.
+const KEYS = {
+  Space: " ", Esc: "Escape", Del: "Delete", Return: "Enter",
+  ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
+};
 const CHARACTERS = { Enter: "\r", Tab: "\t", " ": " " };
 
 function driver({ window, directory, native, index }) {
@@ -377,7 +381,7 @@ function driver({ window, directory, native, index }) {
   }
 
   // A real key press, to whatever has the keyboard: "Enter", "ArrowDown",
-  // "Shift+Tab", "Control+a", "Meta+f", "Space", "Escape", "a".
+  // "Shift+Tab", "Control+a", "Meta+f", "Space", "Escape", "PageDown", "a".
   async function press(combination, { times = 1 } = {}) {
     const parts = combination === "+" ? ["+"] : combination.split("+");
     let key = parts.pop();
@@ -395,6 +399,10 @@ function driver({ window, directory, native, index }) {
   // Types text into whatever has the keyboard, a key at a time.
   async function type(text) {
     for (const character of String(text)) {
+      if (character === "\n" || character === "\t") {
+        await press(character === "\n" ? "Enter" : "Tab");
+        continue;
+      }
       page.sendInputEvent({ type: "keyDown", keyCode: character });
       page.sendInputEvent({ type: "char", keyCode: character });
       page.sendInputEvent({ type: "keyUp", keyCode: character });
