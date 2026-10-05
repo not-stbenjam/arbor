@@ -135,7 +135,7 @@ func defaultRef(ctx context.Context, path string, unconfirmed map[string]string)
 	}
 	prefix := "refs/remotes/" + remote + "/"
 	if branch := gitText(ctx, path, "config", "--local", "--get", learnedDefault(remote)); branch != "" {
-		return "", "at the last scan with fetching on, the default branch of " + remote + " was " + branch + ", which was not fetched here. Fetch it, then scan with fetching on again"
+		return "", remote + " last named " + branch + " as its default branch, and this clone has not caught up with that. Scan with fetching on again, after fetching that branch if it is missing"
 	}
 	if ref := gitText(ctx, path, "symbolic-ref", prefix+"HEAD"); ref != "" {
 		if exists(ref) {

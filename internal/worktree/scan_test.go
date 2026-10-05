@@ -424,9 +424,9 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	// What the fetch learned outlasts it. A later scan without a fetch, and
 	// the fresh inspection every removal makes, must not go back to the
 	// branch now known to be the wrong one.
-	later := "Nothing is recommended in " + repo + ": at the last scan with fetching on, the default branch of origin was trunk, which was not fetched here. Fetch it, then scan with fetching on again."
-	withheld := func(step string) Worktree {
+	withheld := func(step, branch string) Worktree {
 		t.Helper()
+		later := "Nothing is recommended in " + repo + ": origin last named " + branch + " as its default branch, and this clone has not caught up with that. Scan with fetching on again, after fetching that branch if it is missing."
 		report, err := Scan(context.Background(), Options{Root: root})
 		if err != nil {
 			t.Fatal(err)
@@ -443,7 +443,7 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 		}
 		return w
 	}
-	withheld("after the fetch")
+	withheld("after the fetch", "trunk")
 
 	// The record is a barrier, never an answer. The project moves on to
 	// stable, which lacks the topic, while trunk gains it. Git, used by
@@ -460,7 +460,7 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	if testGit(t, repo, "merge-base", "--is-ancestor", "topic", "refs/remotes/origin/trunk"); testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD") != "refs/remotes/origin/stable" {
 		t.Fatal("fixture: trunk should contain the topic and stable should be the default")
 	}
-	withheld("after Git refreshed the selector by hand")
+	withheld("after Git refreshed the selector by hand", "trunk")
 
 	// A record that cannot be cleared says so, and still decides nothing.
 	lock := filepath.Join(repo, ".git", "config.lock")
@@ -475,7 +475,7 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	if err := os.Remove(lock); err != nil {
 		t.Fatal(err)
 	}
-	withheld("after a fetch that could not clear the record")
+	withheld("after a fetch that could not clear the record", "trunk")
 
 	// Nor is the record lifted before the selector it gives way to is in
 	// place. Here Git's selector is put back to main, as it was when the
@@ -491,7 +491,7 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	if err := os.Remove(lock); err != nil {
 		t.Fatal(err)
 	}
-	withheld("after a fetch that could not publish the selector")
+	withheld("after a fetch that could not publish the selector", "stable")
 
 	// Asking the remote again is what clears it. Stable never got the topic.
 	report, err = Scan(context.Background(), Options{Root: root, Fetch: true})
@@ -512,6 +512,36 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	}
 	if w := testTree(t, report, wt); w.DefaultRef != "refs/remotes/origin/main" || !w.Recommended {
 		t.Fatalf("the restored default branch should decide again: %+v", w)
+	}
+
+	// With every branch tracked and nothing recorded, a selector that cannot
+	// be rewritten must still not leave the old one deciding afterwards.
+	testGit(t, remote, "symbolic-ref", "HEAD", "refs/heads/stable")
+	testWrite(t, lock, "")
+	report, err = Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil || len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "the default branch of origin could not be recorded") {
+		t.Fatalf("fetch with the selector locked: %v %q", err, report.Warnings)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	report, err = Scan(context.Background(), Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := testTree(t, report, wt)
+	if w.DefaultRef != "" || w.Recommended || len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "origin last named stable as its default branch") {
+		t.Fatalf("the selector that could not be replaced decided again: %+v %q", w, report.Warnings)
+	}
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
+		t.Fatal("cleanup removed a worktree on the word of a selector known to be out of date")
+	}
+	report, err = Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil || len(report.Warnings) != 0 {
+		t.Fatalf("fetch: %v, warnings=%v", err, report.Warnings)
+	}
+	if w := testTree(t, report, wt); w.DefaultRef != "refs/remotes/origin/stable" || w.Recommended {
+		t.Fatalf("the default branch the remote names should decide: %+v", w)
 	}
 }
 

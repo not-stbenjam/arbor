@@ -183,7 +183,14 @@ func refreshRemoteDefault(ctx context.Context, path, remote string) string {
 	if gitText(ctx, path, "symbolic-ref", selector) != target {
 		// Full ref names, so a branch name can never be read as an option.
 		if _, err := run(ctx, 30*time.Second, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "symbolic-ref", selector, target); err != nil {
-			return "the default branch of " + remote + " could not be recorded" + gitReason(err)
+			// What the remote said could not be put where Git keeps it, so
+			// it is kept as a barrier: the old selector is known to be out
+			// of date and must not decide the scans that follow.
+			reason := "the default branch of " + remote + " could not be recorded" + gitReason(err)
+			if failure := record(branch); failure != "" {
+				reason += "; " + failure
+			}
+			return reason
 		}
 	}
 	return record("")
