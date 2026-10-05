@@ -608,6 +608,13 @@ app.once("browser-window-created", (_event, win) => {
           removalsBefore,
           "an unconfirmed click deletes nothing",
         );
+        assert.equal(
+          await js(
+            "[...document.querySelectorAll('[data-delete]')].filter(button=>!button.disabled).length",
+          ),
+          20,
+          "only the twenty previously verified rows remain deletable",
+        );
         const child = spawn(
           process.execPath,
           [__filename, ...process.argv.filter((arg) => arg === "--no-sandbox")],

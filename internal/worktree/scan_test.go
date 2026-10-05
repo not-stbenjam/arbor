@@ -413,9 +413,48 @@ func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
 	if len(report.Warnings) != 1 || report.Warnings[0] != want {
 		t.Fatalf("warnings %q, want %q", report.Warnings, want)
 	}
-	// Nothing is recorded about a branch that was never fetched.
+	// No ref is invented for a branch that was never fetched.
 	if after := testGit(t, repo, "for-each-ref", "refs/remotes"); after != tracked {
 		t.Fatalf("remote-tracking refs changed:\n%s\nwas:\n%s", after, tracked)
+	}
+
+	if learned := testGit(t, repo, "config", "--local", "--get", "arbor.origin.head"); learned != "trunk" {
+		t.Fatalf("the default branch the remote named was not recorded: %q", learned)
+	}
+	// What the fetch learned outlasts it. A later scan without a fetch, and
+	// the fresh inspection every removal makes, must not go back to the
+	// branch now known to be the wrong one.
+	report, err = Scan(context.Background(), Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := testTree(t, report, wt)
+	if w.DefaultRef != "" || w.Recommended || len(report.Warnings) != 1 || report.Warnings[0] != want {
+		t.Fatalf("a scan without a fetch forgot the default branch: %+v %q", w, report.Warnings)
+	}
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
+		t.Fatal("cleanup removed a worktree whose default branch is not fetched here")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatal("the worktree was removed")
+	}
+	// Once the clone fetches that branch, it decides. It never got the topic.
+	testGit(t, repo, "remote", "set-branches", "--add", "origin", "trunk")
+	testGit(t, repo, "fetch", "origin")
+	if w := testTree(t, testScan(t, root), wt); w.DefaultRef != "refs/remotes/origin/trunk" || w.Merged || w.Recommended {
+		t.Fatalf("the fetched default branch should decide: %+v", w)
+	}
+	// And when the project goes back to main, the next fetch says so.
+	testGit(t, remote, "symbolic-ref", "HEAD", "refs/heads/main")
+	report, err = Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil || len(report.Warnings) != 0 {
+		t.Fatalf("fetch: %v, warnings=%v", err, report.Warnings)
+	}
+	if w := testTree(t, report, wt); w.DefaultRef != "refs/remotes/origin/main" || !w.Recommended {
+		t.Fatalf("the restored default branch should decide again: %+v", w)
+	}
+	if config, err := os.ReadFile(filepath.Join(repo, ".git", "config")); err != nil || strings.Contains(string(config), "[arbor ") {
+		t.Fatalf("a record that no longer applies was left behind: %v\n%s", err, config)
 	}
 }
 
@@ -471,6 +510,20 @@ func TestOnlyTheDecidingRemoteSaysWhatIsMerged(t *testing.T) {
 			t.Fatalf("a local branch answered for origin: %+v", w)
 		}
 		if len(warnings) != 1 || !strings.Contains(warnings[0], "the default branch of origin is not known") {
+			t.Fatalf("warnings: %q", warnings)
+		}
+	})
+	t.Run("a default branch that is gone from here is not replaced by a guess", func(t *testing.T) {
+		root, repo, wt := fixture(t)
+		testGit(t, repo, "remote", "add", "origin", "https://example.invalid/me/project.git")
+		testGit(t, repo, "update-ref", "refs/remotes/origin/main", "refs/heads/main")
+		// The project's default was develop; that branch has been pruned.
+		testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+		w, warnings := scan(t, root, wt)
+		if w.DefaultRef != "" || w.Merged || w.Recommended {
+			t.Fatalf("a conventional name answered for a default branch that changed: %+v", w)
+		}
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "the branch recorded as the default of origin, develop, is no longer here") {
 			t.Fatalf("warnings: %q", warnings)
 		}
 	})

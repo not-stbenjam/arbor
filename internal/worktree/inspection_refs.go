@@ -62,14 +62,19 @@ func decidingRemote(ctx context.Context, path string, configured []string) strin
 	return ""
 }
 
-func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefault, block func(reasonCode)) {
+// inspectMerge compares the worktree with the branch that decides what is
+// merged. It reports whether anything may decide at all: when the remote
+// that should have named that branch could not, no other evidence is taken
+// in its place, so nothing in the repository is recommended.
+func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefault, block func(reasonCode)) (decided bool) {
+	var problem string
 	if defaultCache == nil {
-		w.DefaultRef, _ = defaultRef(ctx, w.Path, nil)
+		w.DefaultRef, problem = defaultRef(ctx, w.Path, nil)
 	} else {
 		defaultCache.once.Do(func() {
 			defaultCache.ref, defaultCache.problem = defaultRef(ctx, w.Path, defaultCache.unconfirmed)
 		})
-		w.DefaultRef = defaultCache.ref
+		w.DefaultRef, problem = defaultCache.ref, defaultCache.problem
 	}
 	if w.DefaultRef != "" {
 		_, err := git(ctx, w.Path, "merge-base", "--is-ancestor", w.Head, w.DefaultRef)
@@ -88,7 +93,15 @@ func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefa
 	if slices.Contains(defaultBranches, w.Branch) || w.Branch == "develop" {
 		block(reasonProtectedBranch)
 	}
+	return problem == ""
 }
+
+// learnedDefault is the repository setting in which a fetch records the
+// default branch a remote named when this clone does not track that branch.
+// Git has no selector for a branch that is not here, and without a record
+// the next scan would go back to the older selector or the usual names, both
+// then known to be out of date.
+func learnedDefault(remote string) string { return "arbor." + remote + ".head" }
 
 // defaultRef finds the branch that decides what is merged. When a remote
 // should have named it and could not, there is none, and problem says why:
@@ -116,8 +129,19 @@ func defaultRef(ctx context.Context, path string, unconfirmed map[string]string)
 		return "", reason
 	}
 	prefix := "refs/remotes/" + remote + "/"
-	if ref := gitText(ctx, path, "symbolic-ref", prefix+"HEAD"); ref != "" && exists(ref) {
-		return ref, ""
+	if branch := gitText(ctx, path, "config", "--local", "--get", learnedDefault(remote)); branch != "" {
+		if ref := prefix + branch; exists(ref) {
+			return ref, ""
+		}
+		return "", untrackedDefault(remote, branch)
+	}
+	if ref := gitText(ctx, path, "symbolic-ref", prefix+"HEAD"); ref != "" {
+		if exists(ref) {
+			return ref, ""
+		}
+		// The branch the remote called its default is gone from here, so its
+		// default has changed. Which branch took its place is not a guess.
+		return "", "the branch recorded as the default of " + remote + ", " + strings.TrimPrefix(ref, prefix) + ", is no longer here. Scan once with fetching on, or run `git remote set-head " + remote + " --auto` there"
 	}
 	for _, branch := range defaultBranches {
 		if ref := prefix + branch; exists(ref) {
@@ -140,4 +164,8 @@ func defaultRef(ctx context.Context, path string, unconfirmed map[string]string)
 // tracksRemote reports whether any of a remote's branches are recorded here.
 func tracksRemote(ctx context.Context, path, remote string) bool {
 	return gitText(ctx, path, "for-each-ref", "--count=1", "--format=%(refname)", "refs/remotes/"+remote+"/") != ""
+}
+
+func untrackedDefault(remote, branch string) string {
+	return "the default branch of " + remote + " is " + branch + ", which is not fetched here"
 }

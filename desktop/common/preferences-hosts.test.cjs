@@ -329,6 +329,9 @@ test("settings keep each host's unsaved edits, and say when appearance could not
   f.controller.openSettings();
   f.element("#scan-root").value = "/draft-local";
   f.element("#scan-fetch").checked = false;
+  // Asking for Settings again, by its shortcut or the menu, changes nothing.
+  f.controller.openSettings();
+  assert.equal(f.element("#scan-root").value, "/draft-local");
   // Looking at another host's options does not discard these.
   choose("vps");
   assert.equal(f.element("#scan-root").value, "/remote");

@@ -207,15 +207,16 @@ export function createPreferencesController({
       onSetup();
       return;
     }
-    if (!$("#settings-dialog").open) {
-      drafts.clear();
-      fieldError("#settings-error");
-      fieldNote();
-    }
+    // Asked for again while open, by its shortcut or the menu, it is already
+    // showing what is being edited.
+    if ($("#settings-dialog").open) return;
+    drafts.clear();
+    fieldError("#settings-error");
+    fieldNote();
     renderHostChoices(hostFilter() || "");
     editHost($("#settings-host").value);
     $("#theme-select").value = prefs.theme;
-    if (!$("#settings-dialog").open) $("#settings-dialog").showModal();
+    $("#settings-dialog").showModal();
   }
   // A dialog covers the window's notifications, so its own problems are
   // reported inside it, beside the field they concern.

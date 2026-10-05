@@ -144,12 +144,13 @@ func TestGitHubMergeIntoAForkIsNotMergeEvidence(t *testing.T) {
 	}{
 		{"merged upstream, tracked", "owner/project", true, false, "", true},
 		{"merged into the fork, upstream tracked", "me/project", true, false, "", false},
-		{"merged upstream, no tracking ref yet", "owner/project", false, false, "", true},
+		// An upstream that was added and never fetched still decides, and
+		// until it can, nothing in the repository is recommended: not on the
+		// fork's word, and not on a pull request's either. The scan says so.
+		{"merged upstream, no tracking ref yet", "owner/project", false, false, "", false},
 		{"merged into the fork, no tracking ref yet", "me/project", false, false, "", false},
-		// An upstream that was added and never fetched still decides. The
-		// fork's own default branch is not a stand-in for it.
 		{"merged into a cloned fork, upstream never fetched", "me/project", false, true, "", false},
-		{"merged upstream, cloned fork, upstream never fetched", "owner/project", false, true, "", true},
+		{"merged upstream, cloned fork, upstream never fetched", "owner/project", false, true, "", false},
 		{"merged into the fork, upstream is not on GitHub", "me/project", false, false, "https://git.example.invalid/owner/project.git", false},
 		{"merged into a cloned fork, upstream is not on GitHub", "me/project", true, true, "https://git.example.invalid/owner/project.git", false},
 	}
@@ -205,6 +206,44 @@ func TestGitHubMergeIntoAForkIsNotMergeEvidence(t *testing.T) {
 				t.Fatalf("the pull request itself should still be reported: %+v", w.PR)
 			}
 		})
+	}
+}
+
+// GitHub names the default branch outright. A linked checkout of that branch
+// is protected as the default branch even when no local ref says it is one,
+// as when the project renamed it and this clone has not caught up.
+func TestGitHubDefaultBranchIsProtectedWhateverLocalRefsSay(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "stable")
+	testWrite(t, filepath.Join(wt, "tracked.txt"), "moved\n")
+	testGit(t, wt, "commit", "-am", "Work on stable")
+	testGit(t, repo, "remote", "add", "origin", "https://github.com/owner/project.git")
+	// Locally, origin's default is still thought to be main.
+	testGit(t, repo, "update-ref", "refs/remotes/origin/main", "refs/heads/main")
+	testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	w := testTree(t, testScan(t, root), wt)
+	if w.Merged || len(w.Blockers) != 0 {
+		t.Fatalf("fixture must start unmerged and unprotected: %+v", w)
+	}
+	data, err := json.Marshal([]githubPull{testPull(t, w.Head, w.Branch, "owner/project", "owner/project", "stable", true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	quotedJSON := "'" + strings.ReplaceAll(string(data), "'", "'\\''") + "'"
+	script := "#!/bin/sh\ncase \"$*\" in\n  *'/pulls?per_page=100') printf '%s\\n' " + quotedJSON + ";;\n  *) printf '%s\\n' '{\"default_branch\":\"stable\"}';;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	inspect(context.Background(), &w, Options{GitHub: true})
+	assertProtected(t, w, "Default branch")
+	if w.Recommended || w.CanRemove {
+		t.Fatalf("a checkout of the default branch was offered for cleanup: %+v", w)
+	}
+	if w.PR == nil || !w.PR.Merged {
+		t.Fatalf("the pull request itself should still be reported: %+v", w.PR)
 	}
 }
 

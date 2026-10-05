@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -23,7 +24,12 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 	w.GitHubState = "not_checked"
 	var reasons []reasonCode
 	verified := false
-	block := func(reason reasonCode) { reasons = append(reasons, reason) }
+	// More than one stage can find the same reason; it is given once.
+	block := func(reason reasonCode) {
+		if !slices.Contains(reasons, reason) {
+			reasons = append(reasons, reason)
+		}
+	}
 	defer func() {
 		for _, reason := range reasons {
 			w.Blockers = append(w.Blockers, reasonMessage(reason))
@@ -42,9 +48,9 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 	inspectIndex(ctx, w, block)
 	inspectActivity(ctx, w, block)
 	inspectPublication(ctx, w)
-	inspectMerge(ctx, w, defaultCache, block)
+	decided := inspectMerge(ctx, w, defaultCache, block)
 	if options.GitHub {
-		checkGitHub(ctx, w)
+		checkGitHub(ctx, w, decided, block)
 	}
 	if w.Merged {
 		inspectFreshness(ctx, w)

@@ -1528,6 +1528,8 @@ test("Delete recommended acts on, counts, and describes exactly what the list sh
   assert.equal(button.classes.has("armed"), true);
   assert.match(button.title, /Click again to delete 1 worktree shown/);
   assert.match(status(), /^Click again to delete 1 worktree, about 2 KB\./);
+  // What confirming will do matters more than when the list was scanned.
+  assert.equal(element("#scan-time").hidden, true);
   assert.match(
     element("#announcement").textContent,
     /^Ready to delete 1 worktree shown in this view, about 2 KB\. Activate the button again to confirm, or press Escape\.$/,
@@ -1575,16 +1577,25 @@ test("Delete recommended acts on, counts, and describes exactly what the list sh
   assert.equal(removed.length, 1, "the moved worktree was not deleted unasked");
   shown = { ...shown, filtered: all };
   view.renderControls();
-  // Waiting too long, looking away, or Escape withdraws the question.
+  // Waiting too long, looking away, or Escape withdraws the question, and
+  // each is heard to end it, so asking again is heard as a new question.
+  const said = () => element("#announcement").textContent;
   await button.onclick({ detail: 1 });
+  assert.match(said(), /^Ready to delete 2 worktrees/);
   expire();
   assert.equal(label(), "Delete recommended (2)");
+  assert.equal(said(), "Not confirmed in time. Nothing was deleted.");
+  assert.equal(element("#scan-time").hidden, false);
   await button.onclick({ detail: 1 });
+  assert.match(said(), /^Ready to delete 2 worktrees/);
   button.listeners.blur();
   assert.equal(label(), "Delete recommended (2)");
+  assert.equal(said(), "Cancelled. Nothing was deleted.");
   await button.onclick({ detail: 1 });
+  assert.match(said(), /^Ready to delete 2 worktrees/);
   assert.equal(key({ key: "Escape" }), true);
   assert.equal(label(), "Delete recommended (2)");
+  assert.equal(said(), "Cancelled. Nothing was deleted.");
   assert.match(status(), /^3 worktrees · /);
   await button.onclick({ detail: 1 });
   settle();
@@ -1870,6 +1881,11 @@ test("scan progress redraws only when it changes, keeps the keyboard on Stop, an
   );
   view.render();
   assert.equal(writes, 1, "an unchanged row is not rebuilt");
+  // Stop all goes away when only one scan is left; the keyboard goes to the
+  // Stop that remains.
+  document.activeElement = element("#stop-scan");
+  view.render();
+  assert.deepEqual(focused.splice(0), ["stop"]);
   // The keyboard is on Stop when the count moves on.
   document.activeElement = { dataset: { stopHost: "" } };
   progress = { ...progress, path: "/local/b", completed: 2 };

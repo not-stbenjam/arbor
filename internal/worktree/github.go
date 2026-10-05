@@ -79,7 +79,10 @@ func mergeDestination(deciding string, slugs map[string]string, ordered []string
 	return ""
 }
 
-func checkGitHub(ctx context.Context, w *Worktree) {
+// checkGitHub looks for a pull request for this exact commit. It is merge
+// evidence only when decided: a repository whose deciding remote could not
+// name a default branch recommends nothing, whatever else is known.
+func checkGitHub(ctx context.Context, w *Worktree, decided bool, block func(reasonCode)) {
 	repos := map[string]bool{}
 	slugs := map[string]string{}
 	var ordered []string
@@ -117,8 +120,16 @@ func checkGitHub(ctx context.Context, w *Worktree) {
 					DefaultBranch string `json:"default_branch"`
 				}
 				if err := ghAPI(ctx, "repos/"+p.Base.Repo.FullName, &base); err == nil && base.DefaultBranch != "" && p.Base.Ref == base.DefaultBranch {
-					w.Merged = true
-					w.MergeReason = "GitHub PR #" + strconv.Itoa(p.Number) + " merged this exact commit into " + p.Base.Ref
+					// GitHub has just said which branch is the default. A
+					// checkout of it is protected as one, whether or not a
+					// local ref also said so.
+					if w.Branch == base.DefaultBranch {
+						block(reasonDefaultBranch)
+					}
+					if decided {
+						w.Merged = true
+						w.MergeReason = "GitHub PR #" + strconv.Itoa(p.Number) + " merged this exact commit into " + p.Base.Ref
+					}
 					return
 				}
 			}

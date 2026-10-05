@@ -46,18 +46,21 @@ export function createWorkspaceView({
       workspace.snapshot.hostFilter,
       rows.map((row) => [row.id, row.head]),
     ]);
-  function disarm() {
-    if (!armed) return;
-    timers.clearTimeout(armed.timer);
-    timers.clearTimeout(armed.settle);
-    armed = null;
-  }
   // Read by screen readers when it changes; never drawn.
   let announced = "";
   function announce(message) {
     if (message === announced) return;
     announced = message;
     $("#announcement").textContent = message;
+  }
+  // `outcome` is said aloud, so the question is heard to end as well as to
+  // begin, and asking it again is heard as a new question.
+  function disarm(outcome = "") {
+    if (!armed) return;
+    timers.clearTimeout(armed.timer);
+    timers.clearTimeout(armed.settle);
+    armed = null;
+    announce(outcome);
   }
   const plural = (count, noun) => `${count} ${count === 1 ? noun : `${noun}s`}`;
   function renderControls() {
@@ -70,7 +73,8 @@ export function createWorkspaceView({
     $("#refresh-button").innerHTML =
       `${icon("refresh", state.busy ? "spinning" : "")}<span>${state.cancelled ? "Scan again" : "Refresh"}</span>`;
     // Consent is for the rows it was given for, and only while they can go.
-    if (armed && (disabled || armed.key !== selectionKey(ready))) disarm();
+    if (armed && (disabled || armed.key !== selectionKey(ready)))
+      disarm("The worktrees changed. Nothing was deleted.");
     button.disabled = disabled || !state.revision || !ready.length;
     button.classList.toggle("armed", !!armed);
     // A running operation is not an unavailable one; it stays fully legible.
@@ -126,6 +130,8 @@ export function createWorkspaceView({
         : armed
           ? `Click again to delete ${plural(ready.length, "worktree")}, about ${size(sizeOf(ready))}. Branches and commits are kept.`
           : `${plural(list.length, "worktree")} · ${detail}${state.hostFilter === null && unavailable ? ` · ${plural(unavailable, "host")} unavailable` : ""}`;
+    // What confirming will do matters more than when the list was scanned.
+    $("#space-label").hidden = $("#scan-time").hidden = !!armed;
   }
   let progressMarkup = "",
     progressSummary = "";
@@ -153,10 +159,18 @@ export function createWorkspaceView({
       }
     }
     // Each host row says what it is doing and has its own Stop. A heading
-    // earns its line only when there are several to stop at once.
+    // earns its line only when there are several to stop at once. When the
+    // last but one finishes, whoever was on Stop all moves to the Stop left.
+    const stoppingAll =
+      !progress.canCancelAll && document.activeElement === $("#stop-scan");
     $("#progress-heading").hidden = !progress.canCancelAll;
     $("#progress-stage").textContent = `Scanning ${progress.active} hosts`;
     $("#stop-scan").disabled = !progress.canCancelAll;
+    if (stoppingAll)
+      (
+        hostList.querySelector("[data-stop-host]:not(:disabled)") ||
+        $("#refresh-button")
+      ).focus({ preventScroll: true });
     // Say each change of stage once: not every path, and not every redraw.
     if (progress.summary !== progressSummary) {
       if (progress.summary || progressSummary)
@@ -244,7 +258,7 @@ export function createWorkspaceView({
       }, CONFIRM_DELAY),
       timer: timers.setTimeout(() => {
         if (armed !== asked) return;
-        disarm();
+        disarm("Not confirmed in time. Nothing was deleted.");
         renderControls();
       }, CONFIRM_WINDOW),
     });
@@ -255,14 +269,14 @@ export function createWorkspaceView({
     if (event.repeat && event.key === "Enter") event.preventDefault();
     if (event.key === "Escape" && armed) {
       event.preventDefault();
-      disarm();
+      disarm("Cancelled. Nothing was deleted.");
       renderControls();
     }
   });
   // Looking away withdraws the question, as closing a dialog would.
   $("#cleanup-button").addEventListener("blur", () => {
     if (!armed) return;
-    disarm();
+    disarm("Cancelled. Nothing was deleted.");
     renderControls();
   });
   $("#dismiss-error").onclick = workspace.dismissError;

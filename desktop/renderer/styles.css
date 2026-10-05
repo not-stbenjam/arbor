@@ -1138,14 +1138,16 @@ dialog::backdrop {
   .toolbar-actions > .button:not(#cleanup-button) span {
     display: none;
   }
-  .cleanup-labels > [data-current="false"] {
-    display: none;
-  }
-  .toolbar {
+  /* When even that is too wide, at high zoom, the controls take more lines
+     rather than leaving the window. */
+  .toolbar,
+  .toolbar-actions {
     flex-wrap: wrap;
   }
   .toolbar-actions {
     margin-left: auto;
+    justify-content: flex-end;
+    row-gap: 6px;
   }
   .toolbar-actions > .button {
     padding: 6px 8px;

@@ -142,18 +142,38 @@ func refreshRemoteDefault(ctx context.Context, path, remote string) string {
 			break
 		}
 	}
+	// What an earlier fetch recorded is replaced by what this one learns.
+	learned := gitText(ctx, path, "config", "--local", "--get", learnedDefault(remote))
+	record := func(value string) {
+		if value == learned {
+			return
+		}
+		args := []string{"-c", "core.hooksPath=/dev/null", "-C", path, "config", "--local"}
+		if value == "" {
+			args = append(args, "--unset", learnedDefault(remote))
+		} else {
+			args = append(args, learnedDefault(remote), value)
+		}
+		// Best effort: this scan withholds its recommendations either way.
+		_, _ = run(ctx, 30*time.Second, "git", args...)
+	}
 	if branch == "" {
 		// The remote names no default branch, so no selector can be stale.
+		record("")
 		return ""
 	}
 	selector, target := "refs/remotes/"+remote+"/HEAD", "refs/remotes/"+remote+"/"+branch
 	if gitText(ctx, path, "rev-parse", "--verify", target+"^{commit}") == "" {
 		if !tracksRemote(ctx, path, remote) {
 			// A bare clone tracks none of the remote's branches as such.
+			record("")
 			return ""
 		}
-		return "the default branch of " + remote + " is " + branch + ", which is not fetched here"
+		// Kept for the scans and removals that follow without a fetch.
+		record(branch)
+		return untrackedDefault(remote, branch)
 	}
+	record("")
 	if gitText(ctx, path, "symbolic-ref", selector) == target {
 		return ""
 	}

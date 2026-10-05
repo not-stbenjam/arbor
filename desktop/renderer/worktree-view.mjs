@@ -53,6 +53,14 @@ export function createWorktreeView({
   }
   const deletable = (row) =>
     workspace.canDelete(row) && (row.canRemove || row.canDiscard);
+  // Where the keyboard goes when what it was on is gone: the list while it
+  // has rows, otherwise the next thing there is to do.
+  function focusList() {
+    (visible.length
+      ? $("#worktree-grid")
+      : $("#empty-state").querySelector?.("button") || $("#refresh-button")
+    ).focus({ preventScroll: true });
+  }
   function renderSelectionBar() {
     const rows = selected(),
       kept = rows.filter((row) => !deletable(row)).length,
@@ -61,7 +69,7 @@ export function createWorktreeView({
     // the list rather than to nowhere.
     const held = !bar.hidden && !!bar.contains?.(document.activeElement);
     bar.hidden = rows.length < 2;
-    if (held && bar.hidden) $("#worktree-grid").focus({ preventScroll: true });
+    if (held && bar.hidden) focusList();
     // Say before the click how much of the selection can actually go.
     $("#selection-label").textContent =
       `${rows.length} worktrees selected${kept ? ` · ${kept} cannot be deleted` : ""}`;
@@ -253,10 +261,7 @@ export function createWorktreeView({
     $("#table-scroll").scrollTop = scroll;
     restoreFocus(focus);
     // With no row left to stay on, the keyboard goes to what can be done next.
-    if (gridFocused && !visible.length)
-      (
-        $("#empty-state").querySelector?.("button") || $("#refresh-button")
-      ).focus({ preventScroll: true });
+    if (gridFocused && !visible.length) focusList();
     renderActiveRow();
     renderSelectionBar();
     onRender();
