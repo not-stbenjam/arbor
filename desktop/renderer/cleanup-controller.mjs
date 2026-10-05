@@ -105,8 +105,8 @@ export function createCleanupController({
       })
       .join("");
   }
-  function render() {
-    if (!dialog.open) return;
+  // Everything about the review that can change after its list is drawn.
+  function update() {
     const rows = standing(),
       count = plural(rows.length, "worktree"),
       ready = available(rows);
@@ -161,6 +161,9 @@ export function createCleanupController({
       .join(" ");
     if (saying !== said) $("#cleanup-status").textContent = said = saying;
   }
+  function render() {
+    if (dialog.open) update();
+  }
   function open() {
     if (dialog.open || workspace.blocked || !workspace.snapshot.revision)
       return;
@@ -170,6 +173,9 @@ export function createCleanupController({
     waited = false;
     $("#cleanup-status").textContent = said = "";
     renderList();
+    // What it asks is in place before it is shown, and before anything in it
+    // is given the keyboard: neither is announced with the last review's words.
+    update();
     dialog.showModal();
     // It opens at its beginning. Where there is so little room that the
     // buttons are out of sight below the list, the keyboard starts at the
@@ -177,7 +183,6 @@ export function createCleanupController({
     dialog.scrollTop = $("#cleanup-body").scrollTop = 0;
     if (dialog.scrollHeight > dialog.clientHeight)
       $("#cleanup-title").focus({ preventScroll: true });
-    render();
   }
   $("#cleanup-cancel").onclick = () => dialog.close();
   $("#cleanup-confirm").onclick = () => {

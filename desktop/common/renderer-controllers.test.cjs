@@ -1914,14 +1914,31 @@ test("the review waits for an operation that holds a worktree, and says every ho
   element("#cleanup-cancel").onclick();
 
   // With so little room that the buttons are below the list, the review
-  // starts at its heading, and so does the keyboard.
+  // starts at its heading, and so does the keyboard. What the heading says
+  // is this review's question by the time it is shown and focused, not what
+  // the last review ended on.
   const dialog = element("#cleanup-dialog");
+  element("#cleanup-title").textContent = "These worktrees have changed";
+  const heard = [];
+  const hear = () => heard.push(element("#cleanup-title").textContent);
+  dialog.showModal = function () {
+    this.open = true;
+    hear();
+  };
+  element("#cleanup-title").focus = () => {
+    focused.push("title");
+    hear();
+  };
   dialog.scrollHeight = 900;
   dialog.clientHeight = 200;
   dialog.scrollTop = 500;
   review.open();
   assert.equal(dialog.scrollTop, 0);
   assert.deepEqual(focused, ["cancel", "title"]);
+  assert.deepEqual(heard, [
+    "Delete this recommended worktree?",
+    "Delete this recommended worktree?",
+  ]);
   // A new review has had no waiting to speak of.
   assert.equal(said(), "");
   fixture.workspace.dispose();
