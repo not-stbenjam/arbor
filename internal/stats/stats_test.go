@@ -66,13 +66,51 @@ func TestDailyHistoryIsBoundedWithoutLosingLifetimeTotals(t *testing.T) {
 	statsFile(t)
 	start := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	for i := 0; i < 100; i++ {
-		if err := record(Batch{ID: fmt.Sprintf("day-%d", i), Removals: []Removal{{SizeBytes: 100}}}, start.AddDate(0, 0, i)); err != nil {
+		if err := record(Batch{ID: fmt.Sprintf("day-%d", i), Removals: []Removal{{SizeBytes: 100}}}, func() time.Time { return start.AddDate(0, 0, i) }); err != nil {
 			t.Fatal(err)
 		}
 	}
 	report, err := Load()
 	if err != nil || len(report.Daily) != 90 || report.RemovedWorktrees != 100 || report.CleanupSessions != 100 || report.EstimatedBytesReclaimed != 10000 || report.Daily[0].Date != start.AddDate(0, 0, 10).Format(time.DateOnly) {
 		t.Fatalf("history/lifetime mismatch: %+v %v", report, err)
+	}
+}
+
+// Clocks step backward and writers queue on the lock. A record that arrives
+// slightly out of order must not erase a later day that was already counted.
+func TestOutOfOrderRecordsKeepLaterDays(t *testing.T) {
+	statsFile(t)
+	midnight := time.Date(2025, 3, 2, 0, 0, 0, 0, time.UTC)
+	for i, at := range []time.Time{midnight.Add(time.Second), midnight.Add(-time.Second), midnight.Add(2 * time.Second)} {
+		if err := record(Batch{ID: fmt.Sprintf("batch-%d", i), Removals: []Removal{{SizeBytes: 10}}}, func() time.Time { return at }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := Load()
+	if err != nil || report.RemovedWorktrees != 3 || len(report.Daily) != 2 {
+		t.Fatalf("totals: %+v %v", report, err)
+	}
+	if report.Daily[0].Date != "2025-03-01" || report.Daily[0].RemovedWorktrees != 1 || report.Daily[1].Date != "2025-03-02" || report.Daily[1].RemovedWorktrees != 2 {
+		t.Fatalf("an earlier record discarded a later day: %+v", report.Daily)
+	}
+	if report.FirstCleanupAt != "2025-03-01T23:59:59Z" || report.LastCleanupAt != "2025-03-02T00:00:02Z" {
+		t.Fatalf("cleanup span is not chronological: first %s, last %s", report.FirstCleanupAt, report.LastCleanupAt)
+	}
+}
+
+// A day recorded while the clock was badly wrong must not pin the retention
+// window, or every later cleanup would fall outside it.
+func TestFarFutureDayFromAClockErrorIsReplaced(t *testing.T) {
+	statsFile(t)
+	present := time.Date(2025, 3, 2, 12, 0, 0, 0, time.UTC)
+	for i, at := range []time.Time{present.AddDate(5, 0, 0), present} {
+		if err := record(Batch{ID: fmt.Sprintf("batch-%d", i), Removals: []Removal{{SizeBytes: 10}}}, func() time.Time { return at }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := Load()
+	if err != nil || report.RemovedWorktrees != 2 || len(report.Daily) != 1 || report.Daily[0].Date != "2025-03-02" || report.LastCleanupAt != "2025-03-02T12:00:00Z" {
+		t.Fatalf("clock error persisted: %+v %v", report, err)
 	}
 }
 

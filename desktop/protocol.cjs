@@ -6,6 +6,17 @@ const DEFAULTS = Object.freeze({
   excludes: Object.freeze([...defaults.excludes]),
 });
 const DEFAULT_EXCLUDES = DEFAULTS.excludes;
+// Rules added to the defaults since the first release, by defaults version. A
+// saved list that still equals an earlier version's defaults was never
+// customized and follows the upgrade. The saved version marks a list its
+// owner trimmed back on purpose, which no later upgrade restores.
+const DEFAULT_ADDITIONS = [
+  ["~/.codex/.tmp"],
+  ["~/.local/share/containers", "~/.local/share/docker"],
+];
+const EXCLUSION_DEFAULTS_VERSION = DEFAULT_ADDITIONS.length;
+// One scan report and one cleanup selection share this bound.
+const MAX_WORKTREES = 20000;
 const {
   isValidSSHHost,
   MAX_HOST_LENGTH,
@@ -42,6 +53,7 @@ const flagFields = [
   "ignored",
   "published",
   "merged",
+  "fresh",
   "canRemove",
   "canDiscard",
   "recommended",
@@ -118,6 +130,8 @@ function validWorktree(value, partial = false) {
   return true;
 }
 
+const absentOr = (value, valid) => value == null || valid(value);
+
 function isValidReport(report) {
   if (
     !report ||
@@ -125,7 +139,15 @@ function isValidReport(report) {
     !Array.isArray(report.warnings) ||
     !report.warnings.every(displayText) ||
     !Array.isArray(report.worktrees) ||
-    report.worktrees.length > 20000
+    report.worktrees.length > MAX_WORKTREES ||
+    // Scan metadata is rendered too. A cached file is not trusted input.
+    !absentOr(report.scannedAt, boundedText) ||
+    !absentOr(
+      report.durationMs,
+      (value) => Number.isFinite(value) && value >= 0,
+    ) ||
+    !absentOr(report.github, (value) => typeof value === "boolean") ||
+    !absentOr(report.fetched, (value) => typeof value === "boolean")
   )
     return false;
   const ids = new Set();
@@ -301,7 +323,7 @@ function validatePreferences(value) {
     hosts,
     roots: roots.map((root) => text(root, "recent folder")),
     setupCompleted: value.setupCompleted === true,
-    exclusionDefaultsVersion: 1,
+    exclusionDefaultsVersion: EXCLUSION_DEFAULTS_VERSION,
     scan,
     scans,
   };
@@ -309,28 +331,32 @@ function validatePreferences(value) {
 
 function loadPreferences(value) {
   const preferences = validatePreferences(value);
-  // Upgrade untouched v0.1.2/v0.1.3 defaults, not custom exclusions or an
-  // explicitly empty list. The marker lets users remove the new rule later.
-  const previousDefaults = DEFAULT_EXCLUDES.filter(
-    (rule) => rule !== "~/.codex/.tmp",
-  );
-  for (const options of [preferences.scan, ...preferences.scans]) {
-    const saved = options.excludes;
-    if (
-      !value.exclusionDefaultsVersion &&
-      saved.length === previousDefaults.length &&
-      new Set(saved).size === previousDefaults.length &&
-      previousDefaults.every((rule) => saved.includes(rule))
-    ) {
-      options.excludes = [...DEFAULT_EXCLUDES];
+  const saved = value.exclusionDefaultsVersion;
+  const version =
+    Number.isInteger(saved) && saved > 0
+      ? Math.min(saved, EXCLUSION_DEFAULTS_VERSION)
+      : 0;
+  // Upgrade an untouched default list, not custom exclusions or an explicitly
+  // empty list. An explicitly trimmed list keeps its newer version marker.
+  const later = new Set(DEFAULT_ADDITIONS.slice(version).flat());
+  const untouched = DEFAULT_EXCLUDES.filter((rule) => !later.has(rule));
+  if (later.size)
+    for (const options of [preferences.scan, ...preferences.scans]) {
+      const rules = options.excludes;
+      if (
+        rules.length === untouched.length &&
+        new Set(rules).size === untouched.length &&
+        untouched.every((rule) => rules.includes(rule))
+      )
+        options.excludes = [...DEFAULT_EXCLUDES];
     }
-  }
   return preferences;
 }
 
 module.exports = {
   DEFAULTS,
   DEFAULT_EXCLUDES,
+  MAX_WORKTREES,
   scanOptions,
   validatePreferences,
   loadPreferences,

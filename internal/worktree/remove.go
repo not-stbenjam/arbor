@@ -60,7 +60,9 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 			return err
 		}
 	} else {
-		common = gitText(ctx, snapshot.Path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+		// Remove Git's terminator only; whitespace can be part of the directory.
+		output, _ := git(ctx, snapshot.Path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+		common = strings.TrimSuffix(output, "\n")
 	}
 	if resolved, err := filepath.EvalSymlinks(common); err == nil {
 		common = resolved
@@ -143,6 +145,19 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		}
 		if _, err := os.Lstat(current.Path); !os.IsNotExist(err) {
 			return errors.New("worktree directory appeared during validation; inspect it again")
+		}
+	}
+	// Inspection reads every file and can query GitHub, long enough for the
+	// checkout to move. Re-read its identity as the last step: a commit made on
+	// a newly detached HEAD has no branch, and would be lost with the folder.
+	if !missing {
+		ref := ""
+		if current.Branch != "" {
+			ref = "refs/heads/" + current.Branch
+		}
+		if gitText(ctx, current.Path, "rev-parse", "--verify", "HEAD") != expectedHead ||
+			gitText(ctx, current.Path, "symbolic-ref", "--quiet", "HEAD") != ref {
+			return errors.New("worktree commit or branch changed during validation; scan again")
 		}
 	}
 	args := []string{"worktree", "remove"}

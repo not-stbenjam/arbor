@@ -3,7 +3,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
-const { removalConfirmationOptions } = require("./worktree-menu.cjs");
+const {
+  removalConfirmationOptions,
+} = require("./removal-confirmation.cjs");
 const { DEFAULTS } = require("./protocol.cjs");
 const {
   parseReport,
@@ -337,7 +339,7 @@ test("input validation and preference schema are bounded and match renderer cont
       hosts: [{ name: "Build VPS", host: "build", root: "~/src" }],
       roots: ["/work"],
       setupCompleted: false,
-      exclusionDefaultsVersion: 1,
+      exclusionDefaultsVersion: 2,
       scans: [scanOptions({ root: "/work" })],
       scan: {
         root: "/work",
@@ -516,36 +518,53 @@ test("scan exclusions use defaults only when omitted and preserve an explicit em
 
 test("saved default exclusions upgrade without overriding custom or explicitly removed rules", () => {
   const current = scanOptions().excludes;
-  const previous = current.filter((rule) => rule !== "~/.codex/.tmp");
+  // The complete default lists earlier releases shipped, oldest first.
+  const second = current.filter(
+    (rule) =>
+      !["~/.local/share/containers", "~/.local/share/docker"].includes(rule),
+  );
+  const first = second.filter((rule) => rule !== "~/.codex/.tmp");
   const original = {
     setupCompleted: true,
-    scan: { root: "/projects", excludes: previous },
+    scan: { root: "/projects", excludes: first },
   };
   const migrated = loadPreferences(original);
   assert.deepEqual(migrated.scan.excludes, current);
   assert.equal(migrated.scan.root, "/projects");
   assert.equal(migrated.setupCompleted, true);
-  assert.deepEqual(original.scan.excludes, previous);
+  assert.equal(migrated.exclusionDefaultsVersion, 2);
+  assert.deepEqual(original.scan.excludes, first);
   assert.deepEqual(
-    loadPreferences({ scan: { excludes: [...previous].reverse() } }).scan
-      .excludes,
+    loadPreferences({ scan: { excludes: [...first].reverse() } }).scan.excludes,
     current,
   );
-  for (const excludes of [
-    [],
-    ["custom-cache"],
-    [...previous, "custom-cache"],
-  ]) {
-    assert.deepEqual(
-      loadPreferences({ scan: { excludes } }).scan.excludes,
-      excludes,
-    );
+  assert.deepEqual(
+    loadPreferences({
+      exclusionDefaultsVersion: 1,
+      scan: { excludes: second },
+    }).scan.excludes,
+    current,
+  );
+  for (const exclusionDefaultsVersion of [undefined, 1, 2])
+    for (const excludes of [[], ["custom-cache"], [...first, "custom-cache"]])
+      assert.deepEqual(
+        loadPreferences({ exclusionDefaultsVersion, scan: { excludes } }).scan
+          .excludes,
+        excludes,
+      );
+  // A list trimmed back after an upgrade is a choice, not an older default.
+  assert.deepEqual(
+    loadPreferences({ exclusionDefaultsVersion: 1, scan: { excludes: first } })
+      .scan.excludes,
+    first,
+  );
+  for (const excludes of [first, second]) {
+    const optedOut = validatePreferences({
+      ...migrated,
+      scan: { ...migrated.scan, excludes },
+    });
+    assert.deepEqual(loadPreferences(optedOut).scan.excludes, excludes);
   }
-  const optedOut = validatePreferences({
-    ...migrated,
-    scan: { ...migrated.scan, excludes: previous },
-  });
-  assert.deepEqual(loadPreferences(optedOut).scan.excludes, previous);
 });
 
 test("live worktrees replace provisional paths, retain registration IDs, and clear after failure", async () => {

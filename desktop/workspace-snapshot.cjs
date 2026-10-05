@@ -121,7 +121,8 @@ function workspaceSnapshot(
     hosts: summaries,
     hostFilter,
     host: hostFilter || "",
-    root: hostFilter === null ? "/" : base.root,
+    // The combined view spans machines and has no scan folder of its own.
+    root: hostFilter === null ? "" : base.root,
     report,
     worktreeCount: report?.worktrees.length || 0,
     revision,
@@ -144,7 +145,7 @@ function mergedReport(hosts, filter) {
   if (!visible.some((state) => state.report || state.partialWorktrees.length))
     return null;
   return {
-    root: filter === null ? "/" : visible[0]?.root || "",
+    root: filter === null ? "" : visible[0]?.root || "",
     worktrees: visible.flatMap(displayedRows),
     warnings: visible.flatMap((state) =>
       (state.report?.warnings || []).map((warning) =>

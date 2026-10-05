@@ -16,6 +16,7 @@ func inspect(ctx context.Context, w *Worktree, options Options) {
 func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defaultCache *repositoryDefault) {
 	w.Missing = false
 	w.Empty = false
+	w.Fresh = false
 	w.Blockers = []string{}
 	w.Problems = []string{}
 	w.PublishedRefs = []string{}
@@ -27,7 +28,7 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 		for _, reason := range reasons {
 			w.Blockers = append(w.Blockers, reasonMessage(reason))
 		}
-		decision := evaluateRemoval(removalFacts{reasons: reasons, verified: verified, problems: len(w.Problems) > 0, merged: w.Merged})
+		decision := evaluateRemoval(removalFacts{reasons: reasons, verified: verified, problems: len(w.Problems) > 0, merged: w.Merged, fresh: w.Fresh})
 		w.CanRemove, w.CanDiscard, w.Recommended = decision.canRemove, decision.canDiscard, decision.recommended
 		w.DiscardWarnings = decision.warnings
 	}()
@@ -44,6 +45,9 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 	inspectMerge(ctx, w, defaultCache, block)
 	if options.GitHub {
 		checkGitHub(ctx, w)
+	}
+	if w.Merged {
+		inspectFreshness(ctx, w)
 	}
 	verified = true
 }

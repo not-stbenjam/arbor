@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -165,10 +166,10 @@ func validID(id string) bool {
 // RecordRemovalBatch accepts confirmed successful removals only. It is separate
 // from deletion: callers warn on errors without changing a successful outcome.
 func RecordRemovalBatch(batch Batch) error {
-	return record(batch, time.Now().UTC())
+	return record(batch, time.Now)
 }
 
-func record(batch Batch, now time.Time) error {
+func record(batch Batch, clock func() time.Time) error {
 	if len(batch.Removals) == 0 {
 		return nil
 	}
@@ -205,6 +206,9 @@ func record(batch Batch, now time.Time) error {
 		time.Sleep(20 * time.Millisecond)
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	// Read the clock only once the lock is held, so writers that waited on each
+	// other record in the order they are applied.
+	now := clock().UTC()
 	state, err := read(file)
 	if errors.Is(err, errCorrupt) {
 		var suffix [8]byte
@@ -246,26 +250,54 @@ func record(batch Batch, now time.Time) error {
 		}
 	}
 	state.EstimatedBytesReclaimed = add(state.EstimatedBytesReclaimed, bytes)
-	stamp := now.UTC().Format(time.RFC3339)
-	if state.FirstCleanupAt == "" {
+	stamp := now.Format(time.RFC3339)
+	// read validated both timestamps; an empty one parses as the zero time.
+	first, _ := time.Parse(time.RFC3339, state.FirstCleanupAt)
+	if state.FirstCleanupAt == "" || now.Before(first) {
 		state.FirstCleanupAt = stamp
 	}
-	state.LastCleanupAt = stamp
-	cutoff, today := now.UTC().AddDate(0, 0, -89).Format(time.DateOnly), now.UTC().Format(time.DateOnly)
-	days := make([]Day, 0, 90)
-	for _, day := range state.Daily {
-		if day.Date >= cutoff && day.Date <= today {
-			days = append(days, day)
+	// A clock can still step backward. Keep the later cleanup unless it is
+	// further ahead than a correction explains, which a sane clock replaces.
+	last, _ := time.Parse(time.RFC3339, state.LastCleanupAt)
+	if last.Before(now) || last.After(now.Add(clockTolerance)) {
+		state.LastCleanupAt = stamp
+	}
+	state.Daily = recordDay(state.Daily, now, int64(len(batch.Removals)), bytes)
+	return save(file, state)
+}
+
+// clockTolerance is how far ahead of the present a recorded day may be and
+// still be trusted. It absorbs a small backward clock step around midnight.
+const clockTolerance = 24 * time.Hour
+
+// recordDay adds to one day's totals, keeping days sorted and within 90 days.
+// A record that arrives slightly out of order never discards a later day that
+// was already counted; days far in the future are a past clock error.
+func recordDay(days []Day, now time.Time, removed, bytes int64) []Day {
+	today, horizon := now.Format(time.DateOnly), now.Add(clockTolerance).Format(time.DateOnly)
+	latest := today
+	for _, day := range days {
+		if day.Date > latest && day.Date <= horizon {
+			latest = day.Date
 		}
 	}
-	if len(days) == 0 || days[len(days)-1].Date != today {
-		days = append(days, Day{Date: today})
+	cutoff := today
+	if end, err := time.Parse(time.DateOnly, latest); err == nil {
+		cutoff = end.AddDate(0, 0, -89).Format(time.DateOnly)
 	}
-	day := &days[len(days)-1]
-	day.RemovedWorktrees = add(day.RemovedWorktrees, int64(len(batch.Removals)))
-	day.EstimatedBytesReclaimed = add(day.EstimatedBytesReclaimed, bytes)
-	state.Daily = days
-	return save(file, state)
+	kept := make([]Day, 0, 90)
+	for _, day := range days {
+		if day.Date >= cutoff && day.Date <= latest {
+			kept = append(kept, day)
+		}
+	}
+	index, found := slices.BinarySearchFunc(kept, today, func(day Day, date string) int { return strings.Compare(day.Date, date) })
+	if !found {
+		kept = slices.Insert(kept, index, Day{Date: today})
+	}
+	kept[index].RemovedWorktrees = add(kept[index].RemovedWorktrees, removed)
+	kept[index].EstimatedBytesReclaimed = add(kept[index].EstimatedBytesReclaimed, bytes)
+	return kept
 }
 
 func contains(values []string, value string) bool {

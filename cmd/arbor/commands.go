@@ -23,7 +23,7 @@ type commandOptions struct {
 	yes, recommended, progress, all, quiet                        bool
 	linkedOnly, noDefaultExcludes, discardLocal, keepLocal, force bool
 	targetOnly, watchStdin                                        bool
-	expectMissing, expectEmpty                                    bool
+	expectMissing, expectEmpty, expectBranch                      bool
 	excludes                                                      []string
 	head, id, branch, repository, statsSession                    string
 }
@@ -97,6 +97,8 @@ func worktreeCommand(use, short, long, example string, flags *commandOptions) *c
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Name() == "remove" {
 				flags.common.root = args[0]
+				// An empty branch is itself an expectation: the checkout was detached.
+				flags.expectBranch = cmd.Flags().Changed("branch")
 			}
 			return runWorktrees(cmd.Context(), cmd.Name(), flags, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
@@ -155,7 +157,7 @@ func newRemoveCommand() *cobra.Command {
 	f.BoolVar(&flags.recommended, "recommended-only", false, "Require a fresh clean, merged cleanup recommendation")
 	f.BoolVar(&flags.discardLocal, "discard-local", false, "Explicit alias for the default local-file deletion policy")
 	f.StringVar(&flags.id, "id", "", "Require this worktree identity")
-	f.StringVar(&flags.branch, "branch", "", "Require this branch")
+	f.StringVar(&flags.branch, "branch", "", "Require this branch (empty requires a detached HEAD)")
 	f.StringVar(&flags.statsSession, "stats-session", "", "Group removal statistics into a cleanup session")
 	f.BoolVar(&flags.expectMissing, "expect-missing", false, "Require the confirmed checkout to remain missing")
 	f.BoolVar(&flags.expectEmpty, "expect-empty", false, "Require the confirmed checkout to remain empty or missing")

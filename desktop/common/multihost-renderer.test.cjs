@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const tree = require("./worktree-tree.js");
+const tree = require("./worktree-tree.mjs");
 const row = (host, id, extra = {}) => ({
   host,
   id: JSON.stringify([host, id]),
@@ -20,7 +20,7 @@ const hosts = [
   { host: "vps", label: "Build server", root: "/work" },
 ];
 const projection = {
-  root: "/",
+  root: "",
   hostFilter: null,
   hosts,
   search: "",

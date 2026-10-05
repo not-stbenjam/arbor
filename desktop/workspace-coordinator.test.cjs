@@ -722,3 +722,39 @@ test("approval revalidates a host whose scan completed while the native consent 
     false,
   );
 });
+
+test("a selection as large as a scan is removed in one confirmed cleanup", async () => {
+  const rows = Array.from({ length: 1001 }, (_, index) => ({
+    ...row,
+    id: `row-${index}`,
+    path: `/work/topic-${index}`,
+  }));
+  const removed = [];
+  const coordinator = new WorkspaceCoordinator({
+    options: options(""),
+    run: async (args) => {
+      if (args[0] !== "remove") return JSON.stringify(report(rows));
+      removed.push(args.at(-1));
+      return JSON.stringify({ path: args.at(-1), removed: true });
+    },
+  });
+  await coordinator.start();
+  await coordinator.waitUntilIdle();
+  const state = coordinator.getState();
+  assert.equal(state.report.worktrees.length, 1001);
+  const selection = (items) => ({
+    revision: state.revision,
+    recommendedOnly: true,
+    items,
+  });
+  await assert.rejects(
+    coordinator.remove(selection([])),
+    /Choose at least one worktree/,
+  );
+  const result = await coordinator.remove(
+    selection(state.report.worktrees.map(({ id, head }) => ({ id, head }))),
+  );
+  assert.equal(result.results.length, 1001);
+  assert.equal(removed.length, 1001);
+  assert.equal(result.report.worktrees.length, 0);
+});

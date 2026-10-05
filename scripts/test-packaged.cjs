@@ -42,15 +42,21 @@ const env = {
   ARBOR_SMOKE_ROOT: projects,
   ARBOR_SMOKE_CLEANUP: "1",
 };
-function git(...args) {
+function gitWith(extra, ...args) {
   const result = spawnSync("git", ["-C", primary, ...args], {
-    env,
+    env: { ...env, ...extra },
     encoding: "utf8",
   });
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
+const git = (...args) => gitWith({}, ...args);
+// Git stamps a new worktree's HEAD reflog with the committer date, which is
+// how Arbor tells an established checkout from one created moments ago.
+const established = {
+  GIT_COMMITTER_DATE: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
+};
 try {
   git("init", "-b", "main");
   git("config", "user.name", "Arbor package test");
@@ -66,7 +72,17 @@ try {
     path.join(projects, name),
   );
   for (const target of targets)
-    git("worktree", "add", "-b", path.basename(target), target, "main");
+    gitWith(
+      established,
+      "worktree",
+      "add",
+      "-b",
+      path.basename(target),
+      target,
+      "main",
+    );
+  const created = path.join(projects, "new-session");
+  git("worktree", "add", "-b", "new-session", created, "main");
   fs.writeFileSync(
     path.join(projects, ".arbor-smoke-fixture"),
     "packaged cleanup fixture\n",
@@ -86,6 +102,11 @@ try {
       `linked checkout remained: ${target}`,
     );
   assert.equal(
+    fs.existsSync(path.join(created, "tracked.txt")),
+    true,
+    "one-click cleanup removed a checkout created moments ago",
+  );
+  assert.equal(
     fs.readFileSync(path.join(primary, "tracked.txt"), "utf8"),
     "committed fixture data\n",
   );
@@ -94,13 +115,13 @@ try {
     "must remain\n",
   );
   assert.equal(git("rev-parse", "HEAD"), head);
-  for (const name of ["old-one", "old-two"])
+  for (const name of ["old-one", "old-two", "new-session"])
     assert.equal(git("rev-parse", `refs/heads/${name}`), head);
-  assert.equal(
+  assert.deepEqual(
     git("worktree", "list", "--porcelain")
       .split("\n")
-      .filter((line) => line.startsWith("worktree ")).length,
-    1,
+      .filter((line) => line.startsWith("worktree ")),
+    [`worktree ${primary}`, `worktree ${created}`],
   );
   const profiles = fs
     .readdirSync(fixture)
@@ -113,8 +134,8 @@ try {
   const cached = cache.entries.find((entry) => entry.report.root === projects);
   assert.ok(cached, "completed cleanup snapshot persisted to disk");
   assert.deepEqual(
-    cached.report.worktrees,
-    [],
+    cached.report.worktrees.map((row) => row.path),
+    [created],
     "removed worktrees must not return on restart",
   );
   assert.ok(Number.isFinite(Date.parse(cached.report.scannedAt)));
@@ -124,7 +145,7 @@ try {
   assert.equal(statistics.removedWorktrees, targets.length);
   assert.equal(statistics.cleanupSessions, 1);
   console.log(
-    "Packaged application passed: real CLI cleanup, retained branches, primary checkout and unrelated files intact, statistics and cached report verified",
+    "Packaged application passed: real CLI cleanup, retained branches, new checkout, primary checkout and unrelated files intact, statistics and cached report verified",
   );
 } finally {
   fs.rmSync(fixture, { recursive: true, force: true });

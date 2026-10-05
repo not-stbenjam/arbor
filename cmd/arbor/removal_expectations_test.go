@@ -69,6 +69,40 @@ func TestCLICachedMissingAndEmptyConsentRejectsRecreatedCheckout(t *testing.T) {
 	}
 }
 
+// The desktop and SSH client always send the branch they confirmed. An empty
+// value states that the checkout was detached, and binds that like any name.
+func TestCLIDetachedConsentRejectsCheckoutNowOnABranch(t *testing.T) {
+	isolatedCLIStats(t)
+	root, repo := cliTestRepository(t)
+	target := filepath.Join(root, "session")
+	cliTestGit(t, repo, "worktree", "add", "--detach", target, "HEAD")
+	var report worktree.Report
+	if err := json.Unmarshal(runRemovalStatsCLI(t, "list", "--path", root, "--json"), &report); err != nil || len(report.Worktrees) != 1 {
+		t.Fatalf("expected one detached checkout: %+v, %v", report, err)
+	}
+	confirmed := report.Worktrees[0]
+	if !confirmed.Detached || confirmed.Branch != "" || !confirmed.CanDiscard {
+		t.Fatalf("wrong snapshot state: %+v", confirmed)
+	}
+	cliTestGit(t, target, "checkout", "-b", "started-after-confirmation")
+	payload := []byte("work begun on a branch must survive consent given for a detached session")
+	if err := os.WriteFile(filepath.Join(target, "keep.txt"), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"remove", target, "--repo", confirmed.CommonDir, "--head", confirmed.Head, "--id", confirmed.ID, "--branch", confirmed.Branch, "--discard-local", "--yes", "--json"}
+	if err := execute(context.Background(), args, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "branch changed") {
+		t.Fatalf("detached consent removed a checkout now on a branch: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(target, "keep.txt")); err != nil || string(got) != string(payload) {
+		t.Fatalf("local work changed: %q, %v", got, err)
+	}
+	// The same consent is honored once the checkout matches it again.
+	cliTestGit(t, target, "checkout", "--detach")
+	if err := execute(context.Background(), args, io.Discard, io.Discard); err != nil {
+		t.Fatalf("current detached confirmation refused: %v", err)
+	}
+}
+
 func TestCLIStaleExpectationsPermitOnlyConfirmedEmptyOrMissingStates(t *testing.T) {
 	for _, kind := range []string{"missing-remains-missing", "empty-remains-empty", "empty-now-missing"} {
 		t.Run(kind, func(t *testing.T) {

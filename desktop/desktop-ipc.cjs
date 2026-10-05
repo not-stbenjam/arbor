@@ -1,14 +1,14 @@
 "use strict";
 
 const { DEFAULTS } = require("./protocol.cjs");
-const { removalConfirmationOptions } = require("./worktree-menu.cjs");
+const {
+  removalConfirmationOptions,
+} = require("./removal-confirmation.cjs");
 
 function registerDesktopIPC({
   app,
   ipcMain,
   dialog,
-  shell,
-  clipboard,
   backend,
   preferences,
   getWindow,
@@ -41,10 +41,6 @@ function registerDesktopIPC({
     handle("arbor:get-stats", (host) => backend.readStats(host));
     handle("arbor:set-host-filter", (host) => backend.setHostFilter(host));
     handle("arbor:refresh-hosts", (host) => backend.refreshHosts(host));
-    handle("arbor:inspect-worktree", (value) => {
-      guardInteraction();
-      return backend.inspectWorktree(value);
-    });
     handle("arbor:worktree-menu", showWorktreeMenu);
     handle("arbor:cancel-scan", (host) => {
       guardInteraction();
@@ -87,11 +83,12 @@ function registerDesktopIPC({
       return result;
     });
     handle("arbor:choose-folder", async () => {
-      const state = backend.getState();
+      // The picker always browses this computer, whichever machine is shown.
+      const local = backend.getState().hosts.find((host) => host.host === "");
       const result = await dialog.showOpenDialog(getWindow(), {
         title: "Choose a scan folder",
         properties: ["openDirectory"],
-        defaultPath: state.host ? undefined : state.root || app.getPath("home"),
+        defaultPath: local?.root || app.getPath("home"),
       });
       return result.canceled ? null : result.filePaths[0] || null;
     });
@@ -122,32 +119,6 @@ function registerDesktopIPC({
         () => preferences.reset(),
       );
       return { ...result, preferences: preferences.get() };
-    });
-    handle("arbor:open-external", async (value) => {
-      if (typeof value !== "string" || value.length > 4096)
-        throw new Error("Invalid link");
-      let url;
-      try {
-        url = new URL(value);
-      } catch {
-        throw new Error("Invalid link");
-      }
-      if (
-        url.protocol !== "https:" ||
-        url.hostname !== "github.com" ||
-        url.username ||
-        url.password ||
-        (url.port && url.port !== "443")
-      )
-        throw new Error("Only HTTPS links to GitHub can be opened");
-      await shell.openExternal(url.href);
-      return true;
-    });
-    handle("arbor:copy-text", async (value) => {
-      if (typeof value !== "string" || value.length > 1024 * 1024)
-        throw new Error("Invalid clipboard text");
-      await clipboard.writeText(value);
-      return true;
     });
   }
 

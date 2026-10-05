@@ -7,14 +7,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Each integration test uses repositories entirely inside t.TempDir. No test
 // contacts a remote service or relies on the developer's Git identity.
 func testGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	return testGitEnv(t, dir, nil, args...)
+}
+
+func testGitEnv(t *testing.T, dir string, env []string, args ...string) string {
+	t.Helper()
 	cmd := exec.Command("git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-C", dir}, args...)...)
-	cmd.Env = append(commandEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	cmd.Env = append(append(commandEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"), env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
@@ -44,7 +50,17 @@ func testRepo(t *testing.T, dir string) string {
 	return dir
 }
 
+// testLinked models an established checkout. Git stamps a new worktree's HEAD
+// reflog with the committer date, which is how Arbor learns when it was created.
 func testLinked(t *testing.T, repo, path, branch string) string {
+	t.Helper()
+	created := time.Now().Add(-2 * freshGrace).Format(time.RFC3339)
+	testGitEnv(t, repo, []string{"GIT_COMMITTER_DATE=" + created}, "worktree", "add", "-b", branch, path)
+	return path
+}
+
+// testNewLinked creates a checkout now, as a person or coding tool just did.
+func testNewLinked(t *testing.T, repo, path, branch string) string {
 	t.Helper()
 	testGit(t, repo, "worktree", "add", "-b", branch, path)
 	return path

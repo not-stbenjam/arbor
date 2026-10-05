@@ -33,7 +33,7 @@ func selectTargets(r worktreeRequest, report worktree.Report) (targetSelection, 
 		}
 	}
 	if len(selection.selected) != 1 {
-		return selection, errors.New("path is not a linked worktree; for an empty or missing checkout, supply --repo with its owning repository")
+		return selection, errors.New("path is not a linked worktree (primary checkouts and folders inside a worktree are never removed); for an empty or missing checkout, supply --repo with its owning repository")
 	}
 	w := selection.selected[0]
 	if r.expectMissing && !w.Missing {
@@ -48,7 +48,7 @@ func selectTargets(r worktreeRequest, report worktree.Report) (targetSelection, 
 	if r.id != "" && r.id != w.ID {
 		return selection, errors.New("worktree identity changed; scan again")
 	}
-	if r.branch != "" && r.branch != w.Branch {
+	if r.expectBranch && r.branch != w.Branch {
 		return selection, errors.New("branch changed; scan again")
 	}
 	if !w.CanRemove && !(r.discardLocal && w.CanDiscard) {

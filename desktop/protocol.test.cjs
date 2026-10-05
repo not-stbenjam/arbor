@@ -42,7 +42,12 @@ test("per-host preference scans migrate legacy state and validate bounded unique
     /host alias/,
   );
   const previousDefaults = DEFAULTS.excludes.filter(
-    (rule) => rule !== "~/.codex/.tmp",
+    (rule) =>
+      ![
+        "~/.codex/.tmp",
+        "~/.local/share/containers",
+        "~/.local/share/docker",
+      ].includes(rule),
   );
   const migrated = loadPreferences({
     scan: { excludes: previousDefaults },
@@ -101,6 +106,41 @@ test("CLI, progress, and cache share worktree metadata validation", () => {
     cache.put(scanOptions({ root: "/repo" }), report([malformed]));
     assert.equal(cache.get(scanOptions({ root: "/repo" })), null);
   }
+});
+
+test("scan metadata is validated before it can reach a renderer or the cache", () => {
+  const complete = {
+    ...report(),
+    scannedAt: "2026-01-01T00:00:00Z",
+    durationMs: 12,
+    github: false,
+    fetched: true,
+  };
+  assert.deepEqual(parseReport(JSON.stringify(complete)), complete);
+  // The combined view reports an absent scan time as null.
+  assert.equal(isValidReport({ ...report(), scannedAt: null }), true);
+  assert.equal(isValidReport(report([{ ...row, fresh: true }])), true);
+  for (const mutation of [
+    { scannedAt: { toString: null, valueOf: null } },
+    { scannedAt: 1767225600000 },
+    { scannedAt: "x".repeat(4097) },
+    { durationMs: "12" },
+    { durationMs: -1 },
+    { durationMs: Infinity },
+    { github: "true" },
+    { fetched: 1 },
+  ]) {
+    const malformed = { ...report(), ...mutation };
+    assert.equal(isValidReport(malformed), false, JSON.stringify(mutation));
+    const cache = new WorkspaceCache();
+    cache.put(scanOptions({ root: "/repo" }), malformed);
+    assert.equal(cache.get(scanOptions({ root: "/repo" })), null);
+  }
+  assert.equal(isValidReport(report([{ ...row, fresh: "yes" }])), false);
+  assert.throws(
+    () => parseReport(JSON.stringify({ ...report(), durationMs: "12" })),
+    /invalid worktree metadata/,
+  );
 });
 
 test("complete snapshots reject duplicate IDs but permit distinct registrations at one path; partial rows cannot authorize deletion", () => {

@@ -65,6 +65,8 @@ const repoID = (w) =>
     ? w.commonDir || w.repo || w.path
     : JSON.stringify([w.host, w.commonDir || w.repo || w.path]);
 const parsedDate = (value) => {
+  // Only a timestamp is ever a date; never coerce other report data.
+  if (typeof value !== "string" && typeof value !== "number") return null;
   const d = new Date(value);
   return Number.isNaN(d.valueOf()) || d.getFullYear() < 1971 ? null : d;
 };
@@ -84,11 +86,22 @@ const ago = (value) => {
             ? `${Math.floor(s / 2592000)}mo ago`
             : `${Math.floor(s / 31536000)}y ago`;
 };
-const fullDate = (value) =>
-  parsedDate(value)?.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }) || "Unknown";
+// Every row formats a date and a size. Constructing a locale formatter per
+// cell dominates the cost of drawing a long list, so each is built once.
+const dateFormat = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+const wholeNumber = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 0,
+});
+const oneDecimal = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 1,
+});
+const fullDate = (value) => {
+  const d = parsedDate(value);
+  return d ? dateFormat.format(d) : "Unknown";
+};
 const size = (bytes) => {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -97,7 +110,7 @@ const size = (bytes) => {
     bytes /= 1024;
     u++;
   }
-  return `${bytes.toLocaleString(undefined, { maximumFractionDigits: u > 0 && bytes < 10 ? 1 : 0 })} ${units[u]}`;
+  return `${(u > 0 && bytes < 10 ? oneDecimal : wholeNumber).format(bytes)} ${units[u]}`;
 };
 const sizeOf = (list) =>
   list.reduce((n, w) => n + Math.max(0, w.sizeBytes || 0), 0);

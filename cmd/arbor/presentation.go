@@ -35,9 +35,9 @@ func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
 	return printTable(out, report.Worktrees)
 }
 
-func writePreview(out io.Writer, r worktreeRequest, selected []worktree.Worktree) error {
+func writePreview(out io.Writer, r worktreeRequest, selected []worktree.Worktree, warnings []string) error {
 	if r.json {
-		return json.NewEncoder(out).Encode(map[string]any{"dryRun": true, "worktrees": selected})
+		return json.NewEncoder(out).Encode(map[string]any{"dryRun": true, "worktrees": selected, "warnings": warnings})
 	}
 	if len(selected) == 0 {
 		_, err := fmt.Fprintln(out, "No matching worktrees to remove. Nothing changed.")
@@ -55,7 +55,7 @@ func writePreview(out io.Writer, r worktreeRequest, selected []worktree.Worktree
 			}
 		}
 	}
-	_, err := fmt.Fprintf(out, "\nPreview only. %d worktree(s) eligible. Pass --yes to remove; branches are retained.\n", len(selected))
+	_, err := fmt.Fprintf(out, "\nPreview only: %s, %s on disk. Pass --yes to remove; branches are retained.\n", count(len(selected), "worktree"), byteSize(totalSize(selected)))
 	return err
 }
 
@@ -93,36 +93,19 @@ func writeOutcome(out io.Writer, r worktreeRequest, outcome batchOutcome) error 
 		if _, err := fmt.Fprintln(out, "No matching worktrees to remove. Nothing changed."); err != nil {
 			return err
 		}
+	} else if len(outcome.results) > 1 {
+		// Each removal already printed its own line; total a batch once.
+		if _, err := fmt.Fprintf(out, "Removed %d of %s, freeing about %s.\n", len(outcome.removed), count(len(outcome.results), "worktree"), byteSize(totalSize(outcome.removed))); err != nil {
+			return err
+		}
 	}
 	return outcome.err
 }
 
 func printTable(out io.Writer, entries []worktree.Worktree) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "PATH\tBRANCH\tREPOSITORY\tACTIVITY\tSTATUS")
+	fmt.Fprintln(w, "PATH\tBRANCH\tREPOSITORY\tACTIVITY\tSIZE\tSTATUS")
 	for _, entry := range entries {
-		state := "clean"
-		if entry.Merged {
-			state = "merged"
-		}
-		if entry.Locked {
-			state = "Git locked"
-		}
-		if entry.Ignored {
-			state = "ignored files"
-		}
-		if entry.Dirty {
-			state = "local changes"
-		}
-		if entry.Empty {
-			state = "empty checkout"
-		}
-		if entry.Missing {
-			state = "missing checkout"
-		}
-		if !entry.CanRemove && !entry.CanDiscard && len(entry.Blockers) > 0 {
-			state = printable(entry.Blockers[0])
-		}
 		branch := entry.Branch
 		if entry.Detached {
 			branch = "(detached)"
@@ -134,9 +117,53 @@ func printTable(out io.Writer, entries []worktree.Worktree) error {
 		if !entry.ActivityAt.IsZero() {
 			age = duration(time.Since(entry.ActivityAt))
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", printable(entry.Path), printable(branch), printable(entry.Repo), age, state)
+		size := "—"
+		if !entry.Missing {
+			size = byteSize(entry.SizeBytes)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", printable(entry.Path), printable(branch), printable(entry.Repo), age, size, status(entry))
 	}
 	return w.Flush()
+}
+
+// status names the one fact that most affects a cleanup decision.
+func status(entry worktree.Worktree) string {
+	switch {
+	case !entry.CanRemove && !entry.CanDiscard && len(entry.Blockers) > 0:
+		return printable(entry.Blockers[0])
+	case entry.Missing:
+		return "missing checkout"
+	case entry.Empty:
+		return "empty checkout"
+	case entry.Dirty:
+		return "local changes"
+	case entry.Ignored:
+		return "ignored files"
+	case entry.Locked:
+		return "Git locked"
+	case entry.Fresh:
+		return "new"
+	case entry.Merged:
+		return "merged"
+	}
+	return "clean"
+}
+
+func totalSize(entries []worktree.Worktree) int64 {
+	var total int64
+	for _, entry := range entries {
+		if !entry.Missing && entry.SizeBytes > 0 {
+			total += entry.SizeBytes
+		}
+	}
+	return total
+}
+
+func count(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func printable(s string) string {

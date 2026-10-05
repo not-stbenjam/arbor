@@ -1,5 +1,7 @@
 "use strict";
 
+const { MAX_WORKTREES } = require("./protocol.cjs");
+
 // Pure consent and CLI contract. This module neither starts operations nor
 // changes reports; the backend owns those lifetimes and mutations.
 function usesDiscardLocal(row, discardLocal) {
@@ -16,12 +18,13 @@ function planRemoval(state, request) {
     throw new Error(
       "The scan changed; review the current worktrees and try again",
     );
+  // Anything one scan can list, one confirmed selection can remove.
   if (
     !Array.isArray(request.items) ||
     !request.items.length ||
-    request.items.length > 1000
+    request.items.length > MAX_WORKTREES
   )
-    throw new Error("Choose between 1 and 1000 worktrees");
+    throw new Error("Choose at least one worktree");
   const discardLocal = request.discardLocal === true;
   const recommendedOnly = request.recommendedOnly === true;
   if (discardLocal && recommendedOnly)

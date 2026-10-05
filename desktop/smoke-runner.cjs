@@ -169,6 +169,8 @@ function registerSmokeTest({
               `Arbor cleanup smoke passed: removed ${candidates.length} fixture worktrees through Electron IPC`,
             );
           }
+          // The idle status line counts repositories, in either number.
+          const settled = /\brepositor(?:y|ies)\b/;
           let rendered;
           for (let attempt = 0; attempt < 50; attempt++) {
             rendered = await win.webContents.executeJavaScript(
@@ -177,7 +179,7 @@ function registerSmokeTest({
             if (
               Number(rendered.count) === state.report.worktrees.length &&
               rendered.rows === state.report.worktrees.length &&
-              rendered.status?.includes("repositories")
+              settled.test(rendered.status)
             )
               break;
             await new Promise((resolve) => setTimeout(resolve, 100));
@@ -186,7 +188,7 @@ function registerSmokeTest({
             rendered.text.trim().length < 20 ||
             Number(rendered.count) !== state.report.worktrees.length ||
             rendered.rows !== state.report.worktrees.length ||
-            !rendered.status?.includes("repositories")
+            !settled.test(rendered.status)
           )
             throw new Error("Renderer did not display the completed scan");
           if (rendered.error || consoleErrors.length)

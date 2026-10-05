@@ -10,7 +10,6 @@
     <title>Arbor</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="stats.css" />
-    <script src="../common/worktree-tree.js" defer></script>
     <script src="app.js" type="module"></script>
   </head>
   <body>
@@ -149,18 +148,21 @@
         <div id="recommendation-note" class="recommendation-note" hidden>
           <span data-icon="check-circle"></span
           ><span
-            >Clean worktrees with commits already merged. Cleanup keeps their
-            branches.</span
+            >Clean worktrees whose commits are already merged. Cleanup keeps
+            their branches. Worktrees created in the last day wait until they
+            are used.</span
           >
         </div>
         <div class="content-panes">
           <section class="table-pane" aria-label="Git worktrees">
             <div class="table-scroll" id="table-scroll">
               <table
+                id="worktree-grid"
                 class="directory-table"
                 role="treegrid"
+                tabindex="0"
                 aria-multiselectable="true"
-                aria-label="Worktrees by directory"
+                aria-label="Worktrees by directory. Use arrow keys to select, Enter for actions, and Delete to remove."
               >
                 <thead>
                   <tr>
@@ -184,11 +186,7 @@
                     </th>
                   </tr>
                 </thead>
-                <tbody
-                  id="worktree-list"
-                  tabindex="0"
-                  aria-label="Worktree directory tree. Use arrow keys to select and Enter for actions."
-                ></tbody>
+                <tbody id="worktree-list"></tbody>
               </table>
               <div id="empty-state" class="empty-state" hidden></div>
             </div>

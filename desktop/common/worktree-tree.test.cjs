@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const tree = require("./worktree-tree.js");
+const tree = require("./worktree-tree.mjs");
 const w = (path, extra = {}) => ({ id: path, path, canRemove: true, ...extra });
 test("same-path registrations retain identity in every view and folder action", () => {
   const values = [

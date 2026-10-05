@@ -2,12 +2,16 @@
 
 const { Backend } = require("./backend.cjs");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
-const { scanOptions, validatePreferences } = require("./protocol.cjs");
+const {
+  scanOptions,
+  validatePreferences,
+  MAX_WORKTREES,
+} = require("./protocol.cjs");
+const { aggregateStats } = require("./aggregate-stats.cjs");
 const { planRemoval } = require("./removal-policy.cjs");
 const { HostScheduler } = require("./host-scheduler.cjs");
 const { menuTarget } = require("./worktree-menu.cjs");
 const {
-  globalID,
   parseGlobalID,
   SnapshotRevisions,
   displayedRows,
@@ -390,9 +394,9 @@ class WorkspaceCoordinator {
     if (
       !Array.isArray(value?.items) ||
       !value.items.length ||
-      value.items.length > 1000
+      value.items.length > MAX_WORKTREES
     )
-      throw new Error("Choose between 1 and 1000 worktrees");
+      throw new Error("Choose at least one worktree");
     const groups = new Map();
     for (const item of value.items) {
       const { host, id } = parseGlobalID(item.id);
@@ -496,7 +500,7 @@ class WorkspaceCoordinator {
     );
     return {
       host: null,
-      report: require("./aggregate-stats.cjs").aggregateStats(results),
+      report: aggregateStats(results),
     };
   }
   setGitHubAvailable(value) {

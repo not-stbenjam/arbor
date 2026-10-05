@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { registerDesktopIPC } = require("./desktop-ipc.cjs");
 
-function adapter({ backend = {}, preferences = {}, dialog = {} } = {}) {
+function adapter({ backend = {}, preferences = {}, dialog = {}, app = {} } = {}) {
   const handlers = new Map();
   const rendererURL = "file:///arbor/renderer/index.html";
   const window = { webContents: { mainFrame: { url: rendererURL } } };
@@ -13,11 +13,9 @@ function adapter({ backend = {}, preferences = {}, dialog = {} } = {}) {
     senderFrame: window.webContents.mainFrame,
   };
   const controller = registerDesktopIPC({
-    app: {},
+    app,
     ipcMain: { handle: (name, fn) => handlers.set(name, fn) },
     dialog,
-    shell: {},
-    clipboard: {},
     backend,
     preferences,
     getWindow: () => window,
@@ -45,6 +43,66 @@ test("desktop IPC accepts only the current renderer main frame", () => {
   );
   event.senderFrame.url = "https://example.invalid";
   assert.throws(() => handler(event), /Unrecognized/);
+});
+
+test("the renderer bridge exposes only channels the interface uses", () => {
+  const { handlers } = adapter();
+  assert.deepEqual(
+    [...handlers.keys()].sort(),
+    [
+      "arbor:cancel-scan",
+      "arbor:choose-folder",
+      "arbor:complete-setup",
+      "arbor:get-defaults",
+      "arbor:get-preferences",
+      "arbor:get-state",
+      "arbor:get-stats",
+      "arbor:refresh-hosts",
+      "arbor:remove",
+      "arbor:reset-preferences",
+      "arbor:save-preferences",
+      "arbor:scan",
+      "arbor:set-host-filter",
+      "arbor:worktree-menu",
+    ],
+  );
+});
+
+test("the folder picker opens at this computer's scan folder, whichever machine is shown", async () => {
+  const opened = [];
+  const dialog = {
+    showOpenDialog: async (_window, options) => {
+      opened.push(options.defaultPath);
+      return { canceled: false, filePaths: ["/chosen"] };
+    },
+  };
+  const app = { getPath: () => "/home/user" };
+  const hosts = [
+    { host: "", root: "/projects" },
+    { host: "vps", root: "/srv/code" },
+  ];
+  // The combined view has no folder of its own; a remote view shows another
+  // machine's. Neither may become the place a local picker opens.
+  for (const state of [
+    { hostFilter: null, host: "", root: "", hosts },
+    { hostFilter: "vps", host: "vps", root: "/srv/code", hosts },
+    { hostFilter: "", host: "", root: "/projects", hosts },
+  ]) {
+    const { call } = adapter({ backend: { getState: () => state }, dialog, app });
+    assert.equal(await call("choose-folder"), "/chosen");
+  }
+  const { call } = adapter({
+    backend: { getState: () => ({ hosts: [{ host: "", root: "" }] }) },
+    dialog,
+    app,
+  });
+  await call("choose-folder");
+  assert.deepEqual(opened, [
+    "/projects",
+    "/projects",
+    "/projects",
+    "/home/user",
+  ]);
 });
 
 test("scan and setup each delegate one canonical persistence callback with appearance", async () => {

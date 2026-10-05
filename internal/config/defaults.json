@@ -8,7 +8,9 @@
     "~/Library/Caches",
     "~/Library/Logs",
     "~/.local/share/Trash",
-    "~/.codex/.tmp"
+    "~/.codex/.tmp",
+    "~/.local/share/containers",
+    "~/.local/share/docker"
   ],
   "maxExcludes": 128
 }

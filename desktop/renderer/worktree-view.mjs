@@ -3,6 +3,7 @@ import {
   projectRepositories,
   renderTreeRows,
   renderRepositoryList,
+  rowElementID,
 } from "./worktree-presentation.mjs";
 import { icon, ago } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
@@ -14,6 +15,7 @@ export function createWorktreeView({
   workspace,
   tree,
   showWorktreeMenu,
+  onRender = () => {},
 }) {
   const $ = (selector) => document.querySelector(selector);
   let view = "all",
@@ -25,6 +27,7 @@ export function createWorktreeView({
   let rowSignature = "",
     repoSignature = "",
     directoryRows = [],
+    filtered = [],
     visible = [];
   const hostFilter = () => workspace.snapshot.hostFilter;
   let previousItems = [],
@@ -32,23 +35,51 @@ export function createWorktreeView({
   const collapsedDirectories = new Set();
   const items = () => workspace.items;
   const blocked = () => workspace.blocked;
-  function renderControls() {
+  const selected = () => items().filter((row) => selection.ids.has(row.id));
+  // Rendered rows already carry these states. This reapplies them when only
+  // the operation changed, without rebuilding the table.
+  function renderRowControls() {
+    const unavailable = blocked() || !workspace.snapshot.revision;
+    const rows = new Map(items().map((row) => [row.id, row]));
     $("#worktree-list")
       .querySelectorAll("[data-delete], [data-folder-delete]")
       .forEach((button) => {
-        const row =
-          button.dataset.delete &&
-          items().find((entry) => entry.id === button.dataset.delete);
-        button.disabled =
-          blocked() ||
-          !workspace.snapshot.revision ||
-          (row && !workspace.canDelete(row));
+        const row = rows.get(button.dataset.delete);
+        button.disabled = unavailable || (!!row && !workspace.canDelete(row));
       });
+  }
+  function renderSelectionBar() {
     $("#selection-bar").hidden = selection.ids.size < 2;
     $("#selection-label").textContent =
       `${selection.ids.size} worktrees selected`;
     $("#remove-selected").disabled =
       blocked() || !selection.ids.size || !workspace.snapshot.revision;
+  }
+  // Replacing the rows would drop keyboard focus to the page. Remember the
+  // control that held it by what it acts on, not by its element.
+  function focusedControl() {
+    const element = document.activeElement;
+    if (!element?.dataset || !$("#worktree-list").contains(element))
+      return null;
+    for (const [key, attribute] of [
+      ["delete", "data-delete"],
+      ["worktreeMenu", "data-worktree-menu"],
+      ["folderDelete", "data-folder-delete"],
+      ["toggleDirectory", "data-toggle-directory"],
+    ])
+      if (element.dataset[key] !== undefined)
+        return { attribute, value: element.dataset[key] };
+    return null;
+  }
+  function restoreFocus(control) {
+    if (!control) return;
+    const next = $("#worktree-list").querySelector(
+      `[${control.attribute}="${CSS.escape(control.value)}"]`,
+    );
+    // When its row is gone or unavailable, stay in the list, not on the page.
+    (next && !next.disabled ? next : $("#worktree-grid")).focus({
+      preventScroll: true,
+    });
   }
   function render() {
     const list = items(),
@@ -79,7 +110,6 @@ export function createWorktreeView({
     $("#view-title").textContent = title;
     $("#recommendation-note").hidden = view !== "recommended";
     renderRows();
-    renderControls();
   }
   function renderRows() {
     const projection = projectTree(
@@ -97,7 +127,7 @@ export function createWorktreeView({
       },
       tree,
     );
-    const { filtered } = projection;
+    filtered = projection.filtered;
     directoryRows = projection.directoryRows;
     visible = projection.visible;
     $("#visible-count").textContent = filtered.length;
@@ -134,6 +164,9 @@ export function createWorktreeView({
     ]);
     if (signature === rowSignature) {
       renderSelection();
+      renderRowControls();
+      renderSelectionBar();
+      onRender();
       return;
     }
     rowSignature = signature;
@@ -155,6 +188,7 @@ export function createWorktreeView({
         `${icon(loading ? "refresh" : "folder", loading ? "spinning" : "")}<h2>${heading}</h2><p>${description}</p>${!loading && !items().length ? '<button class="button" data-open-settings>Choose scan folder</button>' : ""}`;
     }
     const scroll = $("#table-scroll").scrollTop;
+    const focus = focusedControl();
     $("#worktree-list").innerHTML = renderTreeRows(directoryRows, {
       selected: selection.ids,
       collapsed: collapsedDirectories,
@@ -163,7 +197,20 @@ export function createWorktreeView({
       cancelled: workspace.snapshot.cancelled,
     });
     $("#table-scroll").scrollTop = scroll;
-    renderControls();
+    restoreFocus(focus);
+    renderActiveRow();
+    renderSelectionBar();
+    onRender();
+  }
+  // Focus stays on the grid while arrow keys move through it. Name the row
+  // the cursor is on so assistive technology can follow.
+  function renderActiveRow() {
+    const grid = $("#worktree-grid");
+    const active =
+      selection.cursor &&
+      document.getElementById(rowElementID(selection.cursor));
+    if (active) grid.setAttribute("aria-activedescendant", active.id);
+    else grid.removeAttribute("aria-activedescendant");
   }
   function renderSelection() {
     document.querySelectorAll(".worktree-row").forEach((row) => {
@@ -173,12 +220,13 @@ export function createWorktreeView({
         String(selection.ids.has(row.dataset.id)),
       );
     });
+    renderActiveRow();
   }
   function selectRow(id, event) {
     selection = chooseRow(selection, visible, id, event);
     renderSelection();
-    renderControls();
-    $("#worktree-list").focus({ preventScroll: true });
+    renderSelectionBar();
+    $("#worktree-grid").focus({ preventScroll: true });
   }
   function handleTreeClick(event) {
     const button = event.target.closest("button");
@@ -238,7 +286,7 @@ export function createWorktreeView({
     if (!selection.ids.has(row.dataset.id)) selectRow(row.dataset.id, event);
     showWorktreeMenu(row.dataset.id);
   });
-  $("#worktree-list").addEventListener("keydown", (event) => {
+  $("#worktree-grid").addEventListener("keydown", (event) => {
     const directoryButton = event.target.closest("[data-toggle-directory]");
     if (directoryButton && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
       event.preventDefault();
@@ -284,6 +332,11 @@ export function createWorktreeView({
       selection.ids = new Set(visible.map((w) => w.id));
       render();
     }
+    // Deletion always asks first, so the key is as safe as the button.
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      workspace.deleteWorktrees(selected());
+    }
   });
   $("#search").oninput = (event) => {
     if (search !== event.target.value) collapsedDirectories.clear();
@@ -297,10 +350,7 @@ export function createWorktreeView({
     renderRows();
   };
 
-  $("#remove-selected").onclick = () =>
-    workspace.deleteWorktrees(
-      items().filter((row) => selection.ids.has(row.id)),
-    );
+  $("#remove-selected").onclick = () => workspace.deleteWorktrees(selected());
   function resetView(full = false) {
     view = "all";
     repo = "";
@@ -330,6 +380,14 @@ export function createWorktreeView({
     focusSearch() {
       $("#search").focus();
       $("#search").select();
+    },
+    // What the list currently shows after the view, repository, and search
+    // filters, including rows inside collapsed folders.
+    get filtered() {
+      return filtered;
+    },
+    get filtering() {
+      return !!repo || !!search.trim();
     },
   };
 }

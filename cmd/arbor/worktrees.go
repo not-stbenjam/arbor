@@ -42,7 +42,9 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 		return err
 	}
 	status.finish(report)
-	if !r.json {
+	// A JSON list carries its own warnings. Cleanup results do not, and an
+	// incomplete scan must never look like a clean folder with nothing to do.
+	if !r.json || command != "list" {
 		for _, warning := range report.Warnings {
 			fmt.Fprintln(stderr, "Warning:", printable(warning))
 		}
@@ -54,13 +56,11 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 	if err != nil {
 		return err
 	}
-	if !r.json {
-		for _, w := range selection.skipped {
-			fmt.Fprintf(stderr, "Skipped %s: %s\n", printable(w.Path), printable(strings.Join(append(w.Blockers, w.Problems...), "; ")))
-		}
+	for _, w := range selection.skipped {
+		fmt.Fprintf(stderr, "Skipped %s: %s\n", printable(w.Path), printable(strings.Join(append(w.Blockers, w.Problems...), "; ")))
 	}
 	if r.preview {
-		return writePreview(stdout, r, selection.selected)
+		return writePreview(stdout, r, selection.selected, report.Warnings)
 	}
 	batchID := rand.Text()
 	sessionID := r.sessionID

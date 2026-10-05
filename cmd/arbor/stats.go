@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"text/tabwriter"
+	"time"
 
 	"github.com/not-stbenjam/arbor/internal/engine"
 	"github.com/spf13/cobra"
@@ -33,8 +34,9 @@ func newStatsCommand() *cobra.Command {
 			}
 			out := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			fmt.Fprintf(out, "Worktrees removed\t%d\nEstimated disk reclaimed\t%s\nCleanup sessions\t%d\nMissing registrations removed\t%d\nLargest checkout removed\t%s\nDetached commits retained\t%d\n", report.RemovedWorktrees, byteSize(report.EstimatedBytesReclaimed), report.CleanupSessions, report.MissingRegistrations, byteSize(report.LargestWorktreeBytes), report.DetachedCommitsRetained)
-			if report.LastCleanupAt != "" {
-				fmt.Fprintln(out, "Last cleanup\t"+report.LastCleanupAt)
+			if at, err := time.Parse(time.RFC3339, report.LastCleanupAt); err == nil {
+				// Stored in UTC; a person reads it in their own time zone.
+				fmt.Fprintf(out, "Last cleanup\t%s (%s)\n", at.Local().Format("2006-01-02 15:04 MST"), duration(time.Since(at)))
 			}
 			return out.Flush()
 		},

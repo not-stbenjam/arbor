@@ -2,10 +2,18 @@ import { icon, size, sizeOf, ago, fullDate, repoID } from "./presentation.mjs";
 import { hostProgress } from "./host-progress.mjs";
 
 // Stateless workspace chrome: progress, operation controls, footer and errors.
-export function createWorkspaceView({ document, workspace }) {
+// `shown` reports what the worktree list currently displays.
+export function createWorkspaceView({
+  document,
+  workspace,
+  shown = () => ({ filtered: workspace.items, filtering: false }),
+}) {
   const $ = (selector) => document.querySelector(selector);
   const items = () => workspace.items;
   const blocked = () => workspace.blocked;
+  // One click removes exactly the recommendations the list shows. Repository
+  // and search filters narrow it, just as they narrow a folder's Delete.
+  const recommended = () => shown().filtered.filter((w) => w.recommended);
   const machineName = () =>
     workspace.snapshot.hostFilter === null
       ? "all machines"
@@ -13,7 +21,7 @@ export function createWorkspaceView({ document, workspace }) {
   function renderControls() {
     const state = workspace.snapshot;
     const disabled = blocked(),
-      ready = items().filter((w) => w.recommended);
+      ready = recommended();
     $("#refresh-button").disabled = disabled;
     $("#refresh-button").innerHTML =
       `${icon("refresh", state.busy ? "spinning" : "")}<span>${state.cancelled ? "Scan again" : "Refresh"}</span>`;
@@ -22,7 +30,7 @@ export function createWorkspaceView({ document, workspace }) {
     $("#cleanup-button").innerHTML =
       `${icon(workspace.removing ? "refresh" : "cleanup", workspace.removing ? "spinning" : "")}<span>${workspace.removing ? "Deleting…" : `Delete merged${ready.length ? ` (${ready.length})` : ""}`}</span>`;
     $("#cleanup-button").title =
-      `Remove ${ready.length} recommended worktrees on ${machineName()} and reclaim ${size(sizeOf(ready))}. Branches are kept.`;
+      `Remove ${ready.length} recommended ${ready.length === 1 ? "worktree" : "worktrees"} ${shown().filtering ? "shown in this view" : `on ${machineName()}`} and reclaim ${size(sizeOf(ready))}. Branches are kept.`;
   }
   function renderProgress() {
     const state = workspace.snapshot;
@@ -105,11 +113,7 @@ export function createWorkspaceView({ document, workspace }) {
     if (button && !button.disabled) workspace.cancel(button.dataset.stopHost);
   });
   $("#refresh-button").onclick = workspace.refresh;
-  $("#cleanup-button").onclick = () =>
-    workspace.remove(
-      items().filter((w) => w.recommended),
-      true,
-    );
+  $("#cleanup-button").onclick = () => workspace.remove(recommended(), true);
   $("#dismiss-error").onclick = workspace.dismissError;
-  return { render };
+  return { render, renderControls };
 }

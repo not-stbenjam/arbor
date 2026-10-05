@@ -11,6 +11,72 @@ import {
 } from "./presentation.mjs";
 
 // Pure tree projection and markup. No DOM, IPC, timers, or mutable view state.
+
+// DOM id of a worktree's row, for the grid's active-descendant reference.
+export const rowElementID = (id) => `worktree-row-${id}`;
+
+// The one fact that most affects a cleanup decision, or nothing at all. A row
+// that needs no comment stays quiet; the confirmation still states every risk.
+export function worktreeState(w) {
+  if (w.pending) return null;
+  if (!w.canRemove && !w.canDiscard) {
+    const reasons = (w.blockers || []).concat(w.problems || []);
+    return {
+      tone: "blocked",
+      label:
+        reasons.length === 1 ? reasons[0].split(":")[0] : "Cannot be deleted",
+      detail: reasons.join("\n"),
+    };
+  }
+  if (w.missing)
+    return {
+      tone: "muted",
+      label: "Missing checkout",
+      detail: "The folder is gone. Only its Git registration remains.",
+    };
+  if (w.empty)
+    return {
+      tone: "muted",
+      label: "Empty checkout",
+      detail: "The folder is empty. Only its Git registration remains.",
+    };
+  if (w.dirty)
+    return {
+      tone: "caution",
+      label:
+        w.changedFiles > 0
+          ? `${w.changedFiles} uncommitted ${w.changedFiles === 1 ? "change" : "changes"}`
+          : "Uncommitted changes",
+      detail: "Deleting this worktree discards them.",
+    };
+  if (w.ignored)
+    return {
+      tone: "caution",
+      label: "Ignored files",
+      detail:
+        "Deleting this worktree discards its ignored files, such as local configuration or build output.",
+    };
+  if (w.locked)
+    return {
+      tone: "muted",
+      label: "Locked",
+      detail: w.lockReason || "Locked with git worktree lock.",
+    };
+  if (w.fresh)
+    return {
+      tone: "muted",
+      label: "New",
+      detail:
+        "Created in the last day with no commits of its own. Delete merged leaves it alone.",
+    };
+  if (w.merged)
+    return {
+      tone: "safe",
+      label: "Merged",
+      detail: w.mergeReason || "All of its commits are in the default branch.",
+    };
+  return null;
+}
 export function projectRepositories(list, { hostFilter, hosts }) {
   const repositories = new Map();
   for (const worktree of list) {
@@ -167,12 +233,17 @@ export function renderTreeRows(
       const leaf = entry.label.split("/").pop();
       const prefix = entry.label.slice(0, -leaf.length);
       const pathLabel = `${prefix ? `<span class="path-chain">${esc(prefix)}</span>` : ""}<span class="path-basename">${esc(leaf)}</span>`;
+      const state = worktreeState(w);
+      const identity = `${branchName(w)}${w.repo ? ` · ${w.repo}` : ""}`;
       const context = w.pending
         ? cancelled
           ? "Scan incomplete"
           : "Checking…"
-        : `${w.missing ? "Missing checkout · " : w.empty ? "Empty checkout · " : ""}${branchName(w)}${w.repo ? ` · ${w.repo}` : ""}`;
-      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-selected="${selected.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}" aria-label="${esc(w.path)}"><span class="path-parent">${esc(entry.pathPrefix.replace(/\/$/, "") + "/")}</span><span class="path-leaf">${pathLabel}</span></span><span class="worktree-context" title="${esc(context)}">${esc(context)}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending || w.missing ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
+        : `${state ? `${state.label} · ` : ""}${identity}`;
+      const contextMarkup = state
+        ? `<span class="worktree-state" data-tone="${state.tone}" title="${esc(state.detail)}">${esc(state.label)}</span> · ${esc(identity)}`
+        : esc(context);
+      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-selected="${selected.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}" aria-label="${esc(w.path)}"><span class="path-parent">${esc(entry.pathPrefix.replace(/\/$/, "") + "/")}</span><span class="path-leaf">${pathLabel}</span></span><span class="worktree-context" title="${esc(context)}">${contextMarkup}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending || w.missing ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
     })
     .join("");
 }

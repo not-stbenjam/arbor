@@ -3,7 +3,9 @@ package worktree
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -64,6 +66,77 @@ func TestRemoveRejectsChangesAfterScan(t *testing.T) {
 				t.Fatalf("tree must remain intact: %v", err)
 			}
 		})
+	}
+}
+
+// Removal inspects files, refs, and optionally GitHub after reading HEAD. Git
+// removes a clean detached checkout without complaint, so a commit made on a
+// HEAD that detached during that inspection would be lost with the folder.
+func TestRemoveRechecksIdentityAfterInspection(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	w := testTree(t, testScan(t, root), wt)
+	if !w.Recommended {
+		t.Fatalf("fixture must begin recommended: %+v", w)
+	}
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stand in for a concurrent editor or agent: move the checkout exactly once,
+	// late in removal's own inspection, then run the requested Git command.
+	bin := t.TempDir()
+	marker := filepath.Join(bin, "moved")
+	script := `#!/bin/sh
+case " $* " in *" merge-base "*)
+	if [ ! -e "$ARBOR_TEST_MARKER" ]; then
+		: > "$ARBOR_TEST_MARKER"
+		"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE" checkout --quiet --detach &&
+			"$ARBOR_TEST_GIT" -C "$ARBOR_TEST_WORKTREE" -c user.name=Arbor -c user.email=arbor@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null commit --quiet --allow-empty -m "Commit during validation" || exit 97
+	fi ;;
+esac
+exec "$ARBOR_TEST_GIT" "$@"
+`
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ARBOR_TEST_GIT", real)
+	t.Setenv("ARBOR_TEST_MARKER", marker)
+	t.Setenv("ARBOR_TEST_WORKTREE", wt)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	_, err = RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true})
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("fixture never moved the checkout: %v (removal: %v)", statErr, err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "changed during validation") {
+		t.Fatalf("removal accepted a checkout that moved during validation: %v", err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("moved checkout must remain: %v", err)
+	}
+	if head := testGitEnv(t, wt, []string{"PATH=" + filepath.Dir(real) + string(os.PathListSeparator) + os.Getenv("PATH")}, "rev-parse", "HEAD"); head == w.Head {
+		t.Fatal("fixture did not create the commit the check must protect")
+	}
+}
+
+// Whitespace is a legal part of a directory name. Removal must compare the
+// repository it finds with the one the scan recorded, byte for byte.
+func TestRemoveAcceptsRepositoryPathEndingInWhitespace(t *testing.T) {
+	root := t.TempDir()
+	source := testRepo(t, filepath.Join(t.TempDir(), "source"))
+	bare := filepath.Join(root, "storage.git ")
+	testGit(t, root, "clone", "--bare", source, bare)
+	wt := testLinked(t, bare, filepath.Join(root, "checkout"), "topic")
+	w := testTree(t, testScan(t, root), wt)
+	if !w.Recommended || !strings.HasSuffix(w.CommonDir, " ") {
+		t.Fatalf("fixture must be recommended with its exact repository path: %+v", w)
+	}
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err != nil {
+		t.Fatalf("unchanged repository refused: %v", err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("checkout remains: %v", err)
 	}
 }
 

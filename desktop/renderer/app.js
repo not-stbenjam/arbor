@@ -1,3 +1,4 @@
+import * as tree from "../common/worktree-tree.mjs";
 import { icon, esc, initializeDOM } from "./presentation.mjs";
 import { createPreferencesController } from "./preferences-controller.mjs";
 import { createSetupController } from "./setup-controller.mjs";
@@ -40,35 +41,17 @@ async function bootstrap() {
   });
   workspace = createWorkspaceController({
     api,
-    linked: window.ArborTree.linked,
+    linked: tree.linked,
     notify,
     onChange: () => {
-      const state = workspace.snapshot;
-      preferences.renderStatus({
-        root: state.root,
-        host: state.host,
-        hostFilter: state.hostFilter,
-        hosts: state.hosts,
-        options: state.options,
-        setupRequired: state.setupRequired,
-        busy: state.busy,
-        progress: state.progress,
-        canCancelScan: state.canCancelScan,
-        cancelRequested: state.cancelRequested,
-        connected: workspace.connected,
-        resetting: workspace.resetting,
-        removing: workspace.removing,
-        blocked: workspace.blocked,
-      });
-      setup?.setContext({
-        required: state.setupRequired,
-        root: state.root || preferences.savedRoot,
-        resetting: workspace.resetting,
-        theme: preferences.theme,
-        excludes: preferences.options.excludes,
-      });
-      trees?.render();
-      chrome?.render();
+      try {
+        render();
+      } catch (error) {
+        // One unrenderable snapshot must not blank the window or end polling.
+        $("#error-banner").hidden = false;
+        $("#error-message").textContent =
+          `Arbor could not display this workspace: ${error.message}. Refresh to scan again.`;
+      }
     },
     onSetup: () => setup.open(),
     onHostChange: () => {
@@ -93,6 +76,34 @@ async function bootstrap() {
       }
     },
   });
+  function render() {
+    const state = workspace.snapshot;
+    preferences.renderStatus({
+      root: state.root,
+      host: state.host,
+      hostFilter: state.hostFilter,
+      hosts: state.hosts,
+      options: state.options,
+      setupRequired: state.setupRequired,
+      busy: state.busy,
+      progress: state.progress,
+      canCancelScan: state.canCancelScan,
+      cancelRequested: state.cancelRequested,
+      connected: workspace.connected,
+      resetting: workspace.resetting,
+      removing: workspace.removing,
+      blocked: workspace.blocked,
+    });
+    setup?.setContext({
+      required: state.setupRequired,
+      root: state.root || preferences.savedRoot,
+      resetting: workspace.resetting,
+      theme: preferences.theme,
+      excludes: preferences.options.excludes,
+    });
+    trees?.render();
+    chrome?.render();
+  }
   setup = createSetupController({
     document,
     api,
@@ -116,10 +127,12 @@ async function bootstrap() {
   trees = createWorktreeView({
     document,
     workspace,
-    tree: window.ArborTree,
+    tree,
     showWorktreeMenu,
+    // Filtering changes what Delete merged acts on, and so its count.
+    onRender: () => chrome?.renderControls(),
   });
-  chrome = createWorkspaceView({ document, workspace });
+  chrome = createWorkspaceView({ document, workspace, shown: () => trees });
   $("#statistics-button").onclick = statistics.open;
   $("#warning-button").onclick = () => {
     $("#notes-content").innerHTML = (workspace.snapshot.report?.warnings || [])

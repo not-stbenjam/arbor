@@ -5,15 +5,19 @@ const os = require("node:os");
 const { WorkspaceCache, cacheKey } = require("./workspace-cache.cjs");
 const { planRemoval } = require("./removal-policy.cjs");
 const { executeCleanupBatch } = require("./cleanup-batch.cjs");
-const { scanOptions, parseReport, progressEvent } = require("./protocol.cjs");
+const {
+  scanOptions,
+  parseReport,
+  progressEvent,
+  MAX_WORKTREES,
+} = require("./protocol.cjs");
 const { execute, childEnvironment } = require("./process-runner.cjs");
-const MAX_PARTIAL_WORKTREES = 20000;
+const { LiveWorktrees } = require("./live-worktrees.cjs");
 
 class Backend {
   #cache;
   #run;
-  #partialPaths;
-  #partialIDs = new Map();
+  #live = new LiveWorktrees(MAX_WORKTREES);
   #scanController;
   #targetInspectionController;
   #stopAfterCurrent;
@@ -40,7 +44,6 @@ class Backend {
   }) {
     this.#cache = cache;
     this.#operation = null;
-    this.#partialPaths = new Map();
     this.#options = scanOptions(options || { root, host });
     this.#state = {
       report: null,
@@ -51,7 +54,6 @@ class Backend {
       host: this.#options.host,
       options: { ...this.#options },
       progress: null,
-      partialWorktrees: [],
       cancelled: false,
       cancelRequested: false,
       canCancelScan: false,
@@ -75,6 +77,7 @@ class Backend {
   getState() {
     return {
       ...structuredClone(this.#state),
+      partialWorktrees: structuredClone(this.#live.rows),
       operation: this.#operation,
       canCancelScan:
         this.#state.canCancelScan ||
@@ -226,42 +229,11 @@ class Backend {
           const event = progressEvent(value);
           if (!this.#disposed && !this.#state.cancelRequested && event) {
             const { worktree, pending: _pending, ...status } = event;
-            if (worktree) {
-              // Registration identity is not a disk path: copied repositories
-              // can retain distinct registrations for the same checkout.
-              const provisional =
-                event.stage === "discovery" && !worktree.commonDir;
-              let index = this.#partialIDs.get(worktree.id);
-              if (index === undefined && !provisional) {
-                index = this.#partialPaths.get(worktree.path);
-                if (index != null) {
-                  this.#partialIDs.delete(
-                    this.#state.partialWorktrees[index].id,
-                  );
-                  this.#partialPaths.delete(worktree.path);
-                }
-              }
-              if (index != null) {
-                this.#state.partialWorktrees[index] = worktree;
-                this.#partialIDs.set(worktree.id, index);
-                if (
-                  !provisional &&
-                  this.#partialPaths.get(worktree.path) === index
-                )
-                  this.#partialPaths.delete(worktree.path);
-              } else if (
-                this.#state.partialWorktrees.length < MAX_PARTIAL_WORKTREES
-              ) {
-                index = this.#state.partialWorktrees.length;
-                this.#partialIDs.set(worktree.id, index);
-                if (provisional)
-                  this.#partialPaths.set(
-                    worktree.path,
-                    this.#partialPaths.has(worktree.path) ? null : index,
-                  );
-                this.#state.partialWorktrees.push(worktree);
-              }
-            }
+            if (worktree)
+              this.#live.update(
+                worktree,
+                event.stage === "discovery" && !worktree.commonDir,
+              );
             this.#state.progress = {
               ...status,
               startedAt: this.#state.progress?.startedAt || Date.now(),
@@ -272,14 +244,8 @@ class Backend {
     );
   }
 
-  #clearPartialIndexes() {
-    this.#partialPaths.clear();
-    this.#partialIDs.clear();
-  }
-
   #beginProgress(stage = "starting") {
-    this.#state.partialWorktrees = [];
-    this.#clearPartialIndexes();
+    this.#live.clear();
     this.#state.progress = {
       stage,
       path: this.#options.root,
@@ -304,7 +270,7 @@ class Backend {
     const report = this.#cache.get(options);
     if (!report) return this.#scan(options);
     this.#options = options;
-    this.#clearPartialIndexes();
+    this.#live.clear();
     Object.assign(this.#state, {
       report,
       root: report.root,
@@ -316,7 +282,6 @@ class Backend {
       revision: randomUUID(),
       cached: true,
       progress: null,
-      partialWorktrees: [],
       cancelled: false,
       cancelRequested: false,
       canCancelScan: false,
@@ -374,8 +339,7 @@ class Backend {
           this.#state.progress.finishedAt = Date.now();
         if (!this.#state.cancelled) {
           this.#state.progress = null;
-          this.#state.partialWorktrees = [];
-          this.#clearPartialIndexes();
+          this.#live.clear();
         }
       });
     return this.getState();
@@ -573,8 +537,7 @@ class Backend {
         this.#state.busy = false;
         this.#operation = null;
         this.#state.progress = null;
-        this.#state.partialWorktrees = [];
-        this.#clearPartialIndexes();
+        this.#live.clear();
       });
     return this.#pending;
   }

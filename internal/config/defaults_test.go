@@ -17,7 +17,7 @@ func TestDefaultsAreIndependentAndBounded(t *testing.T) {
 }
 
 func TestDefaultExclusionContract(t *testing.T) {
-	want := []string{".cache", ".Trash", "node_modules", "tmp", "temp", "~/Library/Caches", "~/Library/Logs", "~/.local/share/Trash", "~/.codex/.tmp"}
+	want := []string{".cache", ".Trash", "node_modules", "tmp", "temp", "~/Library/Caches", "~/Library/Logs", "~/.local/share/Trash", "~/.codex/.tmp", "~/.local/share/containers", "~/.local/share/docker"}
 	if !reflect.DeepEqual(Excludes(), want) {
 		t.Fatalf("default exclusions changed: got %v, want %v", Excludes(), want)
 	}

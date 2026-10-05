@@ -338,7 +338,7 @@ test("reset returns to first launch defaults without scanning or deleting worktr
   assert.equal(cache.entries.size, 0);
   assert.equal(reset.progress, null);
   assert.equal(reset.error, "");
-  assert.equal(reset.root, "/");
+  assert.equal(reset.root, "");
   assert.equal(reset.host, "");
   assert.equal(reset.cancelled, false);
   assert.equal(reset.canCancelScan, false);

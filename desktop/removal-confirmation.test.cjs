@@ -1,0 +1,178 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { removalConfirmationOptions } = require("./removal-confirmation.cjs");
+
+const row = { id: "topic", path: "/work/topic", canRemove: true };
+
+test("combined cleanup previews identify each machine even for identical paths", () => {
+  const options = removalConfirmationOptions(
+    [
+      { ...row, host: "" },
+      { ...row, host: "build-vps" },
+    ],
+    false,
+  );
+  assert.match(options.detail, /This computer: \/work\/topic/);
+  assert.match(options.detail, /build-vps: \/work\/topic/);
+});
+
+test("bulk mixed-host consent names hosts beyond the bounded path preview", () => {
+  const trees = [
+    ...Array.from({ length: 6 }, (_, i) => ({
+      ...row,
+      host: "",
+      path: `/work/local-${i}`,
+    })),
+    ...Array.from({ length: 2 }, (_, i) => ({
+      ...row,
+      host: "vps",
+      hostLabel: "Build server",
+      path: `/work/remote-${i}`,
+    })),
+  ];
+  const options = removalConfirmationOptions(trees, false);
+  assert.equal(options.message, "Remove 8 worktrees on 2 hosts?");
+  assert.match(
+    options.detail,
+    /Hosts: This computer: 6 · Build server \[vps\]: 2/,
+  );
+  assert.match(options.detail, /and 3 more selected worktrees/);
+  const many = removalConfirmationOptions(
+    Array.from({ length: 101 }, (_, i) => ({
+      ...row,
+      host: `host-${i}`,
+      hostLabel: `Build machine ${i} ${"long ".repeat(100)}`,
+    })),
+    false,
+  );
+  assert.match(many.message, /on 101 hosts/);
+  assert.match(many.detail, /and 97 more hosts/);
+  assert.ok(
+    many.detail.length < 1500,
+    "many hosts cannot make native consent overflow the screen",
+  );
+});
+
+test("confirmation follows force disposal even when detached and locked snapshots were clean", () => {
+  const cleanDetached = removalConfirmationOptions(
+    [{ ...row, branch: "", detached: true, canRemove: false }],
+    true,
+  );
+  assert.equal(cleanDetached.message, "Remove “topic”?");
+  assert.equal(cleanDetached.title, "Discard local data and remove?");
+  assert.equal(cleanDetached.buttons[1], "Discard & Remove");
+  assert.match(cleanDetached.detail, /recovery branches/);
+  assert.match(cleanDetached.detail, /only if needed/);
+  assert.match(
+    cleanDetached.detail,
+    /Any local files.*will be permanently discarded/,
+  );
+  const cleanProtected = removalConfirmationOptions(
+    [{ ...row, branch: "develop" }],
+    true,
+  );
+  assert.doesNotMatch(cleanProtected.detail, /discarded|recovery branches/);
+  const locked = removalConfirmationOptions(
+    [{ ...row, locked: true, canRemove: false }],
+    true,
+  );
+  assert.match(locked.detail, /locks.*overridden/);
+  assert.match(locked.detail, /Any local files.*will be permanently discarded/);
+});
+
+test("force confirmation covers all local-file categories once, independent of cached contents", () => {
+  const dirty = removalConfirmationOptions(
+    [{ ...row, dirty: true, canRemove: false }],
+    true,
+  );
+  assert.equal(dirty.title, "Discard local data and remove?");
+  assert.match(dirty.detail, /uncommitted, untracked, and ignored files/);
+  const ignored = removalConfirmationOptions(
+    [{ ...row, ignored: true, canRemove: false }],
+    true,
+  );
+  assert.match(ignored.detail, /uncommitted, untracked, and ignored files/);
+});
+
+test("bulk confirmation bounds long path previews and summarizes warnings once", () => {
+  const rows = Array.from({ length: 1000 }, (_, index) => ({
+    ...row,
+    canRemove: false,
+    path: `/work/${"long-folder/".repeat(100)}line\n${index}\tend`,
+    dirty: true,
+    ignored: true,
+    locked: true,
+    detached: true,
+    discardWarnings: Array(20).fill("Repeated per-worktree warning"),
+  }));
+  const options = removalConfirmationOptions(rows, true);
+  assert.equal(options.message, "Remove 1000 worktrees?");
+  assert.ok(options.detail.length < 1500);
+  assert.ok(options.detail.split("\n").length <= 12);
+  const previews = options.detail
+    .split("\n")
+    .filter((line) => line.startsWith("/work/"));
+  assert.equal(previews.length, 5);
+  assert.ok(previews.every((line) => Array.from(line).length <= 120));
+  assert.ok(previews.every((line) => !line.includes("\t")));
+  assert.match(options.detail, /and 995 more selected worktrees/);
+  assert.equal(options.detail.match(/permanently discarded/g)?.length, 1);
+  assert.equal(options.detail.match(/locks.*overridden/g)?.length, 1);
+  assert.equal(options.detail.match(/recovery branches/g)?.length, 1);
+  assert.doesNotMatch(options.detail, /Repeated per-worktree warning/);
+});
+
+test("confirmation keeps exact short previews without inventing warnings", () => {
+  const rows = Array.from({ length: 6 }, (_, index) => ({
+    ...row,
+    path: `/work/tree-${index}`,
+    discardWarnings: ["Ignored files will be discarded"],
+  }));
+  const options = removalConfirmationOptions(rows, true);
+  assert.equal(options.message, "Remove 6 worktrees?");
+  for (let index = 0; index < 5; index++)
+    assert.ok(options.detail.includes(`/work/tree-${index}`));
+  assert.doesNotMatch(options.detail, /tree-5/);
+  assert.match(options.detail, /and 1 more selected worktree$/);
+  assert.doesNotMatch(options.detail, /discarded|ignored|locks|recovery/i);
+  const single = removalConfirmationOptions(
+    [{ ...row, path: "/work/" + "a".repeat(1000) + "\nend" }],
+    false,
+  );
+  assert.ok(single.message.length < 100);
+  assert.doesNotMatch(single.message, /\n/);
+});
+
+test("missing-only confirmations remove registrations without claiming folder or data loss", () => {
+  const missing = {
+    ...row,
+    canRemove: false,
+    missing: true,
+    dirty: true,
+    ignored: true,
+    locked: true,
+  };
+  const single = removalConfirmationOptions([missing], true);
+  assert.equal(single.message, "Remove registration for “topic”?");
+  assert.equal(single.buttons[1], "Remove Registration");
+  assert.match(single.detail, /Only Git worktree registrations/);
+  assert.doesNotMatch(
+    single.detail,
+    /folders will be deleted|permanently discarded/,
+  );
+  assert.match(single.detail, /locks.*overridden/);
+  const multiple = removalConfirmationOptions(
+    [missing, { ...missing, path: "/work/other" }],
+    true,
+  );
+  assert.equal(multiple.message, "Remove 2 missing worktree registrations?");
+  const mixed = removalConfirmationOptions([missing, row], true);
+  assert.match(
+    mixed.detail,
+    /1 missing worktree registration will also be removed/,
+  );
+  assert.match(mixed.detail, /folders will be deleted/);
+  assert.doesNotMatch(mixed.detail, /permanently discarded/);
+});

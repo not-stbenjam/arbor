@@ -56,6 +56,9 @@ func prepareScan(ctx context.Context, options Options) (scanLocation, error) {
 	if err != nil && options.TargetOnly && os.IsNotExist(err) {
 		root, err = resolveMissingRoot(options.Root)
 	}
+	if os.IsNotExist(err) {
+		return scanLocation{}, fmt.Errorf("folder does not exist: %s", options.Root)
+	}
 	if err != nil {
 		return scanLocation{}, err
 	}

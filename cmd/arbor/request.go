@@ -16,7 +16,7 @@ type worktreeRequest struct {
 	command, host                             string
 	scan                                      worktree.Options
 	preview, all, recommended, discardLocal   bool
-	expectMissing, expectEmpty                bool
+	expectMissing, expectEmpty, expectBranch  bool
 	head, id, branch, sessionID               string
 	watchStdin, json, progress, humanProgress bool
 }
@@ -24,7 +24,8 @@ type worktreeRequest struct {
 func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, error) {
 	r := worktreeRequest{command: command, host: flags.common.host, scan: flags.common.options(), preview: !flags.yes,
 		all: flags.all, recommended: flags.recommended, discardLocal: flags.discardLocal || flags.force,
-		expectMissing: flags.expectMissing, expectEmpty: flags.expectEmpty, head: flags.head, id: flags.id, branch: flags.branch,
+		expectMissing: flags.expectMissing, expectEmpty: flags.expectEmpty, expectBranch: flags.expectBranch,
+		head: flags.head, id: flags.id, branch: flags.branch,
 		sessionID: flags.statsSession, watchStdin: flags.watchStdin, json: flags.common.json,
 		progress: flags.progress, humanProgress: !flags.common.json && !flags.quiet && !flags.progress}
 	if command != "list" && command != "clean" && command != "remove" {

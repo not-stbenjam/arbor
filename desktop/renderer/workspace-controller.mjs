@@ -1,3 +1,8 @@
+import { size } from "./presentation.mjs";
+
+// Relative times such as "5m ago" go stale without any change in state.
+const REDRAW_INTERVAL = 30000;
+
 function deepFreeze(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) deepFreeze(child);
@@ -49,6 +54,8 @@ export function createWorkspaceController({
     pollGeneration = 0;
   const queuedPreferences = new Map();
   let preferencesGeneration = 0;
+  let polled = "",
+    publishedAt = 0;
   const setTimeout = (...args) => timers.setTimeout(...args),
     clearTimeout = (timer) => timers.clearTimeout(timer);
   // Clone only incoming data; publication then shares those frozen subtrees.
@@ -64,6 +71,7 @@ export function createWorkspaceController({
       publishedRows = rows;
       publishedItems = Object.freeze(linked(rows));
     }
+    publishedAt = Date.now();
     onChange();
   }
   const blocked = () =>
@@ -85,7 +93,10 @@ export function createWorkspaceController({
     dismissedError = "";
     publish();
   }
-  function updateState(next) {
+  // `snapshot` identifies a polled state so the next identical poll can be
+  // skipped. A command's result is always published and clears it.
+  function updateState(next, snapshot = "") {
+    polled = snapshot;
     Object.assign(state, immutableCopy(next));
     connected = true;
     publish();
@@ -119,17 +130,27 @@ export function createWorkspaceController({
     try {
       const next = await api.getState();
       if (generation === pollGeneration && !resettingPreferences) {
-        updateState(next);
+        // An idle workspace answers every poll identically. Copying, freezing,
+        // and redrawing it each time is the cost of a large list at rest.
+        const snapshot = JSON.stringify(next);
+        if (
+          snapshot !== polled ||
+          !connected ||
+          Date.now() - publishedAt >= REDRAW_INTERVAL
+        )
+          updateState(next, snapshot);
         reloadAcceptedPreferences(next);
       }
     } catch (error) {
       if (generation !== pollGeneration || resettingPreferences) return;
       connected = false;
+      polled = "";
       showError(error.message || "Could not connect to the Arbor backend.");
-      publish();
+    } finally {
+      // Whatever a poll or its rendering did, the next one is always scheduled.
+      if (generation === pollGeneration && !resettingPreferences)
+        pollTimer = setTimeout(poll, hasActivity() ? 700 : 3000);
     }
-    if (generation !== pollGeneration) return;
-    pollTimer = setTimeout(poll, hasActivity() ? 700 : 3000);
   }
   async function scan(options) {
     if (blocked()) return;
@@ -217,8 +238,14 @@ export function createWorkspaceController({
       const removed = (result.results || []).filter((r) => r.removed),
         failed = (result.results || []).filter((r) => !r.removed);
       if (removed.length) {
+        const key = (host, path) => JSON.stringify([host || "", path]);
+        const gone = new Set(removed.map((r) => key(r.host, r.path)));
+        // A missing checkout had no folder, whatever an older scan measured.
+        const freed = list
+          .filter((w) => !w.missing && gone.has(key(w.host, w.path)))
+          .reduce((total, w) => total + Math.max(0, w.sizeBytes || 0), 0);
         notify(
-          `Deleted ${removed.length} ${removed.length === 1 ? "worktree folder" : "worktree folders"}.`,
+          `Deleted ${removed.length} ${removed.length === 1 ? "worktree" : "worktrees"}${freed ? `, freeing ${size(freed)}` : ""}.`,
         );
       }
       if (failed.length)

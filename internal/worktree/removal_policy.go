@@ -71,6 +71,8 @@ type removalFacts struct {
 	verified bool
 	problems bool
 	merged   bool
+	// fresh withholds only the recommendation; it never blocks manual removal.
+	fresh bool
 }
 type removalDecision struct {
 	canRemove   bool
@@ -86,7 +88,7 @@ func evaluateRemoval(facts removalFacts) removalDecision {
 		return removalDecision{}
 	}
 	decision := removalDecision{canRemove: len(facts.reasons) == 0, canDiscard: true}
-	decision.recommended = decision.canRemove && facts.merged
+	decision.recommended = decision.canRemove && facts.merged && !facts.fresh
 	for _, reason := range facts.reasons {
 		if reason >= reasonCount || !reasonDescriptions[reason].manual {
 			return removalDecision{}

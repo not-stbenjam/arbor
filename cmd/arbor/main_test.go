@@ -69,6 +69,111 @@ func TestCLITableLabelsAbsentCheckouts(t *testing.T) {
 	}
 }
 
+func TestCLITableShowsSizeAndTheDecidingStatus(t *testing.T) {
+	var out bytes.Buffer
+	if err := printTable(&out, []worktree.Worktree{
+		{Path: "/work/merged", Merged: true, CanRemove: true, CanDiscard: true, Recommended: true, SizeBytes: 3 * 1024 * 1024},
+		{Path: "/work/new", Merged: true, Fresh: true, CanRemove: true, CanDiscard: true, SizeBytes: 512},
+		{Path: "/work/dirty", Merged: true, Dirty: true, CanDiscard: true, SizeBytes: 2048},
+		{Path: "/work/gone", Missing: true, CanDiscard: true, SizeBytes: 4096},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 5 || !strings.Contains(lines[0], "SIZE") {
+		t.Fatalf("unexpected table: %s", out.String())
+	}
+	for i, want := range [][]string{{"3.0 MiB", "merged"}, {"512 B", "new"}, {"2.0 KiB", "local changes"}, {"—", "missing checkout"}} {
+		fields := strings.Fields(lines[i+1])
+		row := strings.Join(fields, " ")
+		for _, text := range want {
+			if !strings.Contains(row, text) {
+				t.Fatalf("row %q lacks %q", lines[i+1], text)
+			}
+		}
+	}
+	// A missing checkout occupies no disk, whatever an older scan measured.
+	if got := totalSize([]worktree.Worktree{{SizeBytes: 10}, {SizeBytes: 5, Missing: true}}); got != 10 {
+		t.Fatalf("total size counted a missing checkout: %d", got)
+	}
+	if count(1, "worktree") != "1 worktree" || count(2, "worktree") != "2 worktrees" || count(0, "worktree") != "0 worktrees" {
+		t.Fatal("counts must agree in number")
+	}
+}
+
+func TestCLICleanLeavesAWorktreeCreatedMomentsAgo(t *testing.T) {
+	isolatedCLIStats(t)
+	root, repo := cliTestRepository(t)
+	established, created := filepath.Join(root, "established"), filepath.Join(root, "created")
+	cliTestGit(t, repo, "worktree", "add", "-b", "old-session", established)
+	// Stamp this one checkout with the present, as a tool or person just did.
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", "-b", "new-session", created)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_COMMITTER_DATE=")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v %s", err, out)
+	}
+	var out, stderr bytes.Buffer
+	if err := execute(context.Background(), []string{"clean", "--path", root, "--yes"}, &out, &stderr); err != nil {
+		t.Fatalf("clean: %v\n%s", err, &stderr)
+	}
+	if _, err := os.Stat(established); !os.IsNotExist(err) {
+		t.Fatalf("established merged checkout was not cleaned: %v", err)
+	}
+	if _, err := os.Stat(created); err != nil {
+		t.Fatalf("clean removed a checkout created moments ago: %v", err)
+	}
+	out.Reset()
+	if err := execute(context.Background(), []string{"list", "--path", root, "--quiet"}, &out, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "new") || strings.Contains(out.String(), "merged") {
+		t.Fatalf("new checkout should be labelled new, not merged: %s", out.String())
+	}
+}
+
+// Cleanup results carry no warnings of their own. A scan that could not read
+// part of the folder must not look like a clean folder with nothing to remove.
+func TestCLICleanReportsIncompleteScansInJSONMode(t *testing.T) {
+	isolatedCLIStats(t)
+	root, _ := cliTestRepository(t)
+	broken := filepath.Join(root, "broken")
+	if err := os.Mkdir(broken, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(broken, ".git"), []byte("gitdir: /nonexistent/arbor-fixture\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	if err := execute(context.Background(), []string{"clean", "--path", root, "--json"}, &out, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var preview struct {
+		DryRun    bool                `json:"dryRun"`
+		Worktrees []worktree.Worktree `json:"worktrees"`
+		Warnings  []string            `json:"warnings"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil || !preview.DryRun || len(preview.Warnings) != 1 || !strings.Contains(preview.Warnings[0], broken) {
+		t.Fatalf("preview hides the incomplete scan: %s (%v)", out.String(), err)
+	}
+	if !strings.Contains(stderr.String(), "Warning:") || !strings.Contains(stderr.String(), broken) {
+		t.Fatalf("stderr hides the incomplete scan: %q", stderr.String())
+	}
+	out.Reset()
+	stderr.Reset()
+	if err := execute(context.Background(), []string{"clean", "--path", root, "--json", "--yes"}, &out, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != "[]" || !strings.Contains(stderr.String(), broken) {
+		t.Fatalf("cleanup hides the incomplete scan: stdout %q stderr %q", out.String(), stderr.String())
+	}
+	// A JSON list already carries its warnings; stderr stays quiet for parsers.
+	out.Reset()
+	stderr.Reset()
+	if err := execute(context.Background(), []string{"list", "--path", root, "--json"}, &out, &stderr); err != nil || stderr.Len() != 0 {
+		t.Fatalf("JSON list wrote diagnostics: %q (%v)", stderr.String(), err)
+	}
+}
+
 func TestCLICleanupPreviewsThenRemovesRetainingBranch(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")

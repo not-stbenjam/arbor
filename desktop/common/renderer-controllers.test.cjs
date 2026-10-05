@@ -13,7 +13,7 @@ const deferred = () => {
 
 test("tree projection preserves hierarchy while filtering and sorting", async () => {
   const { projectTree } = await import("../renderer/worktree-presentation.mjs");
-  const tree = require("./worktree-tree.js");
+  const tree = require("./worktree-tree.mjs");
   const list = [
     {
       id: "small",
@@ -81,7 +81,7 @@ test("same-path rows sort independently and keep exact delete/selection identiti
   const { projectTree, renderTreeRows } = await import(
     "../renderer/worktree-presentation.mjs"
   );
-  const tree = require("./worktree-tree.js");
+  const tree = require("./worktree-tree.mjs");
   const list = [
     {
       id: "original",
@@ -154,6 +154,7 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
       repo: '<repo>&"',
       sizeBytes: 0,
       missing: true,
+      canDiscard: true,
     },
   };
   const options = {
@@ -166,7 +167,12 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
   const escapedContext =
     "Missing checkout · &lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt; · &lt;repo&gt;&amp;&quot;";
   assert.ok(markup.includes(`title="${escapedContext}"`));
-  assert.ok(markup.includes(`>${escapedContext}</span>`));
+  assert.ok(
+    markup.includes(
+      '<span class="worktree-state" data-tone="muted" title="The folder is gone. Only its Git registration remains.">Missing checkout</span> · &lt;script&gt;',
+    ),
+  );
+  assert.ok(markup.includes('id="worktree-row-id&quot;unsafe"'));
   assert.doesNotMatch(markup, /<script>|data-id="id"unsafe/);
   assert.match(markup, /Missing checkout/);
   assert.match(markup, /class="size-cell">—</);
@@ -193,6 +199,79 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
     }),
     /Scan incomplete/,
   );
+});
+
+test("a row states the one fact that decides cleanup, and stays quiet otherwise", async () => {
+  const { worktreeState, renderTreeRows } = await import(
+    "../renderer/worktree-presentation.mjs"
+  );
+  const removable = { canRemove: true, canDiscard: true };
+  const discardable = { canRemove: false, canDiscard: true };
+  for (const [row, tone, label] of [
+    [{ ...removable }, null],
+    [{ ...removable, pending: true, merged: true }, null],
+    [{ ...removable, merged: true, recommended: true }, "safe", "Merged"],
+    // Ancestry alone is not finished work in a checkout created moments ago.
+    [{ ...removable, merged: true, fresh: true }, "muted", "New"],
+    [{ ...discardable, locked: true, merged: true }, "muted", "Locked"],
+    [{ ...discardable, ignored: true, merged: true }, "caution", "Ignored files"],
+    [
+      { ...discardable, dirty: true, changedFiles: 1, ignored: true },
+      "caution",
+      "1 uncommitted change",
+    ],
+    [
+      { ...discardable, dirty: true, changedFiles: 12 },
+      "caution",
+      "12 uncommitted changes",
+    ],
+    [{ ...discardable, empty: true }, "muted", "Empty checkout"],
+    [{ blockers: ["Contains submodules"] }, "blocked", "Contains submodules"],
+    [
+      { blockers: ["Inspection failed: ssh: timeout. Use Retry Inspection."] },
+      "blocked",
+      "Inspection failed",
+    ],
+    [
+      { blockers: ["Uncommitted or untracked files"], problems: ["git: fatal"] },
+      "blocked",
+      "Cannot be deleted",
+    ],
+  ]) {
+    const state = worktreeState(row);
+    assert.equal(state?.tone ?? null, tone, JSON.stringify(row));
+    if (tone) assert.equal(state.label, label);
+  }
+  assert.equal(
+    worktreeState({ blockers: ["One"], problems: ["<two>"] }).detail,
+    "One\n<two>",
+  );
+  const markup = renderTreeRows(
+    [
+      {
+        kind: "worktree",
+        label: "topic",
+        pathPrefix: "/work",
+        depth: 1,
+        worktree: {
+          ...discardable,
+          id: "dirty",
+          path: "/work/topic",
+          branch: "topic",
+          repo: "repo",
+          locked: true,
+          lockReason: '<held> & "kept"',
+        },
+      },
+    ],
+    { selected: new Set(), collapsed: new Set(), disabled: false },
+  );
+  assert.ok(
+    markup.includes(
+      '<span class="worktree-state" data-tone="muted" title="&lt;held&gt; &amp; &quot;kept&quot;">Locked</span> · topic · repo',
+    ),
+  );
+  assert.ok(markup.includes('title="Locked · topic · repo"'));
 });
 
 test("repository sidebar and directory group escape names and every path attribute", async () => {
@@ -902,7 +981,7 @@ test("workspace labels have single owners and tree rendering never touches them"
   const trees = createWorktreeView({
     document,
     workspace: fixture.workspace,
-    tree: require("./worktree-tree.js"),
+    tree: require("./worktree-tree.mjs"),
     showWorktreeMenu() {},
   });
   visited.clear();
@@ -1203,5 +1282,180 @@ test("manual deletion keeps blockers, forwards discard consent, and settles once
   assert.equal(fixture.workspace.removing, false);
   assert.equal(fixture.workspace.snapshot.revision, "after");
   assert.match(fixture.workspace.error, /\/kept: Scan again/);
+  fixture.workspace.dispose();
+});
+
+test("a cleanup reports what it freed, counting only folders that existed", async () => {
+  const rows = [
+    { id: "a", path: "/work/a", head: "a", canRemove: true, sizeBytes: 2048 },
+    { id: "b", path: "/work/b", head: "b", canRemove: true, sizeBytes: 1024 },
+    {
+      id: "gone",
+      path: "/work/gone",
+      head: "c",
+      canDiscard: true,
+      missing: true,
+      sizeBytes: 4096,
+    },
+    { id: "kept", path: "/work/kept", head: "d", canRemove: true, sizeBytes: 9 },
+  ];
+  const fixture = await workspaceFixture({
+    remove: async () => ({
+      results: [
+        { path: "/work/a", removed: true },
+        { path: "/work/b", removed: true },
+        { path: "/work/gone", removed: true },
+        { path: "/work/kept", removed: false, error: "locked" },
+      ],
+    }),
+  });
+  await fixture.workspace.deleteWorktrees(rows);
+  assert.deepEqual(fixture.notifications, [
+    ["Deleted 3 worktrees, freeing 3 KB."],
+  ]);
+  assert.match(fixture.workspace.error, /\/work\/kept: locked/);
+  fixture.notifications.length = 0;
+  fixture.api.remove = async () => ({
+    results: [{ path: "/work/gone", removed: true }],
+  });
+  await fixture.workspace.deleteWorktrees([rows[2]]);
+  assert.deepEqual(fixture.notifications, [["Deleted 1 worktree."]]);
+  fixture.workspace.dispose();
+});
+
+async function pollingFixture(onChange) {
+  const { createWorkspaceController } = await import(
+    "../renderer/workspace-controller.mjs"
+  );
+  const fixture = {
+    state: coordinatorState({
+      report: {
+        worktrees: [{ id: "a", path: "/local/a", head: "a" }],
+        warnings: [],
+      },
+    }),
+    changes: 0,
+    timers: new Map(),
+  };
+  let timerID = 0;
+  fixture.workspace = createWorkspaceController({
+    api: { getState: async () => structuredClone(fixture.state) },
+    linked: (rows) => rows,
+    notify() {},
+    onChange() {
+      fixture.changes++;
+      onChange?.(fixture);
+    },
+    onSetup() {},
+    onHostChange() {},
+    onReset() {},
+    timers: {
+      setTimeout(fn) {
+        fixture.timers.set(++timerID, fn);
+        return timerID;
+      },
+      clearTimeout(id) {
+        fixture.timers.delete(id);
+      },
+    },
+  });
+  // Each poll schedules exactly one successor; run the one that is waiting.
+  fixture.poll = async () => {
+    assert.equal(fixture.timers.size, 1, "exactly one poll is scheduled");
+    const [[id, run]] = fixture.timers;
+    fixture.timers.delete(id);
+    await run();
+  };
+  await fixture.workspace.initialize();
+  return fixture;
+}
+
+test("an idle workspace is not copied and redrawn on every identical poll", async () => {
+  const fixture = await pollingFixture();
+  await fixture.poll();
+  const settled = fixture.changes,
+    rows = fixture.workspace.items;
+  await fixture.poll();
+  await fixture.poll();
+  assert.equal(fixture.changes, settled, "identical polls publish nothing");
+  assert.equal(fixture.workspace.items, rows, "views keep the same snapshot");
+  fixture.state = { ...fixture.state, revision: "next" };
+  await fixture.poll();
+  assert.equal(fixture.changes, settled + 1);
+  assert.equal(fixture.workspace.snapshot.revision, "next");
+  // A command result is always published, and so is the poll that follows it,
+  // even when the backend has returned to a state seen before.
+  await fixture.poll();
+  const idle = fixture.changes;
+  fixture.workspace.showError("failed");
+  fixture.workspace.dismissError();
+  assert.equal(fixture.changes, idle + 2);
+  fixture.workspace.dispose();
+});
+
+test("polling continues after a snapshot that could not be drawn", async () => {
+  let fail = false;
+  const fixture = await pollingFixture(() => {
+    if (fail) throw new TypeError("Cannot convert object to primitive value");
+  });
+  await fixture.poll();
+  fail = true;
+  fixture.state = { ...fixture.state, revision: "unrenderable" };
+  await assert.rejects(fixture.poll(), /primitive value/);
+  assert.equal(fixture.timers.size, 1, "the next poll is still scheduled");
+  fail = false;
+  fixture.state = { ...fixture.state, revision: "recovered" };
+  await fixture.poll();
+  assert.equal(fixture.workspace.snapshot.revision, "recovered");
+  assert.equal(fixture.workspace.connected, true);
+  fixture.workspace.dispose();
+});
+
+test("Delete merged acts on, counts, and describes exactly what the list shows", async () => {
+  const { createWorkspaceView } = await import(
+    "../renderer/workspace-view.mjs"
+  );
+  const row = (id, recommended, sizeBytes) => ({
+    id,
+    path: `/local/${id}`,
+    head: id,
+    canRemove: true,
+    recommended,
+    sizeBytes,
+  });
+  const all = [row("a", true, 1024), row("b", true, 2048), row("c", false, 1)];
+  const removed = [];
+  const fixture = await workspaceFixture({
+    getState: async () =>
+      coordinatorState({ report: { worktrees: all, warnings: [] } }),
+    remove: async (selection) => {
+      removed.push(selection);
+      return { cancelled: true, results: [] };
+    },
+  });
+  const { document, element } = preferenceDocument();
+  let shown = { filtered: all, filtering: false };
+  const view = createWorkspaceView({
+    document,
+    workspace: fixture.workspace,
+    shown: () => shown,
+  });
+  view.render();
+  assert.match(element("#cleanup-button").innerHTML, /Delete merged \(2\)/);
+  assert.match(element("#cleanup-button").title, /2 recommended worktrees on/);
+  // A search or repository filter narrows the action along with the list.
+  shown = { filtered: [all[1], all[2]], filtering: true };
+  view.renderControls();
+  assert.match(element("#cleanup-button").innerHTML, /Delete merged \(1\)/);
+  assert.match(
+    element("#cleanup-button").title,
+    /Remove 1 recommended worktree shown in this view and reclaim 2 KB/,
+  );
+  await element("#cleanup-button").onclick();
+  assert.deepEqual(removed.at(-1).items, [{ id: "b", head: "b" }]);
+  assert.equal(removed.at(-1).recommendedOnly, true);
+  shown = { filtered: [all[2]], filtering: true };
+  view.renderControls();
+  assert.equal(element("#cleanup-button").disabled, true);
   fixture.workspace.dispose();
 });

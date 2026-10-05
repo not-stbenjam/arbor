@@ -420,9 +420,6 @@ main {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
-.button-danger {
-  color: var(--red);
-}
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -1552,6 +1549,18 @@ dialog::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.worktree-state {
+  font-weight: 600;
+}
+.worktree-state[data-tone="safe"] {
+  color: var(--green);
+}
+.worktree-state[data-tone="caution"] {
+  color: var(--orange);
+}
+.worktree-state[data-tone="blocked"] {
+  color: var(--red);
 }
 .row-actions {
   display: grid;

@@ -1,6 +1,6 @@
 {
   "name": "arbor-desktop",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "A quiet desktop home for your Git worktrees",
   "author": "Arbor contributors",
   "license": "MIT",

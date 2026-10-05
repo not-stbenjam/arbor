@@ -59,7 +59,7 @@ async function fixture() {
   const status = {
     host: "",
     hostFilter: null,
-    root: "/",
+    root: "",
     connected: true,
     blocked: false,
     busy: true,

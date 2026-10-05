@@ -73,6 +73,7 @@ type Worktree struct {
 	DefaultRef      string       `json:"defaultRef"`
 	Merged          bool         `json:"merged"`
 	MergeReason     string       `json:"mergeReason"`
+	Fresh           bool         `json:"fresh"`
 	GitHubState     string       `json:"githubState"`
 	PR              *PullRequest `json:"pr,omitempty"`
 	Recommended     bool         `json:"recommended"`

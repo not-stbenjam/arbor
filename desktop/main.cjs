@@ -183,8 +183,6 @@ app
       app,
       ipcMain,
       dialog,
-      shell,
-      clipboard,
       backend,
       preferences,
       getWindow: () => window,

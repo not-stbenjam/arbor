@@ -40,6 +40,11 @@ func (s *scanStatus) update(event worktree.Progress) {
 		return
 	}
 	now := time.Now()
+	// A quick scan needs no running commentary. Connecting is the exception:
+	// it explains a wait that precedes any scan progress.
+	if event.Stage != "connecting" && now.Sub(s.started) < time.Second {
+		return
+	}
 	if event.Stage == s.stage && now.Sub(s.last) < time.Second {
 		return
 	}
@@ -56,6 +61,6 @@ func (s *scanStatus) update(event worktree.Progress) {
 
 func (s *scanStatus) finish(report worktree.Report) {
 	if s.enabled {
-		fmt.Fprintf(s.out, "Scan complete: %d worktree(s) in %s.\n", len(report.Worktrees), time.Since(s.started).Round(time.Millisecond))
+		fmt.Fprintf(s.out, "Scan complete: %s in %s.\n", count(len(report.Worktrees), "worktree"), time.Since(s.started).Round(time.Millisecond))
 	}
 }

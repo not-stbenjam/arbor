@@ -126,6 +126,10 @@ test("workspace snapshots ship worktrees once and scope controls without hiding 
   assert.equal(all.busy, true);
   assert.match(all.error, /vps: Connection unavailable/);
   assert.equal(all.cached, false);
+  // The combined view spans machines. It has no folder of its own to offer
+  // setup, settings, or a folder picker; each host keeps its real one.
+  assert.equal(all.root, "");
+  assert.equal(all.report.root, "");
   for (const summary of all.hosts) {
     assert.equal(summary.worktreeCount, 1);
     assert.equal(summary.report.root, "/work");
@@ -134,6 +138,7 @@ test("workspace snapshots ship worktrees once and scope controls without hiding 
   }
   const local = workspaceSnapshot(hosts, { ...options, hostFilter: "" });
   assert.equal(local.report.worktrees.length, 1);
+  assert.equal(local.root, "/work");
   assert.equal(local.busy, false);
   assert.equal(local.canCancelScan, false);
   assert.equal(local.cached, true);
