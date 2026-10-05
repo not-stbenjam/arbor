@@ -10,6 +10,7 @@
 //
 // --jobs N runs that many at once (2). --keep leaves every folder behind;
 // a failed scenario's folder is always left, with a picture of the window.
+// --show puts the windows on the real display where there is one.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -22,7 +23,8 @@ const option = (name, fallback) => {
   return at < 0 ? fallback : args.splice(at, 2)[1];
 };
 const jobs = Math.max(1, Number(option("--jobs", 2)));
-const keep = args.includes("--keep") && args.splice(args.indexOf("--keep"), 1);
+const flag = (name) => args.includes(name) && !!args.splice(args.indexOf(name), 1);
+const keep = flag("--keep"), show = flag("--show");
 // A scenario named by its path is run as given; anything else is a word to
 // find among the scenarios beside this file.
 const named = args.filter((value) => value.endsWith(".cjs") && fs.existsSync(value));
@@ -42,12 +44,12 @@ if (!scenarios.length) {
 }
 
 const electron = path.join(root, "node_modules", ".bin", "electron");
-// Linux needs a display; without one, each run gets a virtual one.
-const headless =
-  process.platform === "linux" &&
-  !process.env.DISPLAY &&
-  !process.env.WAYLAND_DISPLAY;
-if (headless && spawnSync("xvfb-run", ["--help"]).error) {
+// On Linux each run gets a virtual display, so no window appears on the
+// desktop of whoever is running the tests; --show uses the real one.
+const display = !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+const virtual = !spawnSync("xvfb-run", ["--help"]).error;
+const headless = process.platform === "linux" && virtual && !(show && display);
+if (process.platform === "linux" && !virtual && !display) {
   console.error("No display: install xvfb, or run inside a desktop session.");
   process.exit(1);
 }
