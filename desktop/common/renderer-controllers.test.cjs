@@ -1635,12 +1635,17 @@ test("the review lists what Delete recommended would delete and why, and deletes
     onDeleting: () => handed++,
   });
   const text = (selector) => element(selector).textContent;
+  // What a row says in one of its places, as text. A path is drawn folder
+  // by folder so that it breaks between them.
   const cells = (name) =>
     [
       ...list.innerHTML.matchAll(
-        new RegExp(`class="cleanup-${name}">(.*?)</span>`, "g"),
+        new RegExp(
+          `class="cleanup-${name}">(.*?)</${name === "path" ? "bdi></span" : "span"}>`,
+          "g",
+        ),
       ),
-    ].map(([, value]) => value.replace(/<\/?bdi>/g, ""));
+    ].map(([, value]) => value.replace(/<[^>]+>/g, ""));
   const changed = () =>
     Object.keys(marks).filter((id) => marks[id].has("changed"));
 
@@ -1655,6 +1660,10 @@ test("the review lists what Delete recommended would delete and why, and deletes
   assert.deepEqual(cells("name"), ["a", "b"]);
   assert.deepEqual(cells("context"), ["topic/a · api", "topic/b · api"]);
   assert.deepEqual(cells("path"), ["/local/trees/a", "/local/trees/b"]);
+  assert.match(
+    list.innerHTML,
+    /class="cleanup-path"><bdi><span class="path-part">\/<\/span><span class="path-part">local\/<\/span><span class="path-part">trees\/<\/span><span class="path-part">a<\/span><\/bdi>/,
+  );
   assert.deepEqual(cells("size"), ["1 KB", "2 KB"]);
   // Why: each one's own evidence, with Git's ref names in plain form.
   assert.deepEqual(cells("reason"), [
@@ -1802,7 +1811,7 @@ test("the review waits for an operation that holds a worktree, and says every ho
       id: JSON.stringify(["vps", "a"]),
       host: "vps",
       // A name that tries to hide or reorder what is read beside it.
-      path: "/srv/trees/safe‮gpj.exe\u0007<b>",
+      path: "/srv/trees/safe\u202Egpj.exe\u0007<b>",
       head: "a",
       branch: "topic/a",
       repo: "api",
@@ -1826,22 +1835,31 @@ test("the review waits for an operation that holds a worktree, and says every ho
     },
   });
   const { document, element } = preferenceDocument();
+  // Whatever else makes the workspace unavailable, such as a lost connection.
+  let unavailable = false;
   const review = createCleanupController({
     document,
-    workspace: fixture.workspace,
+    workspace: Object.create(fixture.workspace, {
+      blocked: { get: () => unavailable || fixture.workspace.blocked },
+    }),
     shown: () => ({ filtered: rows, filtering: false }),
   });
+  const focused = [];
+  element("#cleanup-cancel").focus = () => focused.push("cancel");
+  element("#cleanup-title").focus = () => focused.push("title");
   review.open();
+  // With room for its buttons, the review leaves the keyboard on Cancel.
+  assert.deepEqual(focused, []);
   const markup = element("#cleanup-list").innerHTML;
   // Each name keeps its own direction, and what would hide or reorder it is
   // drawn as a mark.
   assert.match(
     markup,
-    /class="cleanup-name"><bdi>safe�gpj\.exe�&lt;b&gt;<\/bdi></,
+    /class="cleanup-name"><bdi>safe\ufffdgpj\.exe\ufffd&lt;b&gt;<\/bdi></,
   );
   assert.match(
     markup,
-    /class="cleanup-path"><bdi>\/srv\/trees\/safe�gpj\.exe�&lt;b&gt;<\/bdi></,
+    /<span class="path-part">trees\/<\/span><span class="path-part">safe\ufffdgpj\.exe\ufffd&lt;b&gt;<\/span><\/bdi>/,
   );
   assert.match(
     markup,
@@ -1857,16 +1875,21 @@ test("the review waits for an operation that holds a worktree, and says every ho
     "About 1 KB to recover · All hosts",
   );
   // Another operation holding the worktree's host changes nothing about the
-  // worktree. Nothing is marked; deleting waits.
+  // worktree. Nothing is marked; deleting waits, and says that it does. The
+  // keyboard, if it was on Delete, goes to the answer that is still there.
+  const said = () => element("#cleanup-status").textContent;
+  document.activeElement = element("#cleanup-confirm");
   state.hosts = [{ ...state.hosts[0], operation: "inspect" }];
   await fixture.workspace.refresh();
   review.render();
   assert.equal(element("#cleanup-confirm").disabled, true);
+  assert.deepEqual(focused, ["cancel"]);
+  document.activeElement = element("#cleanup-cancel");
   assert.equal(
     element("#cleanup-total").textContent,
     "Deleting is unavailable until the current operation finishes.",
   );
-  assert.equal(element("#cleanup-status").textContent, "");
+  assert.equal(said(), "Deleting is unavailable for now.");
   await element("#cleanup-confirm").onclick();
   assert.deepEqual(removed, []);
   state.hosts = [{ ...state.hosts[0], operation: null }];
@@ -1874,6 +1897,33 @@ test("the review waits for an operation that holds a worktree, and says every ho
   review.render();
   assert.equal(element("#cleanup-confirm").disabled, false);
   assert.equal(element("#cleanup-confirm").textContent, "Delete 1 worktree");
+  assert.equal(said(), "Deleting is available again.");
+  assert.deepEqual(focused, ["cancel"], "the keyboard is not moved again");
+  // A lost connection does not end by itself, and is not called an operation.
+  unavailable = true;
+  review.render();
+  assert.equal(element("#cleanup-confirm").disabled, true);
+  assert.equal(
+    element("#cleanup-total").textContent,
+    "Deleting is unavailable for now.",
+  );
+  assert.equal(said(), "Deleting is unavailable for now.");
+  unavailable = false;
+  review.render();
+  assert.equal(said(), "Deleting is available again.");
+  element("#cleanup-cancel").onclick();
+
+  // With so little room that the buttons are below the list, the review
+  // starts at its heading, and so does the keyboard.
+  const dialog = element("#cleanup-dialog");
+  dialog.scrollHeight = 900;
+  dialog.clientHeight = 200;
+  dialog.scrollTop = 500;
+  review.open();
+  assert.equal(dialog.scrollTop, 0);
+  assert.deepEqual(focused, ["cancel", "title"]);
+  // A new review has had no waiting to speak of.
+  assert.equal(said(), "");
   fixture.workspace.dispose();
 });
 

@@ -790,11 +790,16 @@ app.once("browser-window-created", (_event, win) => {
         await js("document.querySelector('#cleanup-button').click()");
         await until(async () => (await review()).open, "the review opens small");
         const cramped = await js(
-          `(() => { const inside = (node) => { node.scrollIntoView({ block: 'nearest' }); const r = node.getBoundingClientRect(); return r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1 && r.height > 0; }; const dialog = document.querySelector('#cleanup-dialog'), body = document.querySelector('#cleanup-body'), items = [...body.querySelectorAll('.cleanup-item')], at = body.getBoundingClientRect(), confirm = document.querySelector('#cleanup-confirm').getBoundingClientRect(); return { items: items.length, height: Math.round(at.height), first: at.top >= 0 && at.top < innerHeight - 40, hidden: confirm.bottom > innerHeight || confirm.top >= dialog.getBoundingClientRect().bottom, reached: [items[0], items.at(-1), document.querySelector('#cleanup-cancel'), document.querySelector('#cleanup-confirm')].map(inside) }; })()`,
+          `(() => { const inside = (node) => { node.scrollIntoView({ block: 'nearest' }); const r = node.getBoundingClientRect(); return r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1 && r.height > 0; }; const dialog = document.querySelector('#cleanup-dialog'), body = document.querySelector('#cleanup-body'), items = [...body.querySelectorAll('.cleanup-item')], at = body.getBoundingClientRect(), confirm = document.querySelector('#cleanup-confirm').getBoundingClientRect(); return { focus: document.activeElement?.id || '', items: items.length, height: Math.round(at.height), first: at.top >= 0 && at.top < innerHeight - 40, hidden: confirm.bottom > innerHeight || confirm.top >= dialog.getBoundingClientRect().bottom, reached: [items[0], items.at(-1), document.querySelector('#cleanup-cancel'), document.querySelector('#cleanup-confirm')].map(inside) }; })()`,
         );
         assert.equal(cramped.items, expected);
         assert.ok(cramped.height >= 60, `the review has room: ${cramped.height}px`);
         assert.equal(cramped.first, true, "what is being asked is seen first");
+        assert.equal(
+          cramped.focus,
+          "cleanup-title",
+          "the keyboard starts at the heading, not on a Cancel out of sight",
+        );
         assert.deepEqual(
           cramped.reached,
           [true, true, true, true],

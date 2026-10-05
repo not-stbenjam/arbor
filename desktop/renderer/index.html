@@ -635,7 +635,7 @@
       aria-describedby="cleanup-lead"
     >
       <div class="dialog-header">
-        <h2 id="cleanup-title">Delete recommended worktrees?</h2>
+        <h2 id="cleanup-title" tabindex="-1">Delete recommended worktrees?</h2>
         <button
           class="icon-button"
           data-close="cleanup-dialog"
@@ -651,9 +651,8 @@
             commits are kept.
           </p>
           <p>
-            Each one is clean, with nothing uncommitted, untracked or ignored
-            in it, and its commits are already merged. How Arbor knows is
-            under each name.
+            Each one has no uncommitted changes, untracked files or ignored
+            files, and its commits are already merged.
           </p>
         </div>
         <ul

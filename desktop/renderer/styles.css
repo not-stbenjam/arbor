@@ -962,10 +962,14 @@ dialog::backdrop {
   min-height: 72px;
   overflow-y: auto;
 }
-/* With hardly any height, as in the smallest window at more than twice the
-   size, the review is one page that scrolls: the heading, the whole list,
-   and the buttons after it rather than instead of it. */
-@media (max-height: 300px) {
+/* With little height, as in the smallest window well zoomed in, a list of
+   its own would show a line or two at a time. The review is one page that
+   scrolls instead: the heading, the whole list, and the buttons after it
+   rather than instead of it. */
+#cleanup-title:focus-visible {
+  outline: none;
+}
+@media (max-height: 360px) {
   .cleanup-body {
     flex: none;
     overflow-y: visible;
@@ -993,37 +997,40 @@ dialog::backdrop {
   padding: 0;
   list-style: none;
 }
+/* A name and its size share the first line. What follows runs the full
+   width beneath them, so a path has the whole row to fit in. Nothing here is
+   cut short: a long name, branch, reason or path wraps. The review is where
+   they are read, and they can be selected to copy. */
 .cleanup-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 2px 9px;
+  align-items: start;
   padding: 10px 20px;
   border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 .cleanup-item:last-child {
   border-bottom: 0;
 }
 .cleanup-item > .icon {
-  flex: none;
   width: 14px;
   height: 14px;
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--tertiary);
 }
-/* Nothing here is cut short: a long name, branch, reason or path wraps. The
-   review is where they are read, and they can be selected to copy. */
-.cleanup-copy {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 2px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  user-select: text;
-}
 .cleanup-name {
+  grid-column: 2;
   font-size: 13px;
   font-weight: 600;
   line-height: 18px;
+}
+.cleanup-context,
+.cleanup-reason,
+.cleanup-changed,
+.cleanup-path {
+  grid-column: 2 / -1;
 }
 .cleanup-context,
 .cleanup-path {
@@ -1031,11 +1038,13 @@ dialog::backdrop {
   line-height: 16px;
   color: var(--secondary);
 }
-/* A path fills its line before it breaks, wherever that falls. */
 .cleanup-path {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10.5px;
-  word-break: break-all;
+}
+/* Each folder of a path stays whole, and the path breaks between them. */
+.path-part {
+  display: inline-block;
+  max-width: 100%;
 }
 .cleanup-reason,
 .cleanup-changed {
@@ -1047,10 +1056,11 @@ dialog::backdrop {
 }
 .cleanup-size,
 .cleanup-kept {
-  flex: none;
+  grid-row: 1;
+  grid-column: 3;
   min-width: 52px;
-  padding-top: 2px;
   font-size: 11px;
+  line-height: 18px;
   text-align: right;
   color: var(--secondary);
   font-variant-numeric: tabular-nums;

@@ -21,13 +21,20 @@ export const cleanupScope = (workspace, shown) =>
 // A name is shown as it is, but never invisibly: a character that would hide
 // or reorder the text around it is drawn as a mark instead, and the name
 // keeps its own direction whatever script it is written in.
-const named = (value) =>
-  `<bdi>${esc(
-    String(value ?? "").replace(
-      /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g,
-      "\ufffd",
-    ),
-  )}</bdi>`;
+const plain = (value) =>
+  String(value ?? "").replace(
+    /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g,
+    "\ufffd",
+  );
+const named = (value) => `<bdi>${esc(plain(value))}</bdi>`;
+// A path too long for its line breaks between folders. A folder's own name
+// is split only when it is longer than a line.
+const pathed = (value) =>
+  `<bdi>${plain(value)
+    .match(/[^/]*\/?/g)
+    .filter(Boolean)
+    .map((part) => `<span class="path-part">${esc(part)}</span>`)
+    .join("")}</bdi>`;
 
 // Everything the review says about a worktree. One that no longer matches
 // what was read is a different worktree to agree to.
@@ -58,10 +65,11 @@ export function createCleanupController({
 }) {
   const $ = (selector) => document.querySelector(selector);
   const dialog = $("#cleanup-dialog");
-  // The rows as they were when the review opened, those since kept, and what
-  // was last said aloud about them.
+  // The rows as they were when the review opened, those since kept, whether
+  // deleting has had to wait, and what was last said aloud about it all.
   let reviewed = [],
     kept = new Set(),
+    waited = false,
     said = "";
   const hostLabel = (row) =>
     workspace.snapshot.hosts.find((source) => source.host === (row.host || ""))
@@ -93,7 +101,7 @@ export function createCleanupController({
           .filter(Boolean)
           .map(named)
           .join(" · ");
-        return `<li class="cleanup-item" data-review="${esc(row.id)}">${icon("branch")}<div class="cleanup-copy"><span class="cleanup-name">${named(name)}</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(recommendationReason(row))}</span><span class="cleanup-changed">Changed since you opened this list, so it is kept.</span><span class="cleanup-path">${named(row.path)}</span></div><span class="cleanup-size">${size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span></li>`;
+        return `<li class="cleanup-item" data-review="${esc(row.id)}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(recommendationReason(row))}</span><span class="cleanup-changed">Changed since you opened this list, so it is kept.</span><span class="cleanup-path">${pathed(row.path)}</span></li>`;
       })
       .join("");
   }
@@ -119,19 +127,38 @@ export function createCleanupController({
       : workspace.snapshot.hostFilter === null
         ? "All hosts"
         : workspace.snapshot.host || "This computer";
+    const waiting = rows.length > 0 && !ready;
+    waited ||= waiting;
+    // An operation on a worktree's host ends by itself. Anything else that
+    // stops a deletion, such as a lost connection, may not.
     $("#cleanup-total").textContent = !rows.length
       ? "Close this list and open it again to see what is recommended now."
-      : !ready
-        ? "Deleting is unavailable until the current operation finishes."
-        : `About ${size(sizeOf(rows))} to recover · ${scope}`;
+      : !waiting
+        ? `About ${size(sizeOf(rows))} to recover · ${scope}`
+        : workspace.blocked
+          ? "Deleting is unavailable for now."
+          : "Deleting is unavailable until the current operation finishes.";
     const confirm = $("#cleanup-confirm");
     confirm.textContent = rows.length ? `Delete ${count}` : "Delete";
-    confirm.disabled = !ready || !rows.length;
+    // A disabled button cannot hold the keyboard. It goes to the answer
+    // that is still there.
+    if ((waiting || !rows.length) && document.activeElement === confirm)
+      $("#cleanup-cancel").focus();
+    confirm.disabled = waiting || !rows.length;
     // Said aloud once each time the answer on offer changes. Whoever is on
-    // Cancel cannot see a row further up being marked.
-    const saying = kept.size
-      ? `${plural(kept.size, "worktree")} changed and ${kept.size === 1 ? "is" : "are"} kept. ${rows.length ? `${count} would be deleted.` : "Nothing would be deleted."}`
-      : "";
+    // Cancel cannot see a row further up being marked, or Delete go grey.
+    const saying = [
+      kept.size
+        ? `${plural(kept.size, "worktree")} changed and ${kept.size === 1 ? "is" : "are"} kept. ${rows.length ? `${count} would be deleted.` : "Nothing would be deleted."}`
+        : "",
+      waiting
+        ? "Deleting is unavailable for now."
+        : waited && rows.length
+          ? "Deleting is available again."
+          : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     if (saying !== said) $("#cleanup-status").textContent = said = saying;
   }
   function open() {
@@ -140,12 +167,16 @@ export function createCleanupController({
     reviewed = recommendedShown(shown);
     if (!reviewed.length) return;
     kept = new Set();
+    waited = false;
     $("#cleanup-status").textContent = said = "";
     renderList();
     dialog.showModal();
-    // It opens at its beginning, even where bringing Cancel into view to
-    // give it the keyboard would have scrolled past the list.
+    // It opens at its beginning. Where there is so little room that the
+    // buttons are out of sight below the list, the keyboard starts at the
+    // heading with it, not on a Cancel that cannot be seen.
     dialog.scrollTop = $("#cleanup-body").scrollTop = 0;
+    if (dialog.scrollHeight > dialog.clientHeight)
+      $("#cleanup-title").focus({ preventScroll: true });
     render();
   }
   $("#cleanup-cancel").onclick = () => dialog.close();
