@@ -268,3 +268,17 @@ func TestCLIInaccessibleFolderDoesNotClaimGitIsMissing(t *testing.T) {
 		t.Fatalf("inaccessible folder: out=%q err=%v", out, err)
 	}
 }
+
+func TestSSHExamplesKeepHomeExpansionOnTheRemoteHost(t *testing.T) {
+	isolatedCommandEnvironment(t)
+	for _, command := range []string{"", "clean"} {
+		args := []string{"--help"}
+		if command != "" {
+			args = []string{command, "--help"}
+		}
+		out, _, err := commandOutput(t, args...)
+		if err != nil || !strings.Contains(out, "--host my-vps --path '~/projects'") || strings.Contains(out, "--host my-vps --path ~/projects") {
+			t.Fatalf("remote example expands locally: %v\n%s", err, out)
+		}
+	}
+}

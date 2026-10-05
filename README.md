@@ -183,7 +183,7 @@ arbor list --host my-vps --path /home/dev/projects --json
 arbor clean --host my-vps --path /home/dev/projects
 ```
 
-`--host` accepts an SSH config alias or `user@hostname`. Configure custom ports and identity files in `~/.ssh/config`, and successfully connect with ordinary `ssh` first. Arbor uses existing keys, your agent, and verified host keys; connections are noninteractive, so a host that would prompt for a password or a host key cannot be used. A connection failure says which of those it was. An omitted remote path defaults to the remote user's home.
+`--host` accepts an SSH config alias or `user@hostname`. Configure custom ports and identity files in `~/.ssh/config`, and successfully connect with ordinary `ssh` first. Arbor uses existing keys, your agent, and verified host keys; connections are noninteractive, so a host that would prompt for a password or a host key cannot be used. A connection failure says which of those it was. An omitted remote path defaults to the remote user's home. Quote a remote home path, for example `arbor list --host my-vps --path '~/projects'`: an unquoted `~/projects` is expanded by your local shell before Arbor sees it.
 
 Both macOS and Linux support ARM64 and x86-64. Git must be installed remotely; install and authenticate `gh` remotely for GitHub checks. Provisioning needs a published release matching the local Arbor version. An unversioned `dev` CLI build cannot provision a remote host.
 
