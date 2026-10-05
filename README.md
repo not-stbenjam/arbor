@@ -6,6 +6,9 @@
 
 > **Alpha.** Arbor deletes folders, and it is still changing quickly: behavior, options and the look of the app can differ from one release to the next. Read what a confirmation says before agreeing to it, and keep your work committed or pushed.
 
+<p align="center"><a href="https://github.com/stbenjam/arbor/releases/download/v0.1.19/arbor-promo.mp4"><img src="promo/poster.jpg" width="760" alt="Arbor in thirty seconds. Play the film."></a></p>
+<p align="center"><sub>Arbor in thirty seconds. The application in the film is the real one, on an invented workspace; <a href="promo/README.md">how it was made</a>.</sub></p>
+
 Arbor finds linked Git worktrees and lets you delete them. See where they live, which branch they contain, and when they were last active. Delete one checkout or a folder's worktrees. Ordinary repository checkouts are not listed as cleanup items.
 
 The desktop app uses Electron with a native window, system typography, compact controls, and a Go backend. It loads its interface from the app bundle, communicates with the backend through a narrow local bridge, and does not start a web server or open a browser. The same inspection and cleanup engine is available as a small standalone CLI. No account or hosted service is required. Fetching and GitHub checks are optional.
@@ -252,6 +255,7 @@ Each layer owns its state and exposes commands or snapshots to its callers:
 | `desktop/preferences-store.cjs` | Serialized preference persistence with one scan-settings writer, including remembered host roots. |
 | `desktop/removal-policy.cjs`, `desktop/removal-confirmation.cjs`, `desktop/cleanup-batch.cjs` | Pure removal selection and consent planning; the native confirmation's wording; sequential execution of approved targets. Batch execution reports outcomes without owning application snapshots or caches. |
 | `desktop/renderer`, `desktop/common` | Workspace, preferences, setup, and statistics controllers; tree interaction and presentation are separate. `app.js` only connects them. Renderer code is ES modules loaded directly, with no bundler; `desktop/common` holds the modules the main process and tests share with it. |
+| `promo` | The thirty-second film: the composition the real window runs inside, the invented workspace it is shown, the frame-by-frame renderer, and the synthesized soundtrack. Not part of the application. |
 | `desktop/protocol.cjs`, `internal/config` | Shared desktop report validation and one authoritative exclusion defaults/limits document embedded by Go and loaded by Electron. |
 
 Tests exercise the named interfaces rather than reaching into operation state. Pure selection, policy, and presentation tests complement real Git fixtures, Go-to-desktop wire contract checks, and Electron workflows. Renderer snapshots are immutable; checkout identity stays intact when long display metadata is shortened.

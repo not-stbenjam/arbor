@@ -1,0 +1,539 @@
+/* The promotional video's stage: 1920 by 1080, everything placed by hand and
+   moved by comp.js, one frame at a time. Nothing here animates by itself. */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: #000;
+  overflow: hidden;
+}
+body {
+  width: 1920px;
+  height: 1084px;
+  font-family: "Inter Variable", "Inter", sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+  color: #f5f4e9;
+  --forest: #0b1611;
+  --moss: #1e4638;
+  --leaf: #d5eb9d;
+  --cream: #f5f4e9;
+  --mist: #a9b8ae;
+}
+.mono {
+  font-family: "JetBrains Mono", monospace;
+}
+#stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: var(--forest);
+}
+#sync {
+  position: absolute;
+  left: 0;
+  top: 1080px;
+  width: 1920px;
+  height: 4px;
+}
+.scene {
+  position: absolute;
+  inset: 0;
+}
+
+/* Backdrop */
+#backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 110%, #16352a 0%, transparent 60%),
+    linear-gradient(180deg, #0a130f 0%, #0d1a14 55%, #0f2019 100%);
+}
+/* Soft because of how they are drawn, not blurred afterwards: a blur this
+   size would be worked out again for every frame. */
+.light {
+  position: absolute;
+  width: 1700px;
+  height: 1700px;
+  border-radius: 50%;
+  opacity: 0.5;
+}
+#light-a {
+  background: radial-gradient(closest-side, #2f7a56 0%, #2f7a56b8 22%, #2f7a5666 42%, #2f7a5626 62%, #2f7a5600 84%);
+}
+#light-b {
+  background: radial-gradient(closest-side, #8fae4b 0%, #8fae4bb8 22%, #8fae4b66 42%, #8fae4b26 62%, #8fae4b00 84%);
+  opacity: 0.22;
+}
+#dots {
+  position: absolute;
+  inset: -40px;
+  background-image: radial-gradient(#ffffff 1px, transparent 1.2px);
+  background-size: 44px 44px;
+  opacity: 0.05;
+  mask-image: radial-gradient(80% 70% at 50% 45%, #000 0%, transparent 100%);
+}
+#grain {
+  position: absolute;
+  inset: 0;
+  background: url(grain.png);
+  opacity: 0.055;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+#vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(75% 75% at 50% 50%, transparent 55%, #00000073 100%);
+  pointer-events: none;
+}
+#fade,
+#flash {
+  position: absolute;
+  inset: 0;
+  background: #050a08;
+  opacity: 0;
+  pointer-events: none;
+}
+#flash {
+  background: radial-gradient(40% 40% at 50% 50%, #e9f7c6 0%, #9ccf7d55 40%, transparent 75%);
+  mix-blend-mode: screen;
+}
+
+/* 1. The pile */
+#chips {
+  position: absolute;
+  inset: 0;
+}
+.chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 398px;
+  padding: 17px 20px 16px 17px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  column-gap: 14px;
+  align-items: center;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #213529fa 0%, #17271ffa 100%);
+  border: 1px solid #ffffff21;
+  box-shadow:
+    0 24px 60px #00000066,
+    inset 0 1px 0 #ffffff12;
+  will-change: transform;
+}
+.chip svg {
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  border-radius: 11px;
+  background: #d5eb9d1c;
+  color: var(--leaf);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.chip b {
+  display: block;
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -0.012em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip small {
+  display: block;
+  margin-top: 3px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14.5px;
+  color: #9db0a5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip em {
+  font-family: "JetBrains Mono", monospace;
+  font-style: normal;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 500;
+  color: #c9d4cc;
+}
+#pile-scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(46% 40% at 50% 50%, #0b1611f2 0%, #0b1611cc 45%, transparent 100%);
+}
+#pile-copy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 352px;
+  height: 380px;
+  text-align: center;
+}
+#pile-line-b {
+  top: 54px;
+}
+.headline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  margin: 0;
+  font-size: 104px;
+  line-height: 1.04;
+  font-weight: 680;
+  letter-spacing: -0.038em;
+  font-variation-settings: "opsz" 32;
+}
+.word {
+  display: inline-block;
+  white-space: pre;
+  will-change: transform, opacity, filter;
+}
+#pile-count {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 256px;
+  margin: 0;
+  font-size: 34px;
+  font-weight: 500;
+  color: var(--leaf);
+  letter-spacing: -0.01em;
+}
+#pile-count i {
+  font-style: normal;
+  color: #7f9288;
+  padding: 0 14px;
+}
+
+/* 3 to 5. The window */
+#glow {
+  position: absolute;
+  left: 520px;
+  top: -60px;
+  width: 1500px;
+  height: 1200px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #4fae7a4d 0%, #4fae7a2e 35%, #4fae7a12 65%, transparent 100%);
+  opacity: 0;
+}
+#camera {
+  position: absolute;
+  inset: 0;
+  perspective: 2600px;
+  perspective-origin: 66% 50%;
+}
+#card {
+  position: absolute;
+  left: 664px;
+  top: 76px;
+  width: 1200px;
+  height: 929px;
+  border-radius: 15px;
+  overflow: hidden;
+  background: #f6f6f7;
+  box-shadow:
+    0 0 0 1px #ffffff24,
+    0 60px 140px #00000066,
+    0 22px 48px #0000004d;
+  opacity: 0;
+}
+#window {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1240px;
+  height: 960px;
+  transform-origin: 0 0;
+  background: #f6f6f7;
+}
+#app {
+  display: block;
+  border: 0;
+  background: #f6f6f7;
+}
+#lights {
+  position: absolute;
+  left: 18px;
+  top: 14px;
+  display: flex;
+  gap: 8px;
+}
+#lights i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: inset 0 0 0 0.5px #00000030;
+}
+#lights i:nth-child(2) {
+  background: #febc2e;
+}
+#lights i:nth-child(3) {
+  background: #28c840;
+}
+/* A place in the window to look at: everything else is dimmed a little. */
+#spot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 9px;
+  box-shadow: 0 0 0 3000px #0d1a1447;
+  opacity: 0;
+  pointer-events: none;
+}
+/* A plain line round what is meant, and nothing else: no glow to make the
+   application look like a tutorial about itself. */
+#ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 8px;
+  border: 2px solid #3f9a6c;
+  opacity: 0;
+  pointer-events: none;
+}
+#pointer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  transform-origin: 0 0;
+  opacity: 0;
+  filter: drop-shadow(0 3px 5px #00000059);
+  pointer-events: none;
+}
+#pointer svg {
+  position: absolute;
+  left: -5px;
+  top: -3px;
+}
+#ripple {
+  position: absolute;
+  left: -30px;
+  top: -30px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 2.5px solid #3f9a6c;
+  background: #3f9a6c26;
+  opacity: 0;
+}
+#copy {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.caption {
+  position: absolute;
+  left: 100px;
+  top: 356px;
+  width: 548px;
+  opacity: 0;
+}
+#caption-delete {
+  top: 290px;
+}
+/* For the close look at the review the words go above the picture, in one
+   line, and the picture has the width of the stage. */
+.caption.above {
+  left: 0;
+  top: 58px;
+  width: 1920px;
+  text-align: center;
+}
+.caption.above .kicker {
+  margin-bottom: 16px;
+}
+.caption.above h2 {
+  font-size: 60px;
+}
+.caption.above .sub {
+  margin-top: 12px;
+}
+.kicker {
+  margin: 0 0 22px;
+  display: inline-block;
+  padding: 7px 14px 7px 13px;
+  border-radius: 999px;
+  border: 1px solid #d5eb9d47;
+  background: #d5eb9d14;
+  color: var(--leaf);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.caption h2 {
+  margin: 0;
+  font-size: 66px;
+  line-height: 1.06;
+  font-weight: 670;
+  letter-spacing: -0.034em;
+  font-variation-settings: "opsz" 32;
+}
+.caption .sub {
+  margin: 26px 0 0;
+  font-size: 27px;
+  line-height: 1.42;
+  font-weight: 420;
+  color: var(--mist);
+  letter-spacing: -0.008em;
+}
+.caption .sub b {
+  color: var(--cream);
+  font-weight: 560;
+}
+.caption .sub .safe {
+  color: #9fd9b4;
+  font-weight: 600;
+}
+.caption .sub .care {
+  color: #e7c079;
+  font-weight: 600;
+}
+#tally {
+  position: absolute;
+  left: 100px;
+  top: 560px;
+  opacity: 0;
+}
+#tally-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-variant-numeric: tabular-nums;
+}
+#tally-number {
+  font-size: 150px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  color: var(--leaf);
+  font-variation-settings: "opsz" 32;
+}
+#tally-unit {
+  font-size: 58px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--leaf);
+}
+#tally-label {
+  margin: 4px 0 0 6px;
+  font-size: 27px;
+  font-weight: 450;
+  color: var(--mist);
+}
+/* Said once, quietly, for as long as the application is on screen. */
+#disclosure {
+  position: absolute;
+  left: 100px;
+  top: 986px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 450;
+  letter-spacing: 0.01em;
+  color: #7d8f84;
+  opacity: 0;
+}
+
+/* 2 and 6. The name */
+#brand {
+  opacity: 0;
+}
+#brand-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 44px;
+}
+#mark {
+  flex: none;
+  overflow: visible;
+  filter: drop-shadow(0 30px 60px #00000080);
+}
+#mark-tile {
+  stroke: #ffffff1f;
+  stroke-width: 0.5;
+}
+#wordmark {
+  position: relative;
+  font-size: 208px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.052em;
+  font-variation-settings: "opsz" 32;
+  white-space: nowrap;
+  padding-right: 10px;
+}
+#alpha {
+  position: absolute;
+  left: 100%;
+  top: 26px;
+  margin-left: 6px;
+  padding: 6px 12px 7px;
+  border-radius: 999px;
+  border: 1px solid #ffffff2e;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b9c6bd;
+  opacity: 0;
+}
+#tagline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  font-size: 46px;
+  font-weight: 480;
+  letter-spacing: -0.02em;
+  color: #cfd9d2;
+}
+#platforms {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 450;
+  color: #9fb0a5;
+  letter-spacing: 0.005em;
+}
+/* Where to go: the one thing on the last card that asks to be acted on. */
+#address {
+  position: absolute;
+  left: 50%;
+  margin: 0;
+  padding: 17px 34px 18px;
+  border-radius: 999px;
+  border: 1.5px solid #d5eb9d73;
+  background: #d5eb9d1a;
+  font-size: 36px;
+  font-weight: 500;
+  color: var(--leaf);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}

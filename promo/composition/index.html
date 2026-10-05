@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Arbor promotional video</title>
+    <link rel="stylesheet" href="comp.css" />
+  </head>
+  <body>
+    <div id="stage">
+      <!-- The backdrop: deep green, two slow lights, and a little grain so
+           the gradients do not band when the video is compressed. -->
+      <div id="backdrop">
+        <div class="light" id="light-a"></div>
+        <div class="light" id="light-b"></div>
+        <div id="dots"></div>
+        <div id="vignette"></div>
+      </div>
+
+      <!-- 1. The problem: worktrees, one after another. -->
+      <div id="pile" class="scene">
+        <div id="chips"></div>
+        <div id="pile-scrim"></div>
+        <div id="pile-copy">
+          <h1 id="pile-line-a" class="headline"></h1>
+          <h1 id="pile-line-b" class="headline"></h1>
+          <p id="pile-count" class="mono"></p>
+        </div>
+      </div>
+
+      <!-- 3 to 5. The application itself, live, with a camera on it. -->
+      <div id="glow"></div>
+      <div id="camera">
+        <!-- A fixed opening onto the application. The window moves and grows
+             behind it, so the picture always has the same clean edge. -->
+        <div id="card">
+          <div id="window">
+            <iframe id="app" src="../../desktop/renderer/index.html" width="1240" height="960" scrolling="no" tabindex="-1"></iframe>
+            <div id="lights"><i></i><i></i><i></i></div>
+            <div id="spot"></div>
+            <div id="ring"></div>
+            <div id="pointer">
+              <div id="ripple"></div>
+              <svg viewBox="0 0 28 28" width="28" height="28"><path d="M5 3.5v18.6l5.2-4.6 3.3 7.4 3.3-1.5-3.2-7.2h7L5 3.5Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round" /></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- What the pictures are saying: in a column beside them, or for
+           the close look at the review, in a line above. -->
+      <div id="copy">
+        <div class="caption" id="caption-list"><p class="kicker">See</p><h2></h2><p class="sub"></p></div>
+        <div class="caption" id="caption-states"><p class="kicker">Understand</p><h2></h2><p class="sub"></p></div>
+        <div class="caption above" id="caption-review"><p class="kicker">Review</p><h2></h2><p class="sub"></p></div>
+        <div class="caption" id="caption-delete"><p class="kicker">Prune</p><h2></h2><p class="sub"></p></div>
+      </div>
+      <div id="tally">
+        <div id="tally-figure"><span id="tally-number">0.0</span><span id="tally-unit">GB</span></div>
+        <p id="tally-label">estimated space recovered</p>
+      </div>
+      <p id="disclosure">The real application, on an invented workspace</p>
+
+      <!-- 2 and 6. The name. -->
+      <div id="brand" class="scene">
+        <div id="brand-row">
+          <svg id="mark" viewBox="0 0 64 64" width="220" height="220">
+            <rect id="mark-tile" width="64" height="64" rx="19" fill="#1e4638" />
+            <path id="mark-trunk" d="M32 49V17" fill="none" stroke="#f5f4e9" stroke-width="4" stroke-linecap="round" pathLength="1" />
+            <path class="leaf" data-origin="32 37" d="M30 39C18 40 15 31 15 26c10-1 16 3 17 11" fill="#d5eb9d" />
+            <path class="leaf" data-origin="32 41" d="M34 43c10 1 15-5 15-11-8-1-14 3-17 9" fill="#d5eb9d" />
+            <path class="leaf" data-origin="32 28" d="M34 30c11 1 16-7 16-13-10-1-16 4-18 11" fill="#d5eb9d" />
+            <path class="leaf" data-origin="32 24" d="M30 25c-8 0-11-5-11-10 7-1 12 3 13 9" fill="#d5eb9d" />
+          </svg>
+          <div id="wordmark">Arbor<span id="alpha">Alpha</span></div>
+        </div>
+        <p id="tagline"></p>
+        <p id="platforms">macOS · Linux · SSH hosts · Free and open source</p>
+        <p id="address" class="mono">github.com/stbenjam/arbor</p>
+      </div>
+
+      <div id="flash"></div>
+      <div id="grain"></div>
+      <div id="fade"></div>
+    </div>
+    <div id="sync"></div>
+    <script src="timeline.js"></script>
+    <script src="comp.js"></script>
+  </body>
+</html>
