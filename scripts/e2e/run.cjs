@@ -6,6 +6,7 @@
 //
 //   node scripts/e2e/run.cjs              every *.e2e.cjs here
 //   node scripts/e2e/run.cjs review keys  only those whose file name has a word
+//   node scripts/e2e/run.cjs path/to.cjs  that file, wherever it is
 //
 // --jobs N runs that many at once (2). --keep leaves every folder behind;
 // a failed scenario's folder is always left, with a picture of the window.
@@ -22,11 +23,19 @@ const option = (name, fallback) => {
 };
 const jobs = Math.max(1, Number(option("--jobs", 2)));
 const keep = args.includes("--keep") && args.splice(args.indexOf("--keep"), 1);
-const scenarios = fs
-  .readdirSync(__dirname)
-  .filter((name) => name.endsWith(".e2e.cjs"))
-  .filter((name) => !args.length || args.some((word) => name.includes(word)))
-  .sort();
+// A scenario named by its path is run as given; anything else is a word to
+// find among the scenarios beside this file.
+const named = args.filter((value) => value.endsWith(".cjs") && fs.existsSync(value));
+const words = args.filter((value) => !named.includes(value));
+const scenarios = [
+  ...named.map((value) => path.resolve(value)),
+  ...fs
+    .readdirSync(__dirname)
+    .filter((name) => name.endsWith(".e2e.cjs"))
+    .filter((name) => (words.length ? words.some((word) => name.includes(word)) : !named.length))
+    .sort()
+    .map((name) => path.join(__dirname, name)),
+];
 if (!scenarios.length) {
   console.error("No scenario matches.");
   process.exit(1);
@@ -43,8 +52,8 @@ if (headless && spawnSync("xvfb-run", ["--help"]).error) {
   process.exit(1);
 }
 
-function run(name) {
-  const file = path.join(__dirname, name);
+function run(file) {
+  const name = path.relative(__dirname, file);
   const command = headless ? "xvfb-run" : electron;
   const prefix = headless ? ["-a", electron] : [];
   return new Promise((resolve) => {
