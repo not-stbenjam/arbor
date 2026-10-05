@@ -50,3 +50,18 @@ async function menuRole(t, role) {
   if (!["close", "quit"].includes(role) && !t.window.isDestroyed()) await t.painted();
 }
 module.exports.menuRole = menuRole;
+
+// t.press repeats complete presses. This is one held key, with native repeat
+// events between its down and up, so consent must survive a hurried typist.
+async function holdEnter(t, repeats = 6) {
+  try {
+    for (let index = 0; index <= repeats; index++) {
+      t.page.sendInputEvent({ type: "keyDown", keyCode: "Enter", isAutoRepeat: index > 0 });
+      t.page.sendInputEvent({ type: "char", keyCode: "\r", isAutoRepeat: index > 0 });
+      await t.painted();
+    }
+  } finally {
+    t.page.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+  }
+}
+module.exports.holdEnter = holdEnter;
