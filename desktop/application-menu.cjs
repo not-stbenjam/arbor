@@ -11,6 +11,7 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
               { role: "about" },
               { type: "separator" },
               {
+                id: "settings",
                 label: "Settings…",
                 accelerator: "Command+,",
                 click: () => sendAction("settings"),
@@ -31,15 +32,25 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
       label: "File",
       submenu: [
         {
+          id: "refresh",
           label: "Refresh Worktrees",
           accelerator: "CmdOrCtrl+R",
           click: () => sendAction("refresh"),
         },
-        { label: "Add SSH Host…", click: () => sendAction("add-host") },
-        { label: "Statistics…", click: () => sendAction("statistics") },
+        {
+          id: "add-host",
+          label: "Add SSH Host…",
+          click: () => sendAction("add-host"),
+        },
+        {
+          id: "statistics",
+          label: "Statistics…",
+          click: () => sendAction("statistics"),
+        },
         ...(!mac
           ? [
               {
+                id: "settings",
                 label: "Settings…",
                 accelerator: "Ctrl+,",
                 click: () => sendAction("settings"),
@@ -62,6 +73,7 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
         { role: "selectAll" },
         { type: "separator" },
         {
+          id: "focus-search",
           label: "Find Worktree",
           accelerator: "CmdOrCtrl+F",
           click: () => sendAction("focus-search"),
@@ -106,4 +118,21 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-module.exports = { installApplicationMenu };
+// The commands of Arbor's own that the window can say are unavailable just
+// now: during setup, behind a dialog, or while it is deleting.
+const COMMANDS = ["refresh", "add-host", "statistics", "settings", "focus-search"];
+
+// Enables each command the window says can be used, and disables the rest,
+// so the menu agrees with the buttons that do the same things.
+function setMenuAvailability(Menu, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Invalid menu state");
+  const menu = Menu.getApplicationMenu();
+  for (const id of COMMANDS) {
+    const item = menu?.getMenuItemById(id);
+    if (item) item.enabled = value[id] === true;
+  }
+  return true;
+}
+
+module.exports = { installApplicationMenu, setMenuAvailability, COMMANDS };

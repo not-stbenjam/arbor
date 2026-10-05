@@ -1,6 +1,6 @@
 "use strict";
-const { scenario, assert } = require("../harness.cjs");
-const { open, scans } = require("../setup-helpers.cjs");
+const { scenario, assert } = require("./harness.cjs");
+const { open, scans } = require("./setup-helpers.cjs");
 scenario({ name: "menu refresh disabled while editing Settings", timeout: 15,
   setup(f) { f.preferences(); }, launches: [async (t) => {
     await t.settled();

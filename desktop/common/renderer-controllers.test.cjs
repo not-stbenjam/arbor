@@ -2176,6 +2176,11 @@ test("an empty list says whether the scan failed, was stopped, or found nothing"
     failed,
   );
   assert.match(failed, /data-scan-again/);
+  // The one failure with a way out says so, and offers it first.
+  const gone = await emptyState({ error: "folder does not exist: /srv/<gone>" });
+  assert.match(gone, /<h2>The folder to scan is not there<\/h2>/);
+  assert.ok(gone.includes('<span class="empty-path">/srv/&lt;gone&gt;</span> does not exist on this computer'), gone);
+  assert.ok(gone.indexOf("data-choose-folder") < gone.indexOf("data-scan-again"), gone);
   // A command that failed in this window found nothing either.
   assert.match(
     await emptyState({}, (workspace) => workspace.showError("Arbor is closing")),

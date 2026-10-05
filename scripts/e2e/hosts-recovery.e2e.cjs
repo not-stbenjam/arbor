@@ -16,10 +16,15 @@ scenario({ name: "host errors stop and independent local scan", timeout: 28,
       await open(t, "settings-dialog");
       await t.fill("#scan-root", "~/other");
       assert.equal(await t.enabled("#settings-save"), false);
-      assert.match(await t.text("#settings-progress"), /Stop its scan/);
+      // The window's own Stop is behind Settings, so Settings has one, and
+      // what was typed is still there once the scan has stopped.
+      assert.match(await t.text("#settings-progress"), /slow is still scanning\. What you change here is kept/);
+      await t.click("#settings-stop");
+      await t.until(() => t.enabled("#settings-save"), "Save & scan once the scan has stopped");
+      assert.equal(await t.visible("#settings-progress"), false);
+      assert.equal(await t.value("#scan-root"), "~/other");
       await t.press("Escape");
       assert.equal(saved(t).hosts.find((h) => h.host === "slow").root, "~/projects");
-      await t.click('[data-stop-host="slow"]');
       // settled() cannot represent a stopped scan: its persistent progress row is intentional.
       await t.until(async () => !(await t.state()).hosts.some((h) => h.busy), "all host operations settle");
       await t.until(async () => /Scan stopped/.test(await t.text('[data-progress-host="slow"]')), "stopped explanation");

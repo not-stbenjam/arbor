@@ -356,6 +356,22 @@ export function createWorktreeView({
     // A scan that failed found nothing; it did not find that there is nothing.
     // The reason is repeated here because the banner above can be dismissed.
     const failure = workspace.snapshot.error || workspace.error;
+    // The one failure with an obvious way out: the folder to scan on this
+    // computer has gone, and another can be chosen.
+    const failed = (workspace.snapshot.hosts || []).filter((source) => source.error);
+    const gone =
+      failed.length === 1 &&
+      !failed[0].host &&
+      /^folder does not exist: (.+)$/.exec(failed[0].error);
+    if (gone)
+      return message(
+        "folder",
+        false,
+        "The folder to scan is not there",
+        `<span class="empty-path">${esc(gone[1])}</span> does not exist on this computer. Choose another folder, or scan again once it is back.`,
+        action("data-choose-folder", "Choose another folder…") +
+          action("data-scan-again", "Scan again"),
+      );
     if (failure)
       return message(
         "warning",

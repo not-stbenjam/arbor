@@ -860,6 +860,10 @@ td {
   background: var(--subtle);
   border: 1px solid var(--line);
 }
+.empty-path {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
 .empty-actions {
   display: flex;
   justify-content: center;
@@ -1530,6 +1534,19 @@ body:has(#selection-bar:not([hidden])) .toast-region {
   color: var(--secondary);
   font-size: 11px;
   line-height: 1.7;
+}
+.settings-progress:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-progress > span {
+  flex: 1;
+  min-width: 0;
+}
+.settings-progress > .button {
+  flex: none;
+  min-height: 26px;
 }
 /* Section headings inside a dialog: small, quiet, and the same everywhere. */
 .settings-group {

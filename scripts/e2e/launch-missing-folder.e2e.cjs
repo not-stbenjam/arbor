@@ -14,6 +14,10 @@ scenario({ name: "launch vanished folder and recovery", timeout: 20,
     await t.until(() => t.visible("#error-banner"), "missing saved folder error");
     assert.match(await t.text("#error-message"), /folder does not exist: .*vanishing/is);
     assert.ok(t.fixture.exists(t.world.tree));
+    // The list says the same and offers the way out, with or without the banner.
+    assert.match(await t.text("#empty-state"), /The folder to scan is not there\s+.*vanishing does not exist on this computer/s);
+    assert.deepEqual(await t.texts("#empty-state button"), ["Choose another folder…", "Scan again"]);
+    assert.match(await t.text("#status-message"), /this computer not scanned/);
     await t.click("#dismiss-error");
     assert.equal(await t.visible("#error-banner"), false);
     await t.click("#settings-button");

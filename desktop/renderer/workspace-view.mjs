@@ -71,9 +71,16 @@ export function createWorkspaceView({
       repos = new Set(list.map(repoID)),
       activeHosts = state.hosts.filter((source) => source.busy).length;
     // Totals from the hosts that answered are not totals for all of them.
-    const unavailable = state.hosts.filter(
-      (source) => source.error && !source.busy,
-    ).length;
+    const failed = state.hosts.filter((source) => source.error && !source.busy),
+      away = failed.filter((source) => source.host).length;
+    // This computer is never a host that is unavailable: its folder was not
+    // scanned, and the list says why.
+    const unavailable = [
+      away ? `${plural(away, "host")} unavailable` : "",
+      failed.length > away ? "this computer not scanned" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     const detail = activeHosts
       ? `${activeHosts === 1 ? "scan" : `${activeHosts} scans`} in progress`
       : `${repos.size} ${repos.size === 1 ? "repository" : "repositories"}`;
@@ -81,7 +88,7 @@ export function createWorkspaceView({
       ? "Choose a folder to scan to get started"
       : workspace.removing
         ? "Deleting worktrees…"
-        : `${plural(list.length, "worktree")} · ${detail}${state.hostFilter === null && unavailable ? ` · ${plural(unavailable, "host")} unavailable` : ""}`;
+        : `${plural(list.length, "worktree")} · ${detail}${state.hostFilter === null && unavailable ? ` · ${unavailable}` : ""}`;
   }
   let progressMarkup = "",
     progressSummary = "";

@@ -57,6 +57,7 @@ async function bootstrap() {
     defaults,
     notify,
     onScan: (options) => workspace.scan(options),
+    onStopScan: (host) => workspace.cancel(host),
     onHostChange: (host) => workspace.setHostFilter(host),
     onSetup: () => setup.open(),
     onReset: () => workspace.reset(),
@@ -186,12 +187,42 @@ async function bootstrap() {
       if (!button.disabled) $(`#${button.dataset.close}`).close();
     });
   });
+  // The menu bar offers what the window's own buttons do, and is told when
+  // they cannot be used: during setup, behind a dialog, while deleting.
+  const usable = (selector) =>
+    !document.querySelector("dialog[open]") &&
+    !workspace.resetting &&
+    !workspace.snapshot.setupRequired &&
+    !$(selector).disabled;
+  let menuState = "";
+  function syncMenu() {
+    const commands = {
+      refresh: usable("#refresh-button"),
+      "add-host": usable("#add-host"),
+      statistics: usable("#statistics-button"),
+      settings: usable("#settings-button"),
+      "focus-search": usable("#search"),
+    };
+    const next = JSON.stringify(commands);
+    if (next === menuState) return;
+    menuState = next;
+    api.setMenuAvailability?.(commands)?.catch?.(() => {});
+  }
+  new MutationObserver(syncMenu).observe(document.body, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["open", "disabled"],
+  });
+  syncMenu();
   function menu(action) {
     if (workspace.resetting) return;
     if (workspace.snapshot.setupRequired) {
       setup.open();
       return;
     }
+    // A shortcut can arrive before the menu has heard that a dialog opened.
+    if (typeof action === "string" && document.querySelector("dialog[open]"))
+      return;
     if (action && typeof action === "object") {
       if (action.type === "worktree-remove") {
         const row = workspace.items.find((row) => row.id === action.id);

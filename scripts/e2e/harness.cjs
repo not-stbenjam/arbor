@@ -456,7 +456,9 @@ function driver({ window, directory, native, index }) {
           const current = await state();
           if (current.busy || current.setupRequired) return false;
           if ((current.hosts || []).some((host) => host.scanning || host.busy)) return false;
-          return (await js("!document.querySelector('#scan-progress:not([hidden])')")) && current;
+          // The window hears of it a moment later; its own Refresh being
+          // ready again says that it has.
+          return (await js("!document.querySelector('#scan-progress:not([hidden])') && !document.querySelector('#refresh-button').disabled")) && current;
         },
         "the application to finish what it is doing",
         timeout,
@@ -537,6 +539,8 @@ function driver({ window, directory, native, index }) {
       await painted();
     },
     // Chooses from the application menu by labels: t.menu("File", "Refresh Worktrees").
+    // The window tells the menu which commands can be used a moment after
+    // that changes, so one that is disabled is given that moment first.
     async menu(...labels) {
       let items = Menu.getApplicationMenu().items, item;
       for (const label of labels) {
@@ -544,7 +548,7 @@ function driver({ window, directory, native, index }) {
         assert.ok(item, `no "${label}" in ${items.map((entry) => entry.label).join(", ")}`);
         items = item.submenu?.items || [];
       }
-      assert.ok(item.enabled, `"${labels.join(" > ")}" is disabled`);
+      await until(() => item.enabled, `"${labels.join(" > ")}" to be enabled`, 3000);
       item.click(item, window, {});
       await painted();
     },
@@ -570,6 +574,9 @@ function driver({ window, directory, native, index }) {
       const folder = process.env.ARBOR_E2E_ARTIFACTS || path.join(directory, "pictures");
       fs.mkdirSync(folder, { recursive: true });
       const file = path.join(folder, `${name}.png`);
+      // What the page has just changed is not in the picture until drawn.
+      await painted();
+      await painted();
       fs.writeFileSync(file, (await capture(window)).toPNG());
       return file;
     },

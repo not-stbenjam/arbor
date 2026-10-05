@@ -1,9 +1,37 @@
 "use strict";
 
-const { DEFAULTS } = require("./protocol.cjs");
+const fsp = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { DEFAULTS, scanOptions } = require("./protocol.cjs");
 const {
   removalConfirmationOptions,
 } = require("./removal-confirmation.cjs");
+
+// A folder on this computer can be looked at before it is saved as the one
+// to scan, so a mistyped one is corrected where it was typed. A folder on a
+// host is only found out by scanning there.
+async function assertLocalFolder(value, stat) {
+  const { host, root } = scanOptions(value);
+  if (host) return;
+  const home = os.homedir();
+  const folder =
+    !root || root === "~"
+      ? home
+      : root.startsWith("~/")
+        ? path.join(home, root.slice(2))
+        : root;
+  let found;
+  try {
+    found = await stat(folder);
+  } catch (error) {
+    // Anything else, such as no permission, is the scan's to report.
+    if (error.code !== "ENOENT" && error.code !== "ENOTDIR") return;
+    throw new Error(`That folder does not exist: ${root || folder}`);
+  }
+  if (!found.isDirectory())
+    throw new Error(`That is a file, not a folder: ${root}`);
+}
 
 function registerDesktopIPC({
   app,
@@ -14,6 +42,8 @@ function registerDesktopIPC({
   getWindow,
   rendererURL,
   showWorktreeMenu,
+  setMenuAvailability = () => true,
+  stat = fsp.stat,
 }) {
   let removalConfirmation;
   const guardInteraction = () => backend.assertInteractive();
@@ -46,12 +76,17 @@ function registerDesktopIPC({
       guardInteraction();
       return backend.cancelScan(host);
     });
-    handle("arbor:scan", (options) => {
+    handle("arbor:menu-availability", (commands) =>
+      setMenuAvailability(commands),
+    );
+    handle("arbor:scan", async (options) => {
+      await assertLocalFolder(options, stat);
       return backend.configureWorkspace(options, (scan) =>
         preferences.saveScan(scan, { theme: options?.theme }),
       );
     });
     handle("arbor:complete-setup", async (value) => {
+      await assertLocalFolder(value, stat);
       return backend.completeSetup(value, (options) =>
         preferences.saveScan(options, {
           setupCompleted: true,

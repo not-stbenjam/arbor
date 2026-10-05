@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { registerDesktopIPC } = require("./desktop-ipc.cjs");
 
-function adapter({ backend = {}, preferences = {}, dialog = {}, app = {} } = {}) {
+function adapter({ backend = {}, preferences = {}, dialog = {}, app = {}, ...rest } = {}) {
   const handlers = new Map();
   const rendererURL = "file:///arbor/renderer/index.html";
   const window = { webContents: { mainFrame: { url: rendererURL } } };
@@ -21,6 +21,7 @@ function adapter({ backend = {}, preferences = {}, dialog = {}, app = {} } = {})
     getWindow: () => window,
     rendererURL,
     showWorktreeMenu: () => true,
+    ...rest,
   });
   return {
     call: (name, ...args) => handlers.get(`arbor:${name}`)(event, ...args),
@@ -57,6 +58,7 @@ test("the renderer bridge exposes only channels the interface uses", () => {
       "arbor:get-preferences",
       "arbor:get-state",
       "arbor:get-stats",
+      "arbor:menu-availability",
       "arbor:refresh-hosts",
       "arbor:remove",
       "arbor:reset-preferences",
@@ -298,4 +300,61 @@ test("failed preference saves never change configured hosts, and untrusted host 
       () => handlers.get(`arbor:${name}`)({ ...event, sender: {} }, null),
       /Unrecognized application window/,
     );
+});
+
+test("a folder on this computer that is not there is refused before it is saved", async () => {
+  const scans = [], saved = [];
+  const missing = Object.assign(new Error("no such file"), { code: "ENOENT" });
+  const disk = {
+    "/work/code": { isDirectory: () => true },
+    "/work/notes.txt": { isDirectory: () => false },
+  };
+  const { call } = adapter({
+    backend: {
+      configureWorkspace: async (options) => (scans.push(options.root), {}),
+      completeSetup: async (options) => (scans.push(options.root), {}),
+    },
+    preferences: { saveScan: async (scan) => saved.push(scan) },
+    stat: async (folder) => {
+      if (folder === "/locked") throw Object.assign(new Error("denied"), { code: "EACCES" });
+      if (!disk[folder]) throw missing;
+      return disk[folder];
+    },
+  });
+  for (const channel of ["scan", "complete-setup"]) {
+    await assert.rejects(
+      call(channel, { root: "/work/typo" }),
+      /That folder does not exist: \/work\/typo/,
+    );
+    await assert.rejects(
+      call(channel, { root: "/work/notes.txt" }),
+      /That is a file, not a folder/,
+    );
+  }
+  assert.deepEqual(scans, [], "nothing was scanned or saved for a folder that is not there");
+  assert.deepEqual(saved, []);
+  // One that is there goes on, and so does one only the scan can judge: a
+  // folder on a host, and one this process may not look at.
+  await call("scan", { root: "/work/code" });
+  await call("scan", { root: "/anywhere", host: "build-box" });
+  await call("scan", { root: "/locked" });
+  await call("complete-setup", { root: "/work/code" });
+  assert.deepEqual(scans, ["/work/code", "/anywhere", "/locked", "/work/code"]);
+});
+
+test("the window says which menu commands can be used", () => {
+  const { setMenuAvailability } = require("./application-menu.cjs");
+  const items = Object.fromEntries(
+    ["refresh", "add-host", "statistics", "settings", "focus-search", "quit"].map((id) => [id, { enabled: true }]),
+  );
+  const Menu = { getApplicationMenu: () => ({ getMenuItemById: (id) => items[id] }) };
+  const { call } = adapter({ setMenuAvailability: (value) => setMenuAvailability(Menu, value) });
+  assert.equal(call("menu-availability", { refresh: false, settings: true, quit: false }), true);
+  // Only Arbor's own commands are touched, and only `true` enables one.
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(items).map(([id, item]) => [id, item.enabled])),
+    { refresh: false, "add-host": false, statistics: false, settings: true, "focus-search": false, quit: true },
+  );
+  assert.throws(() => call("menu-availability", null), /Invalid menu state/);
+  assert.throws(() => call("menu-availability", ["refresh"]), /Invalid menu state/);
 });

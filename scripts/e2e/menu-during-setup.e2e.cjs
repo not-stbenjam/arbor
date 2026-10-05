@@ -1,6 +1,6 @@
 "use strict";
-const { scenario, assert } = require("../harness.cjs");
-const { open, noScan } = require("../setup-helpers.cjs");
+const { scenario, assert } = require("./harness.cjs");
+const { open, noScan } = require("./setup-helpers.cjs");
 scenario({ name: "menu refresh disabled before setup consent", timeout: 15,
   launches: [async (t) => {
     await open(t, "setup-dialog");

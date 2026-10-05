@@ -1,6 +1,6 @@
 "use strict";
-const { scenario, assert } = require("../harness.cjs");
-const { open, saved } = require("../setup-helpers.cjs");
+const { scenario, assert } = require("./harness.cjs");
+const { open, saved } = require("./setup-helpers.cjs");
 scenario({ name: "settings missing folder keeps editable error", timeout: 20,
   setup(f) { f.preferences(); }, launches: [async (t) => {
     await t.settled();

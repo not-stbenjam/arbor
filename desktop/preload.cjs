@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld(
     resetPreferences: () => ipcRenderer.invoke("arbor:reset-preferences"),
     showWorktreeMenu: (selection) =>
       ipcRenderer.invoke("arbor:worktree-menu", selection),
+    setMenuAvailability: (commands) =>
+      ipcRenderer.invoke("arbor:menu-availability", commands),
     onMenuAction: (callback) => {
       if (typeof callback !== "function")
         throw new TypeError("Menu callback must be a function");

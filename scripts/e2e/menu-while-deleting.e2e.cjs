@@ -1,6 +1,6 @@
 "use strict";
-const { scenario, assert } = require("../harness.cjs");
-const { open, machine } = require("../setup-helpers.cjs");
+const { scenario, assert } = require("./harness.cjs");
+const { open, machine } = require("./setup-helpers.cjs");
 scenario({ name: "menu refresh disabled during real deletion", timeout: 20,
   setup(f) {
     const h = f.host("menubox");

@@ -8,7 +8,9 @@ scenario({ name: "application menu commands and shortcuts", timeout: 20,
     await t.menu("File", "Settings…");
     await open(t, "settings-dialog");
     await t.fill("#scan-root", t.fixture.path("draft"));
-    await t.menu("File", "Settings…");
+    // Behind an open dialog the menu's own commands are off, so choosing
+    // Settings again cannot start over what is being typed.
+    await t.until(() => !t.menuItems().find((item) => item.path.join("/") === "File/Settings…").enabled, "Settings… disabled behind its own dialog");
     assert.equal(await t.value("#scan-root"), t.fixture.path("draft"));
     await t.press("Escape");
     await closed(t, "settings-dialog");

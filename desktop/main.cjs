@@ -20,7 +20,10 @@ const { execute, childEnvironment } = require("./process-runner.cjs");
 const { WorkspaceCoordinator } = require("./workspace-coordinator.cjs");
 const { scanOptions } = require("./protocol.cjs");
 const { PreferencesStore } = require("./preferences-store.cjs");
-const { installApplicationMenu } = require("./application-menu.cjs");
+const {
+  installApplicationMenu,
+  setMenuAvailability,
+} = require("./application-menu.cjs");
 const { createWorktreeContextMenu } = require("./context-menu.cjs");
 const { registerDesktopIPC } = require("./desktop-ipc.cjs");
 
@@ -188,6 +191,7 @@ app
       getWindow: () => window,
       rendererURL,
       showWorktreeMenu,
+      setMenuAvailability: (commands) => setMenuAvailability(Menu, commands),
     });
     installApplicationMenu({ app, Menu, shell, sendAction });
     createWindow();

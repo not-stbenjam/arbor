@@ -14,6 +14,7 @@ export function createPreferencesController({
   defaults,
   notify,
   onScan,
+  onStopScan = () => {},
   onHostChange,
   onSetup,
   onReset,
@@ -157,10 +158,22 @@ export function createPreferencesController({
           ? "Starting scan…"
           : "Save & scan";
     $('#host-form button[type="submit"]').disabled = context.blocked;
-    $("#settings-progress").hidden = !editingState?.busy;
-    $("#settings-progress").textContent = editingState?.busy
-      ? `${hostName(editingHost)} is scanning in the background. Stop its scan in the main window to apply new scan options.`
+    // Settings covers the window's own Stop, and closing it to reach that
+    // would throw away what was being changed here. So it has one.
+    const scanning = !!editingState?.busy,
+      stopping = !!editingState?.cancelRequested,
+      stop = $("#settings-stop"),
+      held = document.activeElement === stop;
+    $("#settings-progress").hidden = !scanning;
+    $("#settings-progress-text").textContent = scanning
+      ? `${hostName(editingHost)} is still scanning. What you change here is kept: save when the scan finishes, or stop it now.`
       : "";
+    stop.hidden = !scanning || !(editingState.canCancelScan || stopping);
+    // Pressing it again while it stops does nothing; disabling it would
+    // drop the keyboard that is on it.
+    stop.textContent = stopping ? "Stopping…" : "Stop scan";
+    // Once it has stopped, the next thing to do is save.
+    if (held && stop.hidden) $("#settings-save").focus();
   }
   // What Settings shows for a host before anything is edited.
   function savedForm(host) {
@@ -305,6 +318,7 @@ export function createPreferencesController({
       );
     }
   };
+  $("#settings-stop").onclick = () => onStopScan(editingHost);
   $("#reset-preferences").onclick = () => {
     if (!$("#reset-preferences").disabled) onReset();
   };
