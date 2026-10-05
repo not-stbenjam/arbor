@@ -122,8 +122,9 @@ func unfinished(markers []string) bool {
 
 // inspectActivity combines operation markers and Git metadata timestamps with
 // the file walk, which also identifies nested repositories and local byte
-// size. It returns where this worktree's operation markers would be.
-func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), submodules []string) (markers []string) {
+// size. It returns where this worktree's operation markers would be, and
+// where Git keeps the repositories of its submodules.
+func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), submodules []string) (markers []string, modules string) {
 	names := append(slices.Clone(operationMarkers), "HEAD", "index", "logs/HEAD", "modules")
 	metadata, err := gitPaths(ctx, w.Path, names)
 	if err != nil || len(metadata) != len(names) {
@@ -132,16 +133,13 @@ func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), s
 			w.Problems = append(w.Problems, err.Error())
 		}
 		measure(ctx, w, block, submodules)
-		return nil
+		return nil, ""
 	}
-	markers = metadata[:len(operationMarkers)]
+	markers, modules = metadata[:len(operationMarkers)], metadata[len(names)-1]
 	if unfinished(markers) {
 		block(reasonOperation)
 	}
-	// Git keeps the repositories of this worktree's submodules here, and
-	// refuses an unforced removal while the folder exists, whether or not
-	// any of them is still checked out.
-	if st, err := os.Stat(metadata[len(names)-1]); err == nil && st.IsDir() {
+	if holdsSubmodules(modules) {
 		block(reasonSubmodules)
 	}
 	measure(ctx, w, block, submodules)
@@ -150,7 +148,41 @@ func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), s
 			w.ActivityAt = st.ModTime()
 		}
 	}
-	return markers
+	return markers, modules
+}
+
+// holdsSubmodules reports whether Git is keeping submodule repositories for a
+// worktree. Git refuses an unforced removal while this folder exists, whether
+// or not any submodule is still checked out, and a forced one deletes it
+// along with any commits in it that were never pushed.
+func holdsSubmodules(modules string) bool {
+	st, err := os.Stat(modules)
+	return modules != "" && err == nil && st.IsDir()
+}
+
+// adminDirectory finds where a repository keeps a linked worktree's own
+// metadata. It does not need the worktree's folder to exist: each such
+// directory records the folder it belongs to.
+func adminDirectory(common, path string) string {
+	entries, err := os.ReadDir(filepath.Join(common, "worktrees"))
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		directory := filepath.Join(common, "worktrees", entry.Name())
+		data, err := os.ReadFile(filepath.Join(directory, "gitdir"))
+		if err != nil {
+			continue
+		}
+		pointer := strings.TrimRight(string(data), "\r\n")
+		if !filepath.IsAbs(pointer) {
+			pointer = filepath.Join(directory, pointer)
+		}
+		if filepath.Clean(pointer) == filepath.Join(path, ".git") {
+			return directory
+		}
+	}
+	return ""
 }
 
 // vacant reports whether a folder is absent or empty.

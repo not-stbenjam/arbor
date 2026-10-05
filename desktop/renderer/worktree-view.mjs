@@ -393,10 +393,15 @@ export function createWorktreeView({
       .forEach((box) =>
         tick(box, folderRows.get(box.dataset.selectFolder) || []),
       );
+    const all = $("#select-all"),
+      held = document.activeElement === all;
     tick(
-      $("#select-all"),
+      all,
       visible.map((row) => row.id),
     );
+    // The heading's box goes when the last row does. The keyboard does not
+    // go with it.
+    if (held && all.hidden) focusList();
     renderActiveRow();
   }
   // Ticking is always additive: a box never clears what is already ticked.

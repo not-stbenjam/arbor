@@ -20,6 +20,10 @@ type inspectionDetails struct {
 	// markers are the files and folders Git keeps while an operation such
 	// as a rebase or a cherry-pick is unfinished.
 	markers []string
+	// modules is where Git keeps the repositories of this worktree's
+	// submodules. It is part of the repository, not of the worktree's
+	// folder, and goes with the worktree all the same.
+	modules string
 }
 
 // inspectWithDefault assembles facts in explicit stages and evaluates removal
@@ -55,12 +59,23 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 	location := inspectLocation(ctx, w, block)
 	if location != inspectionCheckout {
 		verified = location == inspectionRegistration
+		if verified {
+			// The folder is gone or empty, but what Git kept for it is not.
+			// A submodule's repository there can hold commits that were
+			// never pushed, and removing the registration removes it.
+			if admin := adminDirectory(w.CommonDir, w.Path); admin != "" {
+				details.modules = filepath.Join(admin, "modules")
+				if holdsSubmodules(details.modules) {
+					block(reasonSubmodules)
+				}
+			}
+		}
 		return
 	}
 	inspectCommit(ctx, w)
 	inspectStatus(ctx, w, block)
 	details.submodules = inspectIndex(ctx, w, block)
-	details.markers = inspectActivity(ctx, w, block, details.submodules)
+	details.markers, details.modules = inspectActivity(ctx, w, block, details.submodules)
 	inspectPublication(ctx, w)
 	decided := inspectMerge(ctx, w, defaultCache, block)
 	if options.GitHub {

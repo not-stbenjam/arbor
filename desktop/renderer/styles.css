@@ -693,22 +693,6 @@ td {
 .row-check[hidden] {
   display: none;
 }
-/* At the smallest window and a high zoom there is room for a worktree's
-   name or for when it was last used and how big it is, not both. The name
-   is what tells one row from another. */
-@media (max-width: 620px) {
-  .directory-table .activity-column,
-  .directory-table .size-column {
-    width: 0;
-    padding: 0;
-    visibility: hidden;
-  }
-  .activity-cell,
-  .size-cell {
-    padding: 0;
-    visibility: hidden;
-  }
-}
 /* Focus stays on the grid while arrow keys move through it, so the ring
    belongs on the row the cursor is on rather than around the whole table. */
 #worktree-grid:focus-visible {
@@ -1957,5 +1941,24 @@ th.sorted > button > .icon {
   * {
     animation: none !important;
     transition: none !important;
+  }
+}
+/* At the smallest window and a high zoom there is room for a worktree's
+   name or for when it was last used and how big it is, not both. The name
+   is what tells one row from another. This comes last so that no other
+   width for these columns outranks it. */
+@media (max-width: 620px) {
+  .directory-table .activity-column,
+  .directory-table .size-column,
+  .directory-table .worktree-row .activity-cell,
+  .directory-table .worktree-row .size-cell {
+    width: 0;
+    padding: 0;
+    visibility: hidden;
+  }
+  .activity-cell,
+  .size-cell {
+    padding: 0;
+    visibility: hidden;
   }
 }

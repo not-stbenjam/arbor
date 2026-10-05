@@ -29,6 +29,20 @@ export function worktreeState(w) {
       detail: reasons.join("\n"),
     };
   }
+  // Commits or a repository that would be lost outrank everything else a
+  // row could say, a missing folder included: what Git kept for a worktree's
+  // submodules outlives the folder and still goes with the registration.
+  const grave = ["nested", "submodules", "operation"].find((name) =>
+    graveLosses(w).includes(name),
+  );
+  if (grave)
+    return {
+      tone: "caution",
+      label: LOSSES[grave].brief.replace(/^./, (c) => c.toUpperCase()),
+      detail: `Deleting this worktree discards ${lossesOf(w)
+        .map((name) => LOSSES[name].text)
+        .join("; ")}.`,
+    };
   if (w.missing)
     return {
       tone: "muted",
@@ -42,19 +56,6 @@ export function worktreeState(w) {
       label: "Empty folder",
       detail:
         "The folder is empty. Deleting removes it and its leftover Git registration.",
-    };
-  // Commits or a repository that would be lost outrank files that would be:
-  // the row names the gravest thing it holds, and its tooltip all of them.
-  const grave = ["nested", "submodules", "operation"].find((name) =>
-    graveLosses(w).includes(name),
-  );
-  if (grave)
-    return {
-      tone: "caution",
-      label: LOSSES[grave].brief.replace(/^./, (c) => c.toUpperCase()),
-      detail: `Deleting this worktree discards ${lossesOf(w)
-        .map((name) => LOSSES[name].text)
-        .join("; ")}.`,
     };
   if (w.dirty)
     return {
@@ -284,7 +285,9 @@ export function renderTreeRows(
       const branch = branchName(w);
       // A row that is not a clean delete says so on the button that would
       // delete it, before the confirmation does.
-      const lost = w.pending || w.missing ? [] : lossesOf(w);
+      // (A missing folder has no files to lose; what Git kept for its
+      // submodules it still can.)
+      const lost = w.pending ? [] : w.missing ? graveLosses(w) : lossesOf(w);
       const deleteTitle = lost.length
         ? ` title="Not a clean delete. It would discard ${esc(lost.map((name) => LOSSES[name].text).join("; "))}. Asks first."`
         : "";

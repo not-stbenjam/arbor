@@ -2182,6 +2182,9 @@ test("a row and a selection say when deleting is not a clean delete, before the 
     rows.map((worktree) => ({ kind: "worktree", depth: 0, label: worktree.id, worktree })),
     { selected: new Set(), collapsed: new Set(), disabled: false, canDelete: () => true },
   );
+  const { worktreeState: worktreeStateOf } = await import(
+    "../renderer/worktree-presentation.mjs"
+  );
   // A folder has no row for the keyboard to stand on, so its box is a tab
   // stop; a worktree's is reached with Space from its row.
   const folders = renderTreeRows(
@@ -2205,6 +2208,27 @@ test("a row and a selection say when deleting is not a clean delete, before the 
   );
   // Its row names the reason in the colour used for something to lose.
   assert.match(markup, /<span class="worktree-state" data-tone="caution" title="Deleting this worktree discards submodule checkouts[^"]*">Submodules<\/span>/);
+  // What Git kept for a missing worktree's submodules outranks its being
+  // missing, and its Delete button says so too.
+  const gone = row("gone", {
+    canRemove: false,
+    missing: true,
+    losses: ["submodules"],
+  });
+  assert.equal(worktreeStateOf(gone).label, "Submodules");
+  assert.match(
+    renderTreeRows([{ kind: "worktree", depth: 0, label: "gone", worktree: gone }], {
+      selected: new Set(),
+      collapsed: new Set(),
+      disabled: false,
+      canDelete: () => true,
+    }),
+    /data-delete="gone" aria-label="Delete \/local\/team\/gone, which is not a clean delete" title="Not a clean delete\./,
+  );
+  assert.equal(
+    worktreeStateOf(row("absent", { canRemove: false, missing: true })).label,
+    "Folder missing",
+  );
   // A repository that would be lost outranks files that would be.
   const { worktreeState } = await import(
     "../renderer/worktree-presentation.mjs"

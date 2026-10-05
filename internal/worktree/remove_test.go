@@ -383,9 +383,74 @@ func TestSurveyCountsFilesAndFindsRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	testGit(t, root, "init", "--bare", filepath.Join(root, "src", "store"))
-	if _, nested, err := survey(context.Background(), root, known); err != nil || !nested {
-		t.Fatalf("a repository without a checkout was not found: nested=%v, %v", nested, err)
+	if files, nested, err := survey(context.Background(), root, known); err != nil || !nested || files != countFiles(root, nil) {
+		t.Fatalf("a repository without a checkout: %d files (%d by count), nested=%v, %v", files, countFiles(root, nil), nested, err)
 	}
+}
+
+// Git keeps the repositories of a worktree's submodules beside the
+// worktree's other metadata, outside its folder. Commits made in one and
+// never pushed exist nowhere else, and go when the worktree does, whether its
+// folder is still there or not. That is a loss to be named like any other.
+func TestSubmoduleStorageIsALossEvenWithoutTheFolder(t *testing.T) {
+	local := []string{"-c", "protocol.file.allow=always"}
+	fixture := func(t *testing.T) (root, repo, wt, storage string) {
+		root = t.TempDir()
+		library := testRepo(t, filepath.Join(root, "library"))
+		repo = testRepo(t, filepath.Join(root, "repo"))
+		testGit(t, repo, append(local, "submodule", "add", library, "vendor/library")...)
+		testGit(t, repo, "commit", "-m", "Add the library")
+		wt = testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+		storage = testGit(t, wt, "rev-parse", "--path-format=absolute", "--git-path", "modules")
+		return root, repo, wt, storage
+	}
+	t.Run("the folder is gone but a submodule's repository was left behind", func(t *testing.T) {
+		root, repo, wt, storage := fixture(t)
+		testGit(t, wt, append(local, "submodule", "update", "--init")...)
+		if err := os.RemoveAll(wt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(storage); err != nil {
+			t.Fatalf("fixture: no submodule storage at %s: %v", storage, err)
+		}
+		w := testTree(t, testScan(t, root), wt)
+		if !w.Missing || w.CanRemove || !w.CanDiscard || !slices.Equal(w.Losses, []string{"submodules"}) {
+			t.Fatalf("a missing worktree with submodule storage: %+v", w)
+		}
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err == nil || !strings.Contains(err.Error(), "submodule checkouts") {
+			t.Fatalf("a submodule's repository went with the registration unnamed: %v", err)
+		}
+		if _, err := os.Stat(storage); err != nil {
+			t.Fatal("the submodule storage was deleted")
+		}
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: []string{"submodules"}}); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(testGit(t, repo, "worktree", "list", "--porcelain"), wt) {
+			t.Fatal("the registration was not removed")
+		}
+	})
+	t.Run("a submodule's repository appears after the worktree was inspected", func(t *testing.T) {
+		root, _, wt, storage := fixture(t)
+		testWrite(t, filepath.Join(wt, "scratch.txt"), "disposable\n")
+		w := testTree(t, testScan(t, root), wt)
+		if !slices.Equal(w.Losses, []string{"changes"}) {
+			t.Fatalf("fixture must hold only local files: %+v", w)
+		}
+		// After the fresh inspection, and before the last look.
+		t.Setenv("ARBOR_TEST_STORAGE", storage)
+		marker := testChangeAtGitCall(t, wt, "refs/heads/topic", 1, `"$ARBOR_TEST_GIT" init --quiet --bare "$ARBOR_TEST_STORAGE/library"`)
+		_, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: []string{"nested", "operation"}})
+		if _, statErr := os.Stat(marker); statErr != nil {
+			t.Fatalf("fixture never created the storage: %v (removal: %v)", statErr, err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "submodule checkouts") {
+			t.Fatalf("a submodule's repository nobody was shown went with the folder: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(storage, "library", "HEAD")); err != nil {
+			t.Fatalf("the submodule storage was deleted: %v", err)
+		}
+	})
 }
 
 // What was agreed to is what was shown. Something graver than files that

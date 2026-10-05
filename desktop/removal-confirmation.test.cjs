@@ -368,3 +368,36 @@ test("deleting several worktrees says the folders that hold them are kept", () =
     /a folder that holds them/,
   );
 });
+
+test("a missing worktree that still has submodule storage is not a clean removal", () => {
+  const gone = {
+    path: "/work/gone",
+    missing: true,
+    canRemove: false,
+    canDiscard: true,
+    // An earlier look at the folder is no guide now that it is gone; what
+    // Git kept for its submodules still is.
+    dirty: true,
+    losses: ["submodules"],
+  };
+  const options = removalConfirmationOptions([gone], true);
+  assert.equal(options.title, "Not a clean delete");
+  assert.equal(
+    options.message,
+    "“gone” is not clean. Discard its work and delete it?",
+  );
+  assert.deepEqual(options.detail.split("\n\n")[0].split("\n"), [
+    "It holds local work that deleting would destroy. It permanently discards:",
+    "• submodule checkouts, and any commits made inside them that were never pushed",
+    // No folder, so nothing else in it; and it does not promise that every
+    // commit is kept when some would not be.
+    "Only Git worktree registrations will be removed; their folders are already missing. The branches and commits of the repository they belong to are kept.",
+  ]);
+  assert.match(options.detail, /\/work\/gone — submodules$/);
+  assert.equal(options.buttons[1], "Discard & Delete");
+  // Without that storage it is the plain removal of a registration.
+  const plain = removalConfirmationOptions([{ ...gone, losses: [] }], true);
+  assert.equal(plain.title, "Remove missing worktree registration?");
+  assert.equal(plain.buttons[1], "Remove Registration");
+  assert.doesNotMatch(plain.detail, /•|would destroy/);
+});

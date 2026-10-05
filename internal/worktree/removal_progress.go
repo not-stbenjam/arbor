@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,9 @@ var (
 // repository is inside that the inspection did not account for as one of the
 // worktree's own submodules.
 func survey(ctx context.Context, root string, submodules []string) (files int, nested bool, err error) {
+	// A repository without a checkout, once found, is counted and not asked
+	// about again for every HEAD its own refs and logs contain.
+	found := ""
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -43,7 +47,8 @@ func survey(ctx context.Context, root string, submodules []string) (files int, n
 		if !entry.IsDir() {
 			files++
 		}
-		if entry.Name() == "HEAD" && !entry.IsDir() && parent != root {
+		inside := found != "" && strings.HasPrefix(path, found+string(filepath.Separator))
+		if entry.Name() == "HEAD" && !entry.IsDir() && parent != root && !inside {
 			// A repository without a checkout has no ".git" to find.
 			entries, readErr := os.ReadDir(parent)
 			if readErr != nil {
@@ -54,8 +59,7 @@ func survey(ctx context.Context, root string, submodules []string) (files int, n
 				return probeErr
 			}
 			if kind != repositoryNone {
-				nested = true
-				return filepath.SkipDir
+				nested, found = true, parent
 			}
 		}
 		return nil

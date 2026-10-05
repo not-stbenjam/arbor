@@ -30,10 +30,13 @@ function removalConfirmationOptions(trees, discardLocal) {
     (row) => !row.empty && usesDiscardLocal(row, discardLocal),
   );
   const discardsFiles = discarding.length > 0;
+  // A registration whose folder is gone or empty has no files to lose, but
+  // what Git kept for its submodules goes with it all the same.
+  const forced = trees.filter((row) => usesDiscardLocal(row, discardLocal));
   // What the last scan found that this deletion would destroy, and in how
   // many of the worktrees. A worktree with any of it is not a clean delete,
   // and the dialog says so before it says anything else.
-  const unclean = discarding.filter((row) => lossesOf(row).length);
+  const unclean = forced.filter((row) => lossesOf(row).length);
   const lost = Object.keys(LOSSES)
     .map((name) => [
       name,
@@ -55,15 +58,21 @@ function removalConfirmationOptions(trees, discardLocal) {
         ([name, count]) =>
           `• ${LOSSES[name].text}${trees.length > 1 ? ` (${count} ${count === 1 ? "worktree" : "worktrees"})` : ""}`,
       ),
-      "Anything else in the folder that is not committed goes too, including files added since the last scan.",
     );
+    // Only a folder that is still there has anything else in it.
+    if (discardsFiles)
+      notes.push(
+        "Anything else in the folder that is not committed goes too, including files added since the last scan.",
+      );
   } else if (discardsFiles)
     notes.push(
       "Any local files, including uncommitted, untracked, and ignored files, will be permanently discarded.",
     );
   notes.push(
     registrationsOnly
-      ? "Only Git worktree registrations will be removed; their folders are already missing. Git branches and commits are kept."
+      ? unclean.length
+        ? "Only Git worktree registrations will be removed; their folders are already missing. The branches and commits of the repository they belong to are kept."
+        : "Only Git worktree registrations will be removed; their folders are already missing. Git branches and commits are kept."
       : unclean.some((row) => graveLosses(row).length)
         ? // Commits are among what is lost here, so say whose are kept.
           "Worktree folders are deleted permanently, not moved to Trash. The branches and commits of the repository they belong to are kept."
@@ -114,9 +123,10 @@ function removalConfirmationOptions(trees, discardLocal) {
   // decides which paths the preview shows first, so a selection's risky
   // members are never the ones hidden behind "and more".
   const risk = (row) =>
-    row.missing || row.empty || !usesDiscardLocal(row, discardLocal)
+    !usesDiscardLocal(row, discardLocal)
       ? ""
-      : briefly(row) || (row.locked ? "locked" : "");
+      : briefly(row) ||
+        (row.locked && !row.missing && !row.empty ? "locked" : "");
   // Worktrees that would lose commits or a repository come before those
   // that would lose files, and those before the rest.
   // (The list above the paths names every loss in full. Beside a path, the
@@ -159,10 +169,10 @@ function removalConfirmationOptions(trees, discardLocal) {
   // is not an ordinary delete.
   const count = (n) => (n === 2 ? "both" : `all ${n}`);
   return {
-    title: registrationsOnly
-      ? `Remove missing worktree registration${plural}?`
-      : unclean.length
-        ? "Not a clean delete"
+    title: unclean.length
+      ? "Not a clean delete"
+      : registrationsOnly
+        ? `Remove missing worktree registration${plural}?`
         : discardsFiles
           ? "Discard local files and delete?"
           : `Delete worktree${plural}?`,
@@ -178,11 +188,13 @@ function removalConfirmationOptions(trees, discardLocal) {
     detail: `${notes.join("\n")}\n\n${preview.join("\n")}`,
     buttons: [
       "Cancel",
-      registrationsOnly
-        ? `Remove Registration${plural}`
-        : discardsFiles
-          ? "Discard & Delete"
-          : `Delete Worktree${plural}`,
+      unclean.length
+        ? "Discard & Delete"
+        : registrationsOnly
+          ? `Remove Registration${plural}`
+          : discardsFiles
+            ? "Discard & Delete"
+            : `Delete Worktree${plural}`,
     ],
   };
 }

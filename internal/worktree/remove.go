@@ -166,8 +166,8 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	// This look also counts the files, for the progress reported below. It
 	// comes before the final checks so that nothing slow comes after them.
 	files := 0
+	var late []string
 	if !missing {
-		var late []string
 		var nested bool
 		files, nested, err = survey(ctx, current.Path, details.submodules)
 		if err != nil {
@@ -179,9 +179,14 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		if unfinished(details.markers) {
 			late = append(late, "operation")
 		}
-		if missing := unacknowledged(late, options.Acknowledged); missing != "" {
-			return fmt.Errorf("not deleted: it would also discard %s. Look at it again and confirm that", missing)
-		}
+	}
+	// What Git keeps for the worktree's submodules is outside the folder and
+	// goes with it, whether or not the folder is still there.
+	if holdsSubmodules(details.modules) {
+		late = append(late, "submodules")
+	}
+	if missing := unacknowledged(late, options.Acknowledged); missing != "" {
+		return fmt.Errorf("not deleted: it would also discard %s. Look at it again and confirm that", missing)
 	}
 	// Inspection reads every file and can query GitHub, long enough for the
 	// checkout to change. Confirm as the last step that this is still the folder
