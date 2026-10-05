@@ -18,6 +18,14 @@ export const rowElementID = (id) => `worktree-row-${id}`;
 
 // The one fact that most affects a cleanup decision, or nothing at all. A row
 // that needs no comment stays quiet; the confirmation still states every risk.
+// Why a worktree is one Arbor recommends deleting. Every one of them is
+// clean; what differs is the evidence that its commits are merged. Git's
+// full names for a branch are shortened to the names people use for it.
+export const recommendationReason = (w) =>
+  (w.mergeReason || "All of its commits are in the default branch").replace(
+    /\brefs\/(?:heads|remotes)\//g,
+    "",
+  );
 export function worktreeState(w) {
   if (w.pending) return null;
   if (!w.canRemove && !w.canDiscard) {
@@ -103,7 +111,7 @@ export function worktreeState(w) {
     return {
       tone: "safe",
       label: "Merged",
-      detail: `${w.mergeReason || "All of its commits are in the default branch"}. Clean, so Delete recommended includes it; its branch is kept.`,
+      detail: `${recommendationReason(w)}. Clean, so Delete recommended includes it; its branch is kept.`,
     };
   return null;
 }

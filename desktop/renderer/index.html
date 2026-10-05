@@ -628,6 +628,44 @@
       ></div>
       <div class="statistics-footer"></div>
     </dialog>
+    <dialog
+      id="cleanup-dialog"
+      class="cleanup-dialog"
+      aria-labelledby="cleanup-title"
+      aria-describedby="cleanup-lead"
+    >
+      <div class="dialog-header">
+        <h2 id="cleanup-title">Delete recommended worktrees?</h2>
+        <button
+          class="icon-button"
+          data-close="cleanup-dialog"
+          aria-label="Close without deleting"
+        >
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <p id="cleanup-lead" class="cleanup-lead">
+        Arbor recommends a worktree when it is clean, with nothing uncommitted,
+        untracked or ignored in it, and all of its commits are already merged.
+        Deleting these removes their folders. Their branches and commits are
+        kept.
+      </p>
+      <ul
+        id="cleanup-list"
+        class="cleanup-list"
+        tabindex="0"
+        aria-label="The worktrees that would be deleted, and why each is recommended"
+      ></ul>
+      <div class="dialog-footer cleanup-footer">
+        <span id="cleanup-total" class="cleanup-total"></span>
+        <button type="button" class="button" id="cleanup-cancel" autofocus>
+          Cancel
+        </button>
+        <button type="button" class="button button-danger" id="cleanup-confirm">
+          Delete
+        </button>
+      </div>
+    </dialog>
     <div class="toast-region" id="toast-region" aria-live="polite"></div>
     <div
       id="announcement"

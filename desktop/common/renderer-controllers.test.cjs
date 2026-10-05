@@ -1504,7 +1504,7 @@ test("polling continues after a snapshot that could not be drawn", async () => {
   fixture.workspace.dispose();
 });
 
-test("Delete recommended acts on, counts, and describes exactly what the list shows", async () => {
+test("Delete recommended counts and describes exactly what the list shows, and asks before deleting", async () => {
   const { createWorkspaceView } = await import(
     "../renderer/workspace-view.mjs"
   );
@@ -1528,60 +1528,37 @@ test("Delete recommended acts on, counts, and describes exactly what the list sh
   });
   const { document, element } = preferenceDocument();
   let shown = { filtered: all, filtering: false, selectedCount: 0 };
-  // Each timer is kept with its delay: the short one makes a confirming
-  // click its own decision, the long one withdraws the question.
-  let timers = [];
+  let reviews = 0;
   const view = createWorkspaceView({
     document,
     workspace: fixture.workspace,
     shown: () => shown,
-    timers: {
-      setTimeout: (run, delay) => timers.push({ run, delay }) && timers.at(-1),
-      clearTimeout: (timer) => (timers = timers.filter((t) => t !== timer)),
-    },
+    onCleanup: () => reviews++,
   });
-  const settle = () => timers.find((timer) => timer.delay < 1000).run();
-  const expire = () => timers.find((timer) => timer.delay >= 1000).run();
   const button = element("#cleanup-button");
-  // The button lays out all three labels and shows one.
+  // The button lays out both labels and shows one.
   const label = () =>
     button.innerHTML.match(/data-current="true"><svg.*?<\/svg><span>([^<]*)</)[1];
-  const status = () => element("#status-message").textContent;
   view.render();
-  assert.equal(label(), "Delete recommended (2)");
-  assert.match(button.title, /Delete the 2 worktrees recommended on/);
+  // The ellipsis says it asks first.
+  assert.equal(label(), "Delete recommended (2)…");
+  assert.match(button.title, /Delete the 2 worktrees recommended on this computer, about 3 KB/);
+  assert.match(button.title, /Shows each one, and why it is recommended, before deleting anything\.$/);
   // A search or repository filter narrows the action along with the list.
   shown = { ...shown, filtered: [all[1], all[2]], filtering: true };
   view.renderControls();
-  assert.equal(label(), "Delete recommended (1)");
+  assert.equal(label(), "Delete recommended (1)…");
   assert.match(
     button.title,
     /Delete the 1 worktree recommended shown in this view, about 2 KB/,
   );
-
-  // One click beside Refresh must never delete folders. The first click arms
-  // the button, which then says exactly what the second will do.
+  // The button sits beside Refresh. It deletes nothing: it opens the review
+  // of what would be deleted, and the status bar goes on counting the list.
   await button.onclick({ detail: 1 });
-  assert.deepEqual(removed, [], "the first click deletes nothing");
-  assert.equal(label(), "Confirm: delete 1 worktree");
-  assert.equal(button.classes.has("armed"), true);
-  assert.match(button.title, /Click again to delete 1 worktree shown/);
-  assert.match(status(), /^Click again to delete 1 worktree, about 2 KB\./);
-  // What confirming will do matters more than when the list was scanned.
-  assert.equal(element("#scan-time").hidden, true);
-  assert.match(
-    element("#announcement").textContent,
-    /^Ready to delete 1 worktree shown in this view, about 2 KB\. Activate the button again to confirm, or press Escape\.$/,
-  );
-  // The rest of a double-click is the same gesture, however fast or slow the
-  // system's double-click is: it is neither soon enough nor a new click.
-  await button.onclick({ detail: 2 });
-  assert.deepEqual(removed, [], "a double-click does not confirm itself");
-  settle();
-  await button.onclick({ detail: 2 });
-  assert.deepEqual(removed, [], "nor does a slow double-click");
-  assert.equal(button.classes.has("armed"), true);
-  // A held Enter repeats the activation; only a fresh press may confirm.
+  assert.equal(reviews, 1);
+  assert.deepEqual(removed, []);
+  assert.match(element("#status-message").textContent, /^3 worktrees · /);
+  // A held Enter repeats the press; the repeats must not open it again.
   const key = (event) => {
     let prevented = false;
     button.listeners.keydown({
@@ -1592,62 +1569,237 @@ test("Delete recommended acts on, counts, and describes exactly what the list sh
   };
   assert.equal(key({ key: "Enter", repeat: true }), true);
   assert.equal(key({ key: "Enter", repeat: false }), false);
-  await button.onclick({ detail: 1 });
-  assert.deepEqual(removed.at(-1).items, [{ id: "b", head: "b" }]);
-  assert.equal(removed.at(-1).recommendedOnly, true);
-  assert.equal(button.classes.has("armed"), false);
-
-  // Consent is for the rows it was given for. If the list changes under an
-  // armed button, the next click asks again instead of deleting the new set.
-  await button.onclick({ detail: 1 });
-  settle();
-  shown = { ...shown, filtered: all, filtering: false };
-  view.renderControls();
-  assert.equal(button.classes.has("armed"), false, "a new scope disarms");
-  await button.onclick({ detail: 1 });
-  assert.equal(removed.length, 1, "the changed scope was not deleted unasked");
-  assert.equal(label(), "Confirm: delete 2 worktrees");
-  // The same worktree at another commit is a different question too.
-  settle();
-  shown = { ...shown, filtered: [{ ...all[0], head: "moved" }, all[1], all[2]] };
-  view.renderControls();
-  assert.equal(button.classes.has("armed"), false, "a moved HEAD disarms");
-  await button.onclick({ detail: 1 });
-  assert.equal(removed.length, 1, "the moved worktree was not deleted unasked");
-  shown = { ...shown, filtered: all };
-  view.renderControls();
-  // Waiting too long, looking away, or Escape withdraws the question, and
-  // each is heard to end it, so asking again is heard as a new question.
-  const said = () => element("#announcement").textContent;
-  await button.onclick({ detail: 1 });
-  assert.match(said(), /^Ready to delete 2 worktrees/);
-  expire();
-  assert.equal(label(), "Delete recommended (2)");
-  assert.equal(said(), "Not confirmed in time. Nothing was deleted.");
-  assert.equal(element("#scan-time").hidden, false);
-  await button.onclick({ detail: 1 });
-  assert.match(said(), /^Ready to delete 2 worktrees/);
-  button.listeners.blur();
-  assert.equal(label(), "Delete recommended (2)");
-  assert.equal(said(), "Cancelled. Nothing was deleted.");
-  await button.onclick({ detail: 1 });
-  assert.match(said(), /^Ready to delete 2 worktrees/);
-  assert.equal(key({ key: "Escape" }), true);
-  assert.equal(label(), "Delete recommended (2)");
-  assert.equal(said(), "Cancelled. Nothing was deleted.");
-  assert.match(status(), /^3 worktrees · /);
-  await button.onclick({ detail: 1 });
-  settle();
-  await button.onclick({ detail: 1 });
-  assert.equal(removed.length, 2);
-  assert.deepEqual(
-    removed.at(-1).items.map((item) => item.id),
-    ["a", "b"],
-  );
-
+  // With nothing recommended in what is shown, there is nothing to review.
   shown = { filtered: [all[2]], filtering: true };
   view.renderControls();
   assert.equal(button.disabled, true);
+  assert.equal(label(), "Delete recommended…");
+  fixture.workspace.dispose();
+});
+
+test("the review lists what Delete recommended would delete and why, and deletes only what it showed", async () => {
+  const { createCleanupController } = await import(
+    "../renderer/cleanup-controller.mjs"
+  );
+  const row = (id, facts = {}) => ({
+    id,
+    path: `/local/trees/${id}`,
+    head: id,
+    branch: `topic/${id}`,
+    repo: "api",
+    canRemove: true,
+    recommended: true,
+    sizeBytes: 1024,
+    mergeReason: "All commits are in refs/remotes/origin/main",
+    ...facts,
+  });
+  const all = [
+    row("a"),
+    row("b", {
+      sizeBytes: 2048,
+      mergeReason: "GitHub PR #7 merged this exact commit into main",
+    }),
+    row("c", { recommended: false, mergeReason: "" }),
+  ];
+  const removed = [];
+  const fixture = await workspaceFixture({
+    getState: async () =>
+      coordinatorState({ report: { worktrees: all, warnings: [] } }),
+    remove: async (selection) => {
+      removed.push(selection);
+      return { cancelled: true, results: [] };
+    },
+  });
+  const { document, element } = preferenceDocument();
+  let shown = { filtered: all, filtering: false };
+  // The list is drawn once; afterwards its items are only marked.
+  const dialog = element("#cleanup-dialog"),
+    list = element("#cleanup-list");
+  const items = () =>
+    [...list.innerHTML.matchAll(/data-review="([^"]*)"/g)].map(([, id]) => {
+      marks[id] ||= new Set();
+      return {
+        dataset: { review: id },
+        classList: {
+          toggle: (name, on) =>
+            on ? marks[id].add(name) : marks[id].delete(name),
+        },
+      };
+    });
+  let marks = {};
+  list.querySelectorAll = items;
+  const review = createCleanupController({
+    document,
+    workspace: fixture.workspace,
+    shown: () => shown,
+  });
+  const text = (selector) => element(selector).textContent;
+  const names = () =>
+    [...list.innerHTML.matchAll(/class="cleanup-name"[^>]*>([^<]*)</g)].map(
+      ([, name]) => name,
+    );
+  const changed = () =>
+    Object.keys(marks).filter((id) => marks[id].has("changed"));
+
+  // Nothing is drawn, and nothing asked, until it is opened.
+  review.render();
+  assert.equal(dialog.open, false);
+  review.open();
+  assert.equal(dialog.open, true);
+  assert.deepEqual(removed, [], "opening the review deletes nothing");
+  // What: exactly the recommendations shown, by name, with where and how big.
+  assert.deepEqual(names(), ["a", "b"]);
+  assert.match(list.innerHTML, /title="\/local\/trees\/a"/);
+  assert.match(list.innerHTML, /class="cleanup-context">topic\/a · api</);
+  assert.match(list.innerHTML, /class="cleanup-size">2 KB</);
+  // Why: each one's own evidence, with Git's ref names in plain form.
+  assert.match(list.innerHTML, /class="cleanup-reason">All commits are in origin\/main</);
+  assert.match(
+    list.innerHTML,
+    /class="cleanup-reason">GitHub PR #7 merged this exact commit into main</,
+  );
+  assert.equal(text("#cleanup-title"), "Delete these 2 recommended worktrees?");
+  assert.equal(
+    text("#cleanup-total"),
+    "2 worktrees on this computer · about 3 KB",
+  );
+  assert.equal(text("#cleanup-confirm"), "Delete 2 worktrees");
+  assert.equal(element("#cleanup-confirm").disabled, false);
+  assert.deepEqual(changed(), []);
+
+  // Cancel closes it and deletes nothing.
+  element("#cleanup-cancel").onclick();
+  assert.equal(dialog.open, false);
+  assert.deepEqual(removed, []);
+
+  // The list that was read is the list that is agreed to. A worktree whose
+  // commit moves while it is open is marked and left alone, and one that
+  // becomes a recommendation meanwhile is not added.
+  review.open();
+  const drawn = list.innerHTML;
+  shown = {
+    ...shown,
+    filtered: [{ ...all[0], head: "moved" }, all[1], row("late")],
+  };
+  review.render();
+  assert.equal(list.innerHTML, drawn, "nothing is redrawn under the pointer");
+  assert.deepEqual(changed(), ["a"]);
+  assert.equal(
+    text("#cleanup-title"),
+    "Delete 1 of these 2 recommended worktrees?",
+  );
+  assert.equal(text("#cleanup-confirm"), "Delete 1 worktree");
+  assert.equal(text("#cleanup-total"), "1 worktree on this computer · about 2 KB");
+  await element("#cleanup-confirm").onclick();
+  assert.equal(dialog.open, false);
+  assert.equal(removed.length, 1);
+  assert.deepEqual(removed[0].items, [{ id: "b", head: "b" }]);
+  assert.equal(removed[0].recommendedOnly, true);
+
+  // One that stops being a recommendation is left alone in the same way, and
+  // when none is left there is nothing to agree to.
+  shown = { filtered: all, filtering: false };
+  marks = {};
+  review.open();
+  shown = { ...shown, filtered: [all[0], { ...all[1], recommended: false }] };
+  review.render();
+  assert.deepEqual(changed(), ["b"]);
+  assert.equal(text("#cleanup-confirm"), "Delete 1 worktree");
+  shown = { ...shown, filtered: [] };
+  review.render();
+  assert.deepEqual(changed().sort(), ["a", "b"]);
+  assert.equal(text("#cleanup-title"), "These worktrees have changed");
+  assert.equal(element("#cleanup-confirm").disabled, true);
+  await element("#cleanup-confirm").onclick();
+  assert.equal(removed.length, 1, "a disabled answer deletes nothing");
+  // They can change back before it is answered.
+  shown = { filtered: all, filtering: false };
+  review.render();
+  assert.deepEqual(changed(), []);
+  assert.equal(element("#cleanup-confirm").disabled, false);
+  element("#cleanup-cancel").onclick();
+
+  // A filter narrows the review as it narrows the list, and says so. One
+  // worktree is asked about as one.
+  shown = { filtered: [all[1], all[2]], filtering: true };
+  review.open();
+  assert.deepEqual(names(), ["b"]);
+  assert.equal(text("#cleanup-title"), "Delete this recommended worktree?");
+  assert.equal(
+    text("#cleanup-total"),
+    "1 worktree shown in this view · about 2 KB",
+  );
+  // Opening it again while it is open changes nothing.
+  shown = { filtered: all, filtering: false };
+  review.open();
+  assert.deepEqual(names(), ["b"]);
+  element("#cleanup-cancel").onclick();
+  // With nothing recommended there is nothing to open.
+  shown = { filtered: [all[2]], filtering: false };
+  review.open();
+  assert.equal(dialog.open, false);
+
+  // A held Enter repeats the press that opened the review; the repeats do
+  // not go on to answer it.
+  const key = (event) => {
+    let prevented = false;
+    dialog.listeners.keydown({
+      ...event,
+      preventDefault: () => (prevented = true),
+    });
+    return prevented;
+  };
+  assert.equal(key({ key: "Enter", repeat: true }), true);
+  assert.equal(key({ key: "Enter", repeat: false }), false);
+  assert.equal(key({ key: " ", repeat: true }), false);
+  fixture.workspace.dispose();
+});
+
+test("the review names the host of each worktree when every host is shown", async () => {
+  const { createCleanupController } = await import(
+    "../renderer/cleanup-controller.mjs"
+  );
+  const rows = [
+    {
+      id: JSON.stringify(["vps", "a"]),
+      host: "vps",
+      path: "/srv/trees/a",
+      head: "a",
+      branch: "topic/a",
+      repo: "api",
+      canRemove: true,
+      recommended: true,
+      sizeBytes: 1024,
+    },
+  ];
+  const state = coordinatorState({
+    hostFilter: null,
+    report: { worktrees: rows, warnings: [] },
+  });
+  state.hosts = [
+    { ...state.hosts[0], host: "vps", label: "Build <VPS>" },
+  ];
+  const fixture = await workspaceFixture({ getState: async () => state });
+  const { document, element } = preferenceDocument();
+  const review = createCleanupController({
+    document,
+    workspace: fixture.workspace,
+    shown: () => ({ filtered: rows, filtering: false }),
+  });
+  review.open();
+  assert.match(
+    element("#cleanup-list").innerHTML,
+    /class="cleanup-context">topic\/a · api · Build &lt;VPS&gt;</,
+  );
+  // With no evidence recorded, the reason is still said in words.
+  assert.match(
+    element("#cleanup-list").innerHTML,
+    /class="cleanup-reason">All of its commits are in the default branch</,
+  );
+  assert.equal(
+    element("#cleanup-total").textContent,
+    "1 worktree on all hosts · about 1 KB",
+  );
   fixture.workspace.dispose();
 });
 

@@ -237,6 +237,55 @@ app.once("browser-window-created", (_event, win) => {
       assert.ok(
         invocations.every((args) => args[args.indexOf("--path") + 1] === root),
       );
+      if (resumed) {
+        // The restarted app agrees to the review. Every worktree it listed
+        // is deleted as a recommendation, with no other question asked, and
+        // the one that is not a recommendation is left.
+        const removals = () =>
+          fs
+            .readFileSync(calls, "utf8")
+            .trim()
+            .split("\n")
+            .map(JSON.parse)
+            .filter((args) => args[0] === "remove");
+        const before = removals().length;
+        await js("document.querySelector('#cleanup-button').click()");
+        await until(
+          () => js("document.querySelector('#cleanup-dialog').open"),
+          "the review opens",
+        );
+        assert.equal(
+          await js("document.querySelectorAll('#cleanup-list .cleanup-item').length"),
+          39,
+        );
+        const confirm = await js(
+          `(() => { const r = document.querySelector('#cleanup-confirm').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`,
+        );
+        for (const type of ["mouseDown", "mouseUp"])
+          win.webContents.sendInputEvent({
+            type,
+            ...confirm,
+            button: "left",
+            clickCount: 1,
+          });
+        await until(
+          () => js("!document.querySelector('#cleanup-dialog').open"),
+          "agreeing closes the review",
+        );
+        await until(
+          () =>
+            js(
+              "window.arbor.getState().then(s=>!s.busy && s.report?.worktrees.length===1)",
+            ),
+          "the recommended worktrees are deleted",
+        );
+        const made = removals().slice(before);
+        assert.equal(made.length, 39);
+        assert.ok(made.every((args) => args.includes("--recommended-only")));
+        assert.ok(made.every((args) => args.includes("--keep-local")));
+        assert.ok(made.every((args) => !args.at(-1).endsWith("/tree-1")));
+        assert.equal(removalDialogs.length, 0, "no second question is asked");
+      }
       if (!resumed) {
         const completed = await js("window.arbor.getState()");
         const tree1ID = completed.report.worktrees.find((row) => row.sourceID === "tree-1").id;
@@ -628,26 +677,30 @@ app.once("browser-window-created", (_event, win) => {
           false,
           "cached recommendations remain available after stopping a refresh",
         );
-        // Delete recommended sits beside Refresh, so its first click only
-        // asks; nothing is deleted until a second, separate one, and looking
-        // away withdraws the question. Real pointer and key events are used:
-        // a double-click and a held Enter are single gestures that a pair of
-        // synthetic clicks cannot tell apart from two decisions.
-        const cleanup = () =>
+        // Delete recommended sits beside Refresh and deletes nothing by
+        // itself. It opens a review of what it would delete, and why, and the
+        // deleting is a second decision made there. Real pointer and key
+        // events are used: a double-click and a held Enter are single
+        // gestures that a pair of synthetic clicks cannot tell apart from two
+        // decisions.
+        const review = () =>
           js(
-            `(() => { const button = document.querySelector('#cleanup-button'); return { label: button.querySelector('[data-current="true"]').textContent.trim(), armed: button.classList.contains('armed'), status: document.querySelector('#status-message').textContent }; })()`,
+            `(() => { const dialog = document.querySelector('#cleanup-dialog'); return { open: dialog.open, title: document.querySelector('#cleanup-title').textContent, names: [...dialog.querySelectorAll('.cleanup-name')].map((node) => node.textContent), reasons: [...dialog.querySelectorAll('.cleanup-reason')].map((node) => node.textContent), total: document.querySelector('#cleanup-total').textContent, confirm: document.querySelector('#cleanup-confirm').textContent.trim(), focus: document.activeElement?.id || '' }; })()`,
           );
         const removeCalls = () =>
           fs
             .readFileSync(calls, "utf8")
             .split("\n")
             .filter((line) => line.includes('"remove"')).length;
-        const idle = await cleanup();
-        assert.match(idle.label, /^Delete recommended \(\d+\)$/);
-        assert.equal(idle.armed, false);
+        const label = await js(
+          `document.querySelector('#cleanup-button [data-current="true"]').textContent.trim()`,
+        );
+        assert.match(label, /^Delete recommended \(\d+\)…$/);
+        const expected = Number(label.match(/\d+/)[0]);
+        assert.equal((await review()).open, false);
         const removalsBefore = removeCalls();
         const at = await js(
-          `(() => { const r = document.querySelector('#cleanup-button').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), width: r.width }; })()`,
+          `(() => { const r = document.querySelector('#cleanup-button').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`,
         );
         const mouse = (type, clickCount) =>
           win.webContents.sendInputEvent({
@@ -661,29 +714,44 @@ app.once("browser-window-created", (_event, win) => {
         mouse("mouseUp", 1);
         mouse("mouseDown", 2);
         mouse("mouseUp", 2);
-        await until(async () => (await cleanup()).armed, "armed by a click");
-        // Past the moment a quick second click would be ignored anyway.
-        await pause(600);
-        mouse("mouseDown", 2);
-        mouse("mouseUp", 2);
-        await pause(200);
-        const asking = await cleanup();
-        assert.match(asking.label, /^Confirm: delete \d+ worktrees$/);
-        assert.equal(asking.armed, true, "a double-click does not confirm");
-        assert.match(asking.status, /^Click again to delete \d+ worktrees, about /);
+        await until(async () => (await review()).open, "the review opens");
+        await pause(300);
+        const asked = await review();
         assert.equal(
-          (
-            await js(
-              `document.querySelector('#cleanup-button').getBoundingClientRect().width`,
-            )
-          ).toFixed(1),
-          at.width.toFixed(1),
-          "the button keeps its width, so nothing beside it moves",
+          asked.open,
+          true,
+          "the rest of a double-click neither answers the review nor closes it",
         );
+        // What: every recommendation the list shows, by name. Why: each one's
+        // own evidence.
+        assert.equal(asked.names.length, expected);
+        assert.ok(asked.names.every((name) => /^tree-\d+$/.test(name)));
+        assert.equal(asked.reasons.length, expected);
+        assert.ok(asked.reasons.every(Boolean));
+        assert.equal(
+          asked.title,
+          `Delete these ${expected} recommended worktrees?`,
+        );
+        assert.match(
+          asked.total,
+          new RegExp(`^${expected} worktrees on this computer · about `),
+        );
+        assert.equal(asked.confirm, `Delete ${expected} worktrees`);
         assert.equal(removeCalls(), removalsBefore);
-        // A held Enter: one press, then the keyboard's own repeats.
+        // Escape closes it.
+        win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+        win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+        await until(async () => !(await review()).open, "Escape cancels");
+        // A held Enter: one press opens the review, and the answer that
+        // deletes nothing has the keyboard. The keyboard's own repeats of
+        // that press must not go on to answer it.
+        await js("document.querySelector('#cleanup-button').focus()");
+        win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+        win.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+        await until(async () => (await review()).open, "Enter opens the review");
+        assert.equal((await review()).focus, "cleanup-cancel");
         await js(
-          `(() => { const button = document.querySelector('#cleanup-button'); window.__repeats = []; button.addEventListener('keydown', (event) => { if (event.repeat) window.__repeats.push(event.defaultPrevented); }); })()`,
+          `(() => { window.__repeats = []; document.querySelector('#cleanup-dialog').addEventListener('keydown', (event) => { if (event.repeat) window.__repeats.push(event.defaultPrevented); }); })()`,
         );
         for (let i = 0; i < 5; i++) {
           win.webContents.sendInputEvent({
@@ -696,29 +764,24 @@ app.once("browser-window-created", (_event, win) => {
         win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
         await until(
           () => js("window.__repeats.length >= 5"),
-          "repeated key events reached the button",
+          "repeated key events reached the review",
         );
         await pause(200);
         assert.ok(
           (await js("window.__repeats")).every(Boolean),
-          "each repeat is refused before it can activate the button",
+          "each repeat is refused before it can press a button",
         );
-        assert.equal((await cleanup()).armed, true, "a held key does not confirm");
-        assert.equal(removeCalls(), removalsBefore);
-        // Escape, like looking away, withdraws the question.
-        win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-        win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
-        await until(async () => !(await cleanup()).armed, "Escape disarms");
-        assert.deepEqual(await cleanup(), idle);
-        await js("document.querySelector('#cleanup-button').click()");
-        assert.equal((await cleanup()).armed, true);
-        await js("document.querySelector('#cleanup-button').blur()");
-        assert.deepEqual(await cleanup(), idle);
+        assert.equal((await review()).open, true, "a held key does not answer");
+        // A fresh Enter lands on Cancel.
+        win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+        win.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+        win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+        await until(async () => !(await review()).open, "Enter is Cancel");
         await pause(150);
         assert.equal(
           removeCalls(),
           removalsBefore,
-          "an unconfirmed click deletes nothing",
+          "a review that is not agreed to deletes nothing",
         );
         assert.equal(
           await js(
@@ -836,9 +899,11 @@ app.once("browser-window-created", (_event, win) => {
           5,
           "reset must not automatically scan",
         );
+        // Twenty by a folder's Delete here, and the thirty-nine the restarted
+        // app agreed to in its review.
         assert.equal(
           finalCalls.filter((args) => args[0] === "remove").length,
-          20,
+          59,
         );
         assert.equal(
           fs.readFileSync(path.join(root, "preserve-me"), "utf8"),

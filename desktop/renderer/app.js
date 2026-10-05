@@ -1,5 +1,6 @@
 import * as tree from "../common/worktree-tree.mjs";
 import { icon, esc, initializeDOM } from "./presentation.mjs";
+import { createCleanupController } from "./cleanup-controller.mjs";
 import { createPreferencesController } from "./preferences-controller.mjs";
 import { createSetupController } from "./setup-controller.mjs";
 import { createStatisticsController } from "./statistics-controller.mjs";
@@ -49,7 +50,7 @@ async function bootstrap() {
     );
   const provided = await api.getDefaults();
   const defaults = { ...provided, excludes: [...provided.excludes] };
-  let workspace, setup, trees, chrome, statistics;
+  let workspace, setup, trees, chrome, cleanup, statistics;
   const preferences = createPreferencesController({
     document,
     api,
@@ -151,10 +152,24 @@ async function bootstrap() {
     workspace,
     tree,
     showWorktreeMenu,
-    // Filtering changes what Delete recommended acts on, and so its count.
-    onRender: () => chrome?.render(),
+    // Filtering changes what Delete recommended acts on, and so its count
+    // and what an open review of it can still delete.
+    onRender: () => {
+      chrome?.render();
+      cleanup?.render();
+    },
   });
-  chrome = createWorkspaceView({ document, workspace, shown: () => trees });
+  cleanup = createCleanupController({
+    document,
+    workspace,
+    shown: () => trees,
+  });
+  chrome = createWorkspaceView({
+    document,
+    workspace,
+    shown: () => trees,
+    onCleanup: cleanup.open,
+  });
   $("#statistics-button").onclick = statistics.open;
   $("#warning-button").onclick = () => {
     $("#notes-content").innerHTML =
