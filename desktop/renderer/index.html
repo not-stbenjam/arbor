@@ -125,7 +125,7 @@
           hidden
         >
           <div class="progress-heading" id="progress-heading" hidden>
-            <strong id="progress-stage" role="status"></strong
+            <strong id="progress-stage"></strong
             ><button class="button" id="stop-scan">Stop all</button>
           </div>
           <div id="host-progress-list" hidden></div>
@@ -145,8 +145,8 @@
           ><span
             >Clean worktrees whose commits are already merged.
             <strong>Delete recommended</strong> removes exactly these and keeps
-            their branches. Worktrees created in the last day wait until they
-            are used.</span
+            their branches. A new worktree is left out for its first 24 hours
+            unless its HEAD moves.</span
           >
         </div>
         <div class="content-panes">
@@ -206,10 +206,10 @@
         </footer>
       </main>
     </div>
-    <dialog id="settings-dialog">
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
       <form id="settings-form">
         <div class="dialog-header">
-          <h2>Settings</h2>
+          <h2 id="settings-title">Settings</h2>
           <button
             type="button"
             class="icon-button"
@@ -242,8 +242,8 @@
             <label for="scan-github"
               ><strong>Check GitHub pull requests</strong
               ><span
-                >Recognizes squash and rebase merges. Needs the GitHub CLI,
-                signed in, on the host being scanned.</span
+                >Recognizes squash and rebase merges. Requires the GitHub CLI,
+                signed in on the host being scanned.</span
               ></label
             ><input type="checkbox" id="scan-github" />
           </div>
@@ -292,7 +292,10 @@
           <div class="setting-row">
             <label for="theme-select"
               ><strong>Appearance</strong
-              ><span>Follow your system, or choose a theme.</span></label
+              ><span
+                >Follow your system, or choose a theme. Applies right
+                away.</span
+              ></label
             ><select id="theme-select">
               <option value="system">System</option>
               <option value="light">Light</option>
@@ -314,6 +317,12 @@
         </div>
         <div
           id="settings-progress"
+          class="settings-progress"
+          role="status"
+          hidden
+        ></div>
+        <div
+          id="settings-note"
           class="settings-progress"
           role="status"
           hidden
@@ -390,7 +399,9 @@
                 its matching command-line tool on the host.
               </p>
             </div>
-            <label class="field-label" for="setup-root">Scan folder</label>
+            <label class="field-label" for="setup-root" id="setup-root-label"
+              >Scan folder</label
+            >
             <div class="input-group">
               <input
                 class="text-input"
@@ -401,7 +412,7 @@
                 Choose folder…
               </button>
             </div>
-            <p class="field-hint">
+            <p class="field-hint" id="setup-root-help">
               Choose your projects folder for a quick first scan. Your whole
               home folder (~) works too, but can take a few minutes; you can
               stop a scan at any time.
@@ -412,8 +423,8 @@
               <label for="setup-github"
                 ><strong>Check GitHub pull requests</strong
                 ><span
-                  >Recognizes squash and rebase merges. Needs the GitHub CLI,
-                  signed in, on the host being scanned.</span
+                  >Recognizes squash and rebase merges. Requires the GitHub CLI,
+                  signed in on the host being scanned.</span
                 ></label
               ><input type="checkbox" id="setup-github" />
             </div>
@@ -531,9 +542,9 @@
         </div>
       </form>
     </dialog>
-    <dialog id="machine-dialog">
+    <dialog id="machine-dialog" aria-labelledby="machine-title">
       <div class="dialog-header">
-        <h2>Hosts</h2>
+        <h2 id="machine-title">Hosts</h2>
         <button
           class="icon-button"
           data-close="machine-dialog"
@@ -573,9 +584,9 @@
         </form>
       </div>
     </dialog>
-    <dialog id="notes-dialog">
+    <dialog id="notes-dialog" aria-labelledby="notes-title">
       <div class="dialog-header">
-        <h2>Scan warnings</h2>
+        <h2 id="notes-title">Scan warnings</h2>
         <button
           class="icon-button"
           data-close="notes-dialog"
@@ -586,9 +597,9 @@
       </div>
       <div class="dialog-body" id="notes-content" tabindex="-1" autofocus></div>
     </dialog>
-    <dialog id="statistics-dialog">
+    <dialog id="statistics-dialog" aria-labelledby="statistics-title">
       <div class="dialog-header">
-        <h2>Statistics</h2>
+        <h2 id="statistics-title">Statistics</h2>
         <button
           class="icon-button"
           data-close="statistics-dialog"
@@ -607,5 +618,11 @@
       <div class="statistics-footer"></div>
     </dialog>
     <div class="toast-region" id="toast-region" aria-live="polite"></div>
+    <div
+      id="announcement"
+      class="sr-only"
+      role="status"
+      aria-atomic="true"
+    ></div>
   </body>
 </html>

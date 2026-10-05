@@ -36,6 +36,9 @@ export function createPreferencesController({
   };
   let loadGeneration = 0;
   let editingHost = "";
+  // Unsaved edits, kept per host while Settings is open, so looking at
+  // another host's options does not throw away the ones being changed.
+  const drafts = new Map();
   const hostFilter = () => context.hostFilter;
   const machines = () => [
     { host: "", name: "This computer" },
@@ -151,19 +154,47 @@ export function createPreferencesController({
       ? `${hostName(editingHost)} is scanning in the background. Stop its scan in the main window to apply new scan options.`
       : "";
   }
-  function editHost(host) {
-    editingHost = host;
+  // What Settings shows for a host before anything is edited.
+  function savedForm(host) {
     const source = context.hosts.find((entry) => entry.host === host);
     const scan = source?.options || options();
-    $("#scan-root").value =
-      source?.root ||
-      (host
-        ? prefs.hosts.find((entry) => entry.host === host)?.root
-        : prefs.roots[0]) ||
-      "~";
-    $("#scan-github").checked = !!scan.github;
-    $("#scan-fetch").checked = !!scan.fetch;
-    $("#scan-excludes").value = (scan.excludes || defaults.excludes).join("\n");
+    return {
+      root:
+        source?.root ||
+        (host
+          ? prefs.hosts.find((entry) => entry.host === host)?.root
+          : prefs.roots[0]) ||
+        "~",
+      github: !!scan.github,
+      fetch: !!scan.fetch,
+      excludes: (scan.excludes || defaults.excludes).join("\n"),
+    };
+  }
+  const readForm = () => ({
+    root: $("#scan-root").value,
+    github: $("#scan-github").checked,
+    fetch: $("#scan-fetch").checked,
+    excludes: $("#scan-excludes").value,
+  });
+  const edited = (host) =>
+    drafts.has(host) &&
+    JSON.stringify(drafts.get(host)) !== JSON.stringify(savedForm(host));
+  function renderHostChoices(selected) {
+    $("#settings-host").innerHTML = machines()
+      .map(
+        (entry) =>
+          `<option value="${esc(entry.host)}">${esc(entry.name || entry.host)}${edited(entry.host) ? " (unsaved changes)" : ""}</option>`,
+      )
+      .join("");
+    $("#settings-host").value = selected;
+  }
+  function editHost(host) {
+    editingHost = host;
+    const form = drafts.get(host) || savedForm(host);
+    $("#scan-root").value = form.root;
+    $("#scan-github").checked = form.github;
+    $("#scan-fetch").checked = form.fetch;
+    $("#scan-excludes").value = form.excludes;
     showExcludeCount();
     $("#choose-folder").hidden = !!host;
     $("#root-help").textContent = host
@@ -176,13 +207,12 @@ export function createPreferencesController({
       onSetup();
       return;
     }
-    $("#settings-host").innerHTML = machines()
-      .map(
-        (entry) =>
-          `<option value="${esc(entry.host)}">${esc(entry.name || entry.host)}</option>`,
-      )
-      .join("");
-    $("#settings-host").value = hostFilter() || "";
+    if (!$("#settings-dialog").open) {
+      drafts.clear();
+      fieldError("#settings-error");
+      fieldNote();
+    }
+    renderHostChoices(hostFilter() || "");
     editHost($("#settings-host").value);
     $("#theme-select").value = prefs.theme;
     if (!$("#settings-dialog").open) $("#settings-dialog").showModal();
@@ -193,6 +223,7 @@ export function createPreferencesController({
     $(selector).textContent = message;
     $(selector).hidden = !message;
   }
+  const fieldNote = (message = "") => fieldError("#settings-note", message);
   function openMachines() {
     if (context.blocked) return;
     const failed = new Set(
@@ -234,7 +265,12 @@ export function createPreferencesController({
     $("#scan-fetch").checked = !!saved.scan?.fetch;
   }
   $("#settings-button").onclick = openSettings;
-  $("#settings-host").onchange = () => editHost($("#settings-host").value);
+  $("#settings-host").onchange = () => {
+    const next = $("#settings-host").value;
+    drafts.set(editingHost, readForm());
+    renderHostChoices(next);
+    editHost(next);
+  };
   $("#scan-options-button").onclick = openSettings;
   $("#machine-button").onclick = openMachines;
   $("#add-host").onclick = () => {
@@ -245,10 +281,19 @@ export function createPreferencesController({
     $("#scan-excludes").value = defaults.excludes.join("\n");
     showExcludeCount();
   };
-  // Appearance is not a scan setting: it applies at once, like the toggle.
-  $("#theme-select").onchange = () => {
+  // Appearance is not a scan setting: it applies at once, like the toggle
+  // beside the version, and Save & scan has nothing to do with it.
+  $("#theme-select").onchange = async () => {
     setTheme($("#theme-select").value);
-    save();
+    fieldError("#settings-error");
+    try {
+      await save(true);
+    } catch (error) {
+      fieldError(
+        "#settings-error",
+        `Appearance changed for this session, but could not be saved: ${error.message}`,
+      );
+    }
   };
   $("#reset-preferences").onclick = () => {
     if (!$("#reset-preferences").disabled) onReset();
@@ -284,15 +329,26 @@ export function createPreferencesController({
   $("#settings-form").onsubmit = (event) => {
     event.preventDefault();
     if ($("#settings-save").disabled) return;
-    $("#settings-dialog").close();
-    return onScan({
+    const host = editingHost;
+    const scan = {
       root: $("#scan-root").value.trim(),
-      host: editingHost,
+      host,
       github: $("#scan-github").checked,
       fetch: $("#scan-fetch").checked,
       excludes: readExcludes($("#scan-excludes")),
-      theme: prefs.theme,
-    });
+    };
+    drafts.delete(host);
+    // Save & scan applies the host on screen. Another host edited in the
+    // same sitting is shown next instead of being dropped unseen.
+    const pending = machines().find((entry) => edited(entry.host));
+    if (pending) {
+      renderHostChoices(pending.host);
+      editHost(pending.host);
+      fieldNote(
+        `Scanning ${hostName(host)} with its new settings. ${hostName(pending.host)} still has unsaved changes.`,
+      );
+    } else $("#settings-dialog").close();
+    return onScan(scan);
   };
   $("#host-form").onsubmit = async (event) => {
     event.preventDefault();
@@ -307,17 +363,32 @@ export function createPreferencesController({
       $("#host-input").focus();
       return;
     }
+    // The folder typed here would otherwise be accepted and ignored.
+    if (prefs.hosts.some((saved) => saved.host === host)) {
+      fieldError(
+        "#host-error",
+        "This host is already saved. Select it above; its scan folder is changed in Settings.",
+      );
+      $("#host-input").focus();
+      return;
+    }
     // Its first scan starts as soon as it is saved, so the folder is chosen
-    // here rather than discovered afterwards to be the whole home folder.
-    if (!prefs.hosts.some((h) => h.host === host))
-      prefs.hosts.push({
+    // here rather than discovered afterwards to be the whole home folder. It
+    // joins the saved hosts only once saving worked: a retry must be able to
+    // correct the folder.
+    const saved = prefs.hosts;
+    prefs.hosts = [
+      ...saved,
+      {
         name: host.slice(0, MAX_HOST_LABEL_LENGTH),
         host,
         root: $("#host-root").value.trim() || "~",
-      });
+      },
+    ];
     try {
       await save(true);
     } catch (error) {
+      prefs.hosts = saved;
       fieldError("#host-error", `Could not save this host: ${error.message}`);
       return;
     }

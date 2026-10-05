@@ -8,17 +8,11 @@ import (
 // inspectWorktrees owns worker lifetime and serialized progress publication.
 // Each worker mutates a distinct row; only default-ref lookup is shared, and
 // that cache exists solely for this scan rather than later removal validation.
-func inspectWorktrees(ctx context.Context, report *Report, options Options, discovered int) error {
+func inspectWorktrees(ctx context.Context, report *Report, options Options, discovered int, defaults map[string]*repositoryDefault) error {
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	var progressMu sync.Mutex
 	completed := 0
-	defaults := map[string]*repositoryDefault{}
-	for _, w := range report.Worktrees {
-		if defaults[w.CommonDir] == nil {
-			defaults[w.CommonDir] = &repositoryDefault{}
-		}
-	}
 	notify := func(path string) {
 		if options.Progress != nil {
 			options.Progress(Progress{Stage: "inspect", Path: path, Discovered: discovered, Completed: completed, Total: len(report.Worktrees)})

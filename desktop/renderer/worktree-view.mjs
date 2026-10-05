@@ -5,7 +5,7 @@ import {
   renderRepositoryList,
   rowElementID,
 } from "./worktree-presentation.mjs";
-import { icon, esc, ago } from "./presentation.mjs";
+import { icon, esc, ago, sentenceCase } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
 
 // Owns tree-only interaction state: filters, sorting, expansion and selection.
@@ -28,7 +28,10 @@ export function createWorktreeView({
     repoSignature = "",
     directoryRows = [],
     filtered = [],
-    visible = [];
+    visible = [],
+    // Where the keyboard cursor last was, for when its row disappears.
+    cursorIndex = 0,
+    cursorVanished = false;
   const hostFilter = () => workspace.snapshot.hostFilter;
   let previousItems = [],
     previousHost = hostFilter();
@@ -52,8 +55,13 @@ export function createWorktreeView({
     workspace.canDelete(row) && (row.canRemove || row.canDiscard);
   function renderSelectionBar() {
     const rows = selected(),
-      kept = rows.filter((row) => !deletable(row)).length;
-    $("#selection-bar").hidden = rows.length < 2;
+      kept = rows.filter((row) => !deletable(row)).length,
+      bar = $("#selection-bar");
+    // The bar leaves with the selection. Whoever was using it goes back to
+    // the list rather than to nowhere.
+    const held = !bar.hidden && !!bar.contains?.(document.activeElement);
+    bar.hidden = rows.length < 2;
+    if (held && bar.hidden) $("#worktree-grid").focus({ preventScroll: true });
     // Say before the click how much of the selection can actually go.
     $("#selection-label").textContent =
       `${rows.length} worktrees selected${kept ? ` · ${kept} cannot be deleted` : ""}`;
@@ -145,11 +153,22 @@ export function createWorktreeView({
     // key or button may reach a worktree that a filter or a collapsed folder
     // has hidden.
     const onScreen = new Set(visible.map((row) => row.id));
+    const gridFocused = document.activeElement === $("#worktree-grid");
+    const lostCursor =
+      cursorVanished ||
+      (!!selection.cursor && !onScreen.has(selection.cursor));
+    cursorVanished = false;
     selection = {
       ids: new Set([...selection.ids].filter((id) => onScreen.has(id))),
       anchor: onScreen.has(selection.anchor) ? selection.anchor : "",
       cursor: onScreen.has(selection.cursor) ? selection.cursor : "",
     };
+    // The row under the keyboard went away, deleted or rescanned. The list
+    // still has focus, so the cursor moves to the row now in its place; it
+    // selects nothing.
+    if (lostCursor && gridFocused && visible.length)
+      selection.cursor =
+        visible[Math.min(cursorIndex, visible.length - 1)].id;
     // A filter shows part of the list, so its count says part of what.
     $("#visible-count").textContent =
       filtered.length === items().length
@@ -166,10 +185,8 @@ export function createWorktreeView({
       "aria-label",
       `Sort ${descending ? "descending" : "ascending"}; switch direction`,
     );
-    // An empty list has no row for the keyboard to land on, or to stay on.
+    // An empty list has no row for the keyboard to land on.
     $("#worktree-grid").tabIndex = visible.length ? 0 : -1;
-    if (!visible.length && document.activeElement === $("#worktree-grid"))
-      $("#worktree-grid").blur();
     document.querySelectorAll("[data-sort]").forEach((button) => {
       const active = button.dataset.sort === sort;
       const name = active ? (descending ? "arrow-down" : "arrow-up") : "sort";
@@ -208,6 +225,7 @@ export function createWorktreeView({
       workspace.snapshot.hostFilter,
       workspace.snapshot.setupRequired,
       workspace.snapshot.error,
+      workspace.error,
       filtered.map((w) => ago(w.activityAt)),
     ]);
     if (signature === rowSignature) {
@@ -234,6 +252,11 @@ export function createWorktreeView({
     });
     $("#table-scroll").scrollTop = scroll;
     restoreFocus(focus);
+    // With no row left to stay on, the keyboard goes to what can be done next.
+    if (gridFocused && !visible.length)
+      (
+        $("#empty-state").querySelector?.("button") || $("#refresh-button")
+      ).focus({ preventScroll: true });
     renderActiveRow();
     renderSelectionBar();
     onRender();
@@ -242,6 +265,8 @@ export function createWorktreeView({
   // the cursor is on so assistive technology can follow.
   function renderActiveRow() {
     const grid = $("#worktree-grid");
+    const index = visible.findIndex((row) => row.id === selection.cursor);
+    if (index >= 0) cursorIndex = index;
     const active =
       selection.cursor &&
       document.getElementById(rowElementID(selection.cursor));
@@ -284,14 +309,24 @@ export function createWorktreeView({
         action("data-clear-filter", "Clear filter"),
       );
     // A scan that failed found nothing; it did not find that there is nothing.
-    if (workspace.snapshot.error)
+    // The reason is repeated here because the banner above can be dismissed.
+    const failure = workspace.snapshot.error || workspace.error;
+    if (failure)
       return message(
         "warning",
         false,
         "This scan did not finish",
-        "The message above says what went wrong. Fix it and scan again, or choose another folder.",
+        sentenceCase(failure).split("\n").slice(0, 3).map(esc).join("<br />"),
         action("data-scan-again", "Scan again") +
           action("data-open-settings", "Scan settings…"),
+      );
+    if (workspace.snapshot.cancelled)
+      return message(
+        "warning",
+        false,
+        "Scan stopped before it finished",
+        "Nothing had been found yet. Scan again to look through the whole folder.",
+        action("data-scan-again", "Scan again"),
       );
     return message(
       "folder",
@@ -409,6 +444,14 @@ export function createWorktreeView({
         ?.focus({ preventScroll: true });
       return;
     }
+    // Escape clears the selection from anywhere in the list, a row's own
+    // buttons included.
+    if (event.key === "Escape" && selection.ids.size) {
+      event.preventDefault();
+      clearSelection();
+      $("#worktree-grid").focus({ preventScroll: true });
+      return;
+    }
     if (event.target.closest("button")) return;
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
@@ -441,10 +484,6 @@ export function createWorktreeView({
       event.preventDefault();
       selection.ids = new Set(visible.map((w) => w.id));
       render();
-    }
-    if (event.key === "Escape" && selection.ids.size) {
-      event.preventDefault();
-      clearSelection();
     }
     // Deletion always asks first, so the key is as safe as the button.
     if (event.key === "Delete" || event.key === "Backspace") {
@@ -481,6 +520,11 @@ export function createWorktreeView({
     renderRows();
   };
   $("#clear-selection").onclick = clearSelection;
+  $("#selection-bar").addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    clearSelection();
+  });
 
   $("#remove-selected").onclick = () => workspace.deleteWorktrees(selected());
   function resetView(full = false) {
@@ -500,12 +544,15 @@ export function createWorktreeView({
     reset: resetView,
     render() {
       const next = items();
+      const cursor = selection.cursor;
       selection = reconcileSelection(
         previousItems,
         next,
         selection,
         previousHost === hostFilter(),
       );
+      // Reconciling drops a cursor whose worktree is gone from the report.
+      cursorVanished = !!cursor && !selection.cursor;
       previousItems = next;
       previousHost = hostFilter();
       render();

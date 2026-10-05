@@ -158,10 +158,15 @@ test(
       assert.equal(scanned.status, 0, scanned.stderr);
       const source = JSON.parse(scanned.stdout);
       if (scenario === "verbose-fetch") {
-        assert.ok(
-          source.warnings.some((warning) => warning.length > 4096),
-          "real local fetch failures produce a long warning",
+        // Thirty remotes fail, each with lines of its own. The warning is
+        // the one line that says why, and what the scan relied on instead.
+        assert.equal(source.warnings.length, 1, source.warnings.join("\n"));
+        const [warning] = source.warnings;
+        assert.match(
+          warning,
+          /^Could not fetch .+ \(.+\)\. Merge checks used the Git data already on disk\.$/,
         );
+        assert.ok(!warning.includes("\n") && warning.length < 1024, warning);
       } else {
         assert.equal(
           source.worktrees.filter((item) => item.path === checkout).length,

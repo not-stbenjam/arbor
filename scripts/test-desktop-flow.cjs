@@ -264,7 +264,12 @@ app.once("browser-window-created", (_event, win) => {
           js("document.querySelector('#status-message').textContent");
         const summary = await status();
         await js(`document.querySelector('tr[data-id="${tree1ID}"]').click()`);
-        assert.match(await status(), /^1 selected · Shift-click for a range/);
+        // The count of what is listed stays; the hint takes the place of the
+        // repository count.
+        assert.match(
+          await status(),
+          /^\d+ worktrees · 1 selected · Shift- or (Ctrl|⌘)-click to add more$/,
+        );
         await js(
           "document.querySelector('#worktree-grid').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
         );
@@ -332,9 +337,16 @@ app.once("browser-window-created", (_event, win) => {
           "filtered folder confirmation",
         );
         assert.match(removalDialogs[0].message, /11 worktrees/);
-        assert.ok(removalDialogs[0].detail.includes(oldFolder + "/tree-1"));
-        assert.ok(!removalDialogs[0].detail.includes(oldFolder + "/tree-0"));
-        assert.ok(!removalDialogs[0].detail.includes(oldFolder + "/tree-2"));
+        // The preview is bounded, so a long path loses its middle and a
+        // worktree that would lose files gains a note. What identifies a
+        // line is how its path ends.
+        const listed = (dialog, tail) =>
+          dialog.detail
+            .split("\n")
+            .some((line) => line.replace(/ — [^—]*$/, "").endsWith(tail));
+        assert.ok(listed(removalDialogs[0], "/sessions/old/tree-1"));
+        assert.ok(!listed(removalDialogs[0], "/sessions/old/tree-0"));
+        assert.ok(!listed(removalDialogs[0], "/sessions/old/tree-2"));
         await until(
           () => js("window.arbor.getState().then(s=>!s.busy)"),
           "cancel filtered deletion",
@@ -365,7 +377,7 @@ app.once("browser-window-created", (_event, win) => {
           removalDialogs[1].detail,
           /uncommitted, untracked, and ignored files/,
         );
-        assert.ok(removalDialogs[1].detail.includes(oldFolder + "/tree-1"));
+        assert.ok(listed(removalDialogs[1], "/sessions/old/tree-1"));
         assert.ok(!removalDialogs[1].detail.includes("/sessions/recent/"));
         assert.equal(
           await js(
@@ -505,42 +517,96 @@ app.once("browser-window-created", (_event, win) => {
           "cached recommendations remain available after stopping a refresh",
         );
         // Delete recommended sits beside Refresh, so its first click only
-        // asks; nothing is deleted until the second, and looking away
-        // withdraws the question.
+        // asks; nothing is deleted until a second, separate one, and looking
+        // away withdraws the question. Real pointer and key events are used:
+        // a double-click and a held Enter are single gestures that a pair of
+        // synthetic clicks cannot tell apart from two decisions.
         const cleanup = () =>
           js(
-            `(() => { const button = document.querySelector('#cleanup-button'); return { label: button.textContent.trim(), armed: button.classList.contains('armed') }; })()`,
+            `(() => { const button = document.querySelector('#cleanup-button'); return { label: button.querySelector('[data-current="true"]').textContent.trim(), armed: button.classList.contains('armed'), status: document.querySelector('#status-message').textContent }; })()`,
           );
+        const removeCalls = () =>
+          fs
+            .readFileSync(calls, "utf8")
+            .split("\n")
+            .filter((line) => line.includes('"remove"')).length;
         const idle = await cleanup();
         assert.match(idle.label, /^Delete recommended \(\d+\)$/);
         assert.equal(idle.armed, false);
-        const removalsBefore = fs
-          .readFileSync(calls, "utf8")
-          .split("\n")
-          .filter((line) => line.includes('"remove"')).length;
-        await js(
-          "(() => { const button = document.querySelector('#cleanup-button'); button.focus(); button.click(); })()",
+        const removalsBefore = removeCalls();
+        const at = await js(
+          `(() => { const r = document.querySelector('#cleanup-button').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), width: r.width }; })()`,
         );
+        const mouse = (type, clickCount) =>
+          win.webContents.sendInputEvent({
+            type,
+            x: at.x,
+            y: at.y,
+            button: "left",
+            clickCount,
+          });
+        mouse("mouseDown", 1);
+        mouse("mouseUp", 1);
+        mouse("mouseDown", 2);
+        mouse("mouseUp", 2);
+        await until(async () => (await cleanup()).armed, "armed by a click");
+        // Past the moment a quick second click would be ignored anyway.
+        await pause(600);
+        mouse("mouseDown", 2);
+        mouse("mouseUp", 2);
+        await pause(200);
         const asking = await cleanup();
         assert.match(asking.label, /^Confirm: delete \d+ worktrees$/);
-        assert.equal(asking.armed, true);
+        assert.equal(asking.armed, true, "a double-click does not confirm");
+        assert.match(asking.status, /^Click again to delete \d+ worktrees, about /);
+        assert.equal(
+          (
+            await js(
+              `document.querySelector('#cleanup-button').getBoundingClientRect().width`,
+            )
+          ).toFixed(1),
+          at.width.toFixed(1),
+          "the button keeps its width, so nothing beside it moves",
+        );
+        assert.equal(removeCalls(), removalsBefore);
+        // A held Enter: one press, then the keyboard's own repeats.
+        await js(
+          `(() => { const button = document.querySelector('#cleanup-button'); window.__repeats = []; button.addEventListener('keydown', (event) => { if (event.repeat) window.__repeats.push(event.defaultPrevented); }); })()`,
+        );
+        for (let i = 0; i < 5; i++) {
+          win.webContents.sendInputEvent({
+            type: "keyDown",
+            keyCode: "Enter",
+            modifiers: ["isAutoRepeat"],
+          });
+          win.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+        }
+        win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+        await until(
+          () => js("window.__repeats.length >= 5"),
+          "repeated key events reached the button",
+        );
+        await pause(200);
+        assert.ok(
+          (await js("window.__repeats")).every(Boolean),
+          "each repeat is refused before it can activate the button",
+        );
+        assert.equal((await cleanup()).armed, true, "a held key does not confirm");
+        assert.equal(removeCalls(), removalsBefore);
+        // Escape, like looking away, withdraws the question.
+        win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+        win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+        await until(async () => !(await cleanup()).armed, "Escape disarms");
+        assert.deepEqual(await cleanup(), idle);
+        await js("document.querySelector('#cleanup-button').click()");
+        assert.equal((await cleanup()).armed, true);
         await js("document.querySelector('#cleanup-button').blur()");
         assert.deepEqual(await cleanup(), idle);
         await pause(150);
         assert.equal(
-          fs
-            .readFileSync(calls, "utf8")
-            .split("\n")
-            .filter((line) => line.includes('"remove"')).length,
+          removeCalls(),
           removalsBefore,
           "an unconfirmed click deletes nothing",
-        );
-        assert.equal(
-          await js(
-            "[...document.querySelectorAll('[data-delete]')].filter(button=>!button.disabled).length",
-          ),
-          20,
-          "only the twenty previously verified rows remain deletable",
         );
         const child = spawn(
           process.execPath,

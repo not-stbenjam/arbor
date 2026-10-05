@@ -127,7 +127,19 @@ export function createSetupController({
     $("#setup-root").value = setupRoots[setupMachine] || context.root || "~";
     $("#setup-host-field").hidden = setupMachine !== "remote";
     $("#setup-choose-folder").hidden = setupMachine === "remote";
+    describeSetupFolder();
     if (setupMachine === "remote") $("#setup-host").focus();
+  }
+  // Whose folder this is must be plain: a path typed for an SSH host is a
+  // path on that host, and ~ is that user's home, not this one's.
+  function describeSetupFolder() {
+    const remote = setupMachine === "remote";
+    $("#setup-root-label").textContent = remote
+      ? "Scan folder on that host"
+      : "Scan folder";
+    $("#setup-root-help").textContent = remote
+      ? "A folder on the SSH host; ~ is its user's home folder. A projects folder makes for a quick first scan, and you can stop a scan at any time."
+      : "Choose your projects folder for a quick first scan. Your whole home folder (~) works too, but can take a few minutes; you can stop a scan at any time.";
   }
   $("#setup-local").onchange = changeSetupMachine;
   $("#setup-remote").onchange = changeSetupMachine;
@@ -200,6 +212,7 @@ export function createSetupController({
     $("#setup-dialog").scrollTop = 0;
     $("#setup-host-field").hidden = true;
     $("#setup-choose-folder").hidden = false;
+    describeSetupFolder();
     $("#setup-start").disabled = false;
     $("#setup-back").disabled = false;
     $("#setup-start").textContent = "Start scanning";

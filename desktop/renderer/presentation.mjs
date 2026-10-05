@@ -19,8 +19,6 @@ const paths = {
     '<path d="M4 6h4m4 0h8M4 12h10m4 0h2M4 18h2m4 0h10"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/>',
   refresh:
     '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
-  cleanup:
-    '<path d="m14 3 7 7M4 20l3-8 6-6 5 5-6 6-8 3Zm3-8 5 5M2 7h4m-2-2v4"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
   sort: '<path d="m8 8 4-4 4 4m-8 8 4 4 4-4"/>',
@@ -170,3 +168,12 @@ export {
   size,
   sizeOf,
 };
+
+// The command line's messages start in lower case. A line that opens with a
+// plain word becomes a sentence; one that opens with a host's name, which
+// ends in a colon, is left exactly as the host is spelled.
+export const sentenceCase = (message) =>
+  String(message ?? "").replace(
+    /(^|\n)(\p{Ll})(?=\p{L}*\s)/gu,
+    (_, start, letter) => start + letter.toUpperCase(),
+  );

@@ -54,7 +54,7 @@ func TestSSHErrorsNameTheirCause(t *testing.T) {
 		status       int
 		want         string
 	}{
-		{"unknown host", "ssh: Could not resolve hostname build: Name or service not known", 255, "Could not connect to build over SSH: Could not resolve hostname build: Name or service not known. Check the SSH alias or hostname."},
+		{"unknown host", "ssh: Could not resolve hostname build: Name or service not known", 255, "Could not connect to build over SSH: its name could not be resolved. Check the SSH alias or hostname."},
 		{"rejected key", "dev@build: Permission denied (publickey).", 255, "Could not connect to build over SSH: dev@build: Permission denied (publickey). Check your SSH key and agent; Arbor cannot enter a password."},
 		{"unverified host key", "Host key verification failed.", 255, "Could not connect to build over SSH: Host key verification failed. Connect once with ssh in a terminal to verify the host's key."},
 		{"offline", "ssh: connect to host build port 22: Connection timed out", 255, "Could not connect to build over SSH: connect to host build port 22: Connection timed out. Check that the host is online and reachable."},

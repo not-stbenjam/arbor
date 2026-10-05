@@ -137,12 +137,21 @@ func TestGitHubMergeIntoAForkIsNotMergeEvidence(t *testing.T) {
 	cases := []struct {
 		name, baseRepo string
 		upstreamRef    bool
-		wantMerged     bool
+		// originLikeAClone gives the fork the tracking refs a clone of it has.
+		originLikeAClone bool
+		upstreamURL      string
+		wantMerged       bool
 	}{
-		{"merged upstream, tracked", "owner/project", true, true},
-		{"merged into the fork, upstream tracked", "me/project", true, false},
-		{"merged upstream, no tracking ref yet", "owner/project", false, true},
-		{"merged into the fork, no tracking ref yet", "me/project", false, false},
+		{"merged upstream, tracked", "owner/project", true, false, "", true},
+		{"merged into the fork, upstream tracked", "me/project", true, false, "", false},
+		{"merged upstream, no tracking ref yet", "owner/project", false, false, "", true},
+		{"merged into the fork, no tracking ref yet", "me/project", false, false, "", false},
+		// An upstream that was added and never fetched still decides. The
+		// fork's own default branch is not a stand-in for it.
+		{"merged into a cloned fork, upstream never fetched", "me/project", false, true, "", false},
+		{"merged upstream, cloned fork, upstream never fetched", "owner/project", false, true, "", true},
+		{"merged into the fork, upstream is not on GitHub", "me/project", false, false, "https://git.example.invalid/owner/project.git", false},
+		{"merged into a cloned fork, upstream is not on GitHub", "me/project", true, true, "https://git.example.invalid/owner/project.git", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -153,14 +162,29 @@ func TestGitHubMergeIntoAForkIsNotMergeEvidence(t *testing.T) {
 			testWrite(t, filepath.Join(wt, "tracked.txt"), "topic commit\n")
 			testGit(t, wt, "commit", "-am", "Topic work")
 			testGit(t, repo, "remote", "add", "origin", "https://github.com/me/project.git")
-			testGit(t, repo, "remote", "add", "upstream", "https://github.com/owner/project.git")
+			upstream := "https://github.com/owner/project.git"
+			if tc.upstreamURL != "" {
+				upstream = tc.upstreamURL
+			}
+			testGit(t, repo, "remote", "add", "upstream", upstream)
 			if tc.upstreamRef {
 				// The project's default branch does not contain the topic commit.
 				testGit(t, repo, "update-ref", "refs/remotes/upstream/main", initial)
 			}
-			w := testTree(t, testScan(t, root), wt)
+			if tc.originLikeAClone {
+				testGit(t, repo, "update-ref", "refs/remotes/origin/main", initial)
+				testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+			}
+			report, err := Scan(context.Background(), Options{Root: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := testTree(t, report, wt)
 			if w.Merged {
 				t.Fatalf("fixture must start unmerged: %+v", w)
+			}
+			if !tc.upstreamRef && (w.DefaultRef != "" || len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "upstream has not been fetched")) {
+				t.Fatalf("an unfetched upstream yielded to %q without saying so: %v", w.DefaultRef, report.Warnings)
 			}
 			data, err := json.Marshal([]githubPull{testPull(t, w.Head, w.Branch, "me/project", tc.baseRepo, "main", true)})
 			if err != nil {
@@ -184,29 +208,25 @@ func TestGitHubMergeIntoAForkIsNotMergeEvidence(t *testing.T) {
 	}
 }
 
-func TestMergeDestinationFollowsTheDefaultRef(t *testing.T) {
-	slugs := map[string]string{"origin": "me/project", "upstream": "owner/project", "mirror": ""}
-	ordered := []string{"me/project", "owner/project"}
-	for ref, want := range map[string]string{
-		"refs/remotes/upstream/main": "owner/project",
-		"refs/remotes/origin/main":   "me/project",
-		"refs/heads/main":            "owner/project",
-		"":                           "owner/project",
-		"refs/remotes/mirror/main":   "",
+func TestMergeDestinationIsTheDecidingRemote(t *testing.T) {
+	for _, tc := range []struct {
+		name, deciding string
+		slugs          map[string]string
+		ordered        []string
+		want           string
+	}{
+		{"a fork's upstream decides", "upstream", map[string]string{"origin": "me/project", "upstream": "owner/project", "mirror": ""}, []string{"me/project", "owner/project"}, "owner/project"},
+		{"origin decides without an upstream", "origin", map[string]string{"origin": "me/project", "mirror": "other/project"}, []string{"me/project", "other/project"}, "me/project"},
+		// A deciding remote that is not on GitHub leaves no GitHub repository
+		// entitled to declare the work merged, least of all the fork.
+		{"an upstream that is not on GitHub", "upstream", map[string]string{"upstream": "", "origin": "me/project"}, []string{"me/project"}, ""},
+		{"an origin that is not on GitHub", "origin", map[string]string{"origin": "", "github": "me/project"}, []string{"me/project"}, ""},
+		{"an upstream known only by branches left behind", "upstream", map[string]string{"origin": "me/project"}, []string{"me/project"}, ""},
+		{"a single GitHub remote under another name", "", map[string]string{"company": "owner/project"}, []string{"owner/project"}, "owner/project"},
+		{"an ambiguous destination is not guessed", "", map[string]string{"a": "one/project", "b": "two/project"}, []string{"one/project", "two/project"}, ""},
 	} {
-		if got := mergeDestination(ref, slugs, ordered); got != want {
-			t.Errorf("mergeDestination(%q) = %q, want %q", ref, got, want)
+		if got := mergeDestination(tc.deciding, tc.slugs, tc.ordered); got != tc.want {
+			t.Errorf("%s: mergeDestination = %q, want %q", tc.name, got, tc.want)
 		}
-	}
-	// A default branch read from a remote that is not on GitHub leaves no
-	// GitHub repository entitled to declare the work merged.
-	if got := mergeDestination("refs/remotes/upstream/main", map[string]string{"upstream": "", "origin": "me/project"}, []string{"me/project"}); got != "" {
-		t.Errorf("a fork was trusted in place of a non-GitHub upstream: %q", got)
-	}
-	if got := mergeDestination("refs/heads/main", map[string]string{"company": "owner/project"}, []string{"owner/project"}); got != "owner/project" {
-		t.Errorf("a single GitHub remote should be the destination: %q", got)
-	}
-	if got := mergeDestination("refs/heads/main", map[string]string{"a": "one/project", "b": "two/project"}, []string{"one/project", "two/project"}); got != "" {
-		t.Errorf("an ambiguous destination must not be guessed: %q", got)
 	}
 }

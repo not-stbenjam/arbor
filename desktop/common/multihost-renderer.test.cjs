@@ -281,8 +281,9 @@ test("scan activity lists only hosts with something to report, with independent 
   ]);
   assert.equal(result.active, 1);
   assert.equal(result.visible, true);
-  assert.equal(result.canCancel, true);
   assert.equal(result.canCancelAll, false, "one scan needs only its own Stop");
+  // Said aloud once per change of stage: no paths, no counts, no markup.
+  assert.equal(result.summary, "<Build>: Checking worktrees…. Paused: Scan stopped");
   assert.match(result.markup, /data-stop-host="vps"/);
   assert.doesNotMatch(result.markup, /data-stop-host=""/);
   assert.match(result.markup, /&lt;Build&gt;/);

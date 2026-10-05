@@ -70,7 +70,7 @@ export function worktreeState(w) {
       tone: "muted",
       label: "New",
       detail:
-        "Created in the last day with no commits of its own. Delete recommended leaves it alone.",
+        "Created in the last 24 hours, and its HEAD has not moved since. Delete recommended leaves it alone until one of those changes.",
     };
   // Green means exactly one thing: Delete recommended will remove this row. A
   // merged commit on a detached HEAD, say, is merged but not offered there.
@@ -242,6 +242,9 @@ export function renderTreeRows(
       }
       const w = entry.worktree;
       const rowDisabled = disabled || !canDelete(w);
+      // A row's buttons are for the pointer. The keyboard reaches the same
+      // actions from the row itself, with Delete and Enter, so Tab moves
+      // through folders rather than through two buttons for every worktree.
       // The folder rows above already say where this is. The row leads with
       // the worktree's own name; its full path stays one hover or copy away.
       const leaf = entry.label.split("/").pop();
@@ -256,8 +259,8 @@ export function renderTreeRows(
         : `${state ? `${state.label} · ` : ""}${branch}${w.repo ? ` · ${w.repo}` : ""}`;
       const contextMarkup = w.pending
         ? `<span>${esc(context)}</span>`
-        : `${state ? `<span class="worktree-state" data-tone="${state.tone}" title="${esc(state.detail)}">${esc(state.label)}</span><span> · </span>` : ""}<span class="worktree-branch">${esc(branch)}</span>${w.repo ? `<span> · ${esc(w.repo)}</span>` : ""}`;
-      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-selected="${selected.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${esc(context)}">${contextMarkup}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending || w.missing ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
+        : `${state ? `<span class="worktree-state" data-tone="${state.tone}" title="${esc(state.detail)}">${esc(state.label)}</span><span> · </span>` : ""}<span class="worktree-branch">${esc(branch)}</span>${w.repo ? `<span> · </span><span class="worktree-repository">${esc(w.repo)}</span>` : ""}`;
+      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-selected="${selected.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${esc(context)}">${contextMarkup}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending || w.missing ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" tabindex="-1" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" tabindex="-1" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
     })
     .join("");
 }

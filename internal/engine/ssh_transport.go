@@ -44,7 +44,8 @@ func connectionError(host, detail string) string {
 	hint := "Check that `ssh " + host + "` connects from a terminal"
 	switch {
 	case strings.Contains(detail, "Could not resolve hostname"):
-		hint = "Check the SSH alias or hostname"
+		// ssh's own line only repeats the name that is already in ours.
+		detail, hint = "its name could not be resolved", "Check the SSH alias or hostname"
 	case strings.Contains(detail, "Permission denied"):
 		hint = "Check your SSH key and agent; Arbor cannot enter a password"
 	case strings.Contains(detail, "Host key verification failed"), strings.Contains(detail, "REMOTE HOST IDENTIFICATION HAS CHANGED"):

@@ -69,16 +69,17 @@ export function createStatisticsController({ document, api, getHost }) {
         ? `<p class="statistics-warning">${icon("warning")}<span>${esc(report.warning)}</span></p>`
         : "";
       content.innerHTML = !removed
-        ? `${scope}${warning}<div class="statistics-none">${icon("chart")}<h3>No cleanups yet</h3><p>Worktrees you delete here or with the <code>arbor</code> command are counted from now on, along with the space they held.</p></div>`
+        ? // A host that could not answer may have a history; say only what is known.
+          `${scope}${warning}<div class="statistics-none">${icon("chart")}<h3>${report.warning ? "No cleanups recorded on the hosts that answered" : "No cleanups yet"}</h3><p>Worktrees you delete here or with the <code>arbor</code> command are counted from now on, along with the space they held.</p></div>`
         : `${scope}${warning}
         <div class="statistics-hero"><div><span class="statistics-eyebrow">All time</span><strong data-stat="estimatedBytesReclaimed">${esc(size(bytes))}</strong><span>estimated space recovered</span></div><div class="statistics-removed"><strong data-stat="removedWorktrees">${removed.toLocaleString()}</strong><span>worktrees deleted</span></div></div>
         <div class="statistics-metrics">${card(statisticCount(report.cleanupSessions).toLocaleString(), "Cleanups")}${card(size(report.largestWorktreeBytes), "Largest worktree")}${card(size(removed > missing ? bytes / (removed - missing) : 0), "Average worktree")}</div>
         <h3 class="statistics-period">Last 30 days</h3>
         <div class="statistics-charts">${statisticsChart(days, "removedWorktrees", "Worktrees deleted", (n) => n.toLocaleString())}${statisticsChart(days, "estimatedBytesReclaimed", "Space recovered", size)}</div>
-        <div class="statistics-detail"><span>Last cleanup</span><strong>${esc(fullDate(report.lastCleanupAt))}</strong></div><div class="statistics-detail"><span>Missing folders whose registrations were removed</span><strong>${missing.toLocaleString()}</strong></div><div class="statistics-detail"><span>Detached commits kept</span><strong>${statisticCount(report.detachedCommitsRetained).toLocaleString()}</strong></div>
+        <div class="statistics-detail"><span>Last cleanup</span><strong>${esc(fullDate(report.lastCleanupAt))}</strong></div><div class="statistics-detail"><span>Missing worktree registrations removed</span><strong>${missing.toLocaleString()}</strong></div><div class="statistics-detail"><span>Detached commits kept</span><strong>${statisticCount(report.detachedCommitsRetained).toLocaleString()}</strong></div>
         <p class="statistics-note">Space is estimated from each worktree's size when it was deleted, not measured as free disk space. Days are counted in UTC.</p>`;
       $("#statistics-dialog .statistics-footer").textContent =
-        `Counts the app and the command line · Stored ${host === null ? "on each host" : host ? "on this SSH host" : "on this computer"} · No paths are kept`;
+        `Includes deletions from the app and the command line · Stored ${host === null ? "on each host" : host ? "on this SSH host" : "on this computer"} · No paths are kept`;
     } catch (error) {
       if (
         generation !== statisticsGeneration ||

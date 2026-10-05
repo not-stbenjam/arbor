@@ -190,7 +190,11 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
     'data-worktree-menu="id&quot;unsafe"',
     'aria-label="Actions for /work/&lt;topic&gt;"',
     'aria-label="Delete /work/&lt;topic&gt;"',
-    '<span class="worktree-branch">&lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt;</span><span> · &lt;repo&gt;&amp;&quot;</span>',
+    '<span class="worktree-branch">&lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt;</span><span> · </span><span class="worktree-repository">&lt;repo&gt;&amp;&quot;</span>',
+    // A row's buttons are for the pointer: Delete and Enter reach the same
+    // actions from the row, so Tab does not stop twice at every worktree.
+    '<button class="row-action" tabindex="-1" data-delete=',
+    '<button class="icon-button row-menu" tabindex="-1" data-worktree-menu=',
   ])
     assert.ok(markup.includes(expected), `missing escaped markup: ${expected}`);
   assert.match(
@@ -273,7 +277,7 @@ test("a row states the one fact that decides cleanup, and stays quiet otherwise"
   );
   assert.ok(
     markup.includes(
-      '<span class="worktree-state" data-tone="muted" title="&lt;held&gt; &amp; &quot;kept&quot;">Locked</span><span> · </span><span class="worktree-branch">topic</span><span> · repo</span>',
+      '<span class="worktree-state" data-tone="muted" title="&lt;held&gt; &amp; &quot;kept&quot;">Locked</span><span> · </span><span class="worktree-branch">topic</span><span> · </span><span class="worktree-repository">repo</span>',
     ),
   );
   assert.ok(markup.includes('title="Locked · topic · repo"'));
@@ -1226,9 +1230,13 @@ test("settings emit one scan command and never persist scan options themselves",
       github: false,
       fetch: false,
       excludes: ["**/build"],
-      theme: "dark",
     },
   ]);
+  assert.equal(
+    "theme" in commands[0],
+    false,
+    "a scan that waits its turn must not save an appearance chosen before it",
+  );
   assert.deepEqual(
     preferences.options.excludes,
     ["cache"],
@@ -1480,25 +1488,33 @@ test("Delete recommended acts on, counts, and describes exactly what the list sh
     },
   });
   const { document, element } = preferenceDocument();
-  let shown = { filtered: all, filtering: false };
-  const timeouts = [];
+  let shown = { filtered: all, filtering: false, selectedCount: 0 };
+  // Each timer is kept with its delay: the short one makes a confirming
+  // click its own decision, the long one withdraws the question.
+  let timers = [];
   const view = createWorkspaceView({
     document,
     workspace: fixture.workspace,
     shown: () => shown,
     timers: {
-      setTimeout: (expire) => timeouts.push(expire),
-      clearTimeout() {},
+      setTimeout: (run, delay) => timers.push({ run, delay }) && timers.at(-1),
+      clearTimeout: (timer) => (timers = timers.filter((t) => t !== timer)),
     },
   });
+  const settle = () => timers.find((timer) => timer.delay < 1000).run();
+  const expire = () => timers.find((timer) => timer.delay >= 1000).run();
   const button = element("#cleanup-button");
+  // The button lays out all three labels and shows one.
+  const label = () =>
+    button.innerHTML.match(/data-current="true"><svg.*?<\/svg><span>([^<]*)</)[1];
+  const status = () => element("#status-message").textContent;
   view.render();
-  assert.match(button.innerHTML, /Delete recommended \(2\)/);
+  assert.equal(label(), "Delete recommended (2)");
   assert.match(button.title, /Delete the 2 worktrees recommended on/);
   // A search or repository filter narrows the action along with the list.
-  shown = { filtered: [all[1], all[2]], filtering: true };
+  shown = { ...shown, filtered: [all[1], all[2]], filtering: true };
   view.renderControls();
-  assert.match(button.innerHTML, /Delete recommended \(1\)/);
+  assert.equal(label(), "Delete recommended (1)");
   assert.match(
     button.title,
     /Delete the 1 worktree recommended shown in this view, about 2 KB/,
@@ -1506,33 +1522,73 @@ test("Delete recommended acts on, counts, and describes exactly what the list sh
 
   // One click beside Refresh must never delete folders. The first click arms
   // the button, which then says exactly what the second will do.
-  await button.onclick();
+  await button.onclick({ detail: 1 });
   assert.deepEqual(removed, [], "the first click deletes nothing");
-  assert.match(button.innerHTML, /Confirm: delete 1 worktree</);
+  assert.equal(label(), "Confirm: delete 1 worktree");
   assert.equal(button.classes.has("armed"), true);
   assert.match(button.title, /Click again to delete 1 worktree shown/);
-  await button.onclick();
+  assert.match(status(), /^Click again to delete 1 worktree, about 2 KB\./);
+  assert.match(
+    element("#announcement").textContent,
+    /^Ready to delete 1 worktree shown in this view, about 2 KB\. Activate the button again to confirm, or press Escape\.$/,
+  );
+  // The rest of a double-click is the same gesture, however fast or slow the
+  // system's double-click is: it is neither soon enough nor a new click.
+  await button.onclick({ detail: 2 });
+  assert.deepEqual(removed, [], "a double-click does not confirm itself");
+  settle();
+  await button.onclick({ detail: 2 });
+  assert.deepEqual(removed, [], "nor does a slow double-click");
+  assert.equal(button.classes.has("armed"), true);
+  // A held Enter repeats the activation; only a fresh press may confirm.
+  const key = (event) => {
+    let prevented = false;
+    button.listeners.keydown({
+      ...event,
+      preventDefault: () => (prevented = true),
+    });
+    return prevented;
+  };
+  assert.equal(key({ key: "Enter", repeat: true }), true);
+  assert.equal(key({ key: "Enter", repeat: false }), false);
+  await button.onclick({ detail: 1 });
   assert.deepEqual(removed.at(-1).items, [{ id: "b", head: "b" }]);
   assert.equal(removed.at(-1).recommendedOnly, true);
   assert.equal(button.classes.has("armed"), false);
 
   // Consent is for the rows it was given for. If the list changes under an
   // armed button, the next click asks again instead of deleting the new set.
-  await button.onclick();
-  shown = { filtered: all, filtering: false };
+  await button.onclick({ detail: 1 });
+  settle();
+  shown = { ...shown, filtered: all, filtering: false };
   view.renderControls();
   assert.equal(button.classes.has("armed"), false, "a new scope disarms");
-  await button.onclick();
+  await button.onclick({ detail: 1 });
   assert.equal(removed.length, 1, "the changed scope was not deleted unasked");
-  assert.match(button.innerHTML, /Confirm: delete 2 worktrees</);
-  // Waiting too long, or looking away, withdraws the question.
-  timeouts.at(-1)();
-  assert.match(button.innerHTML, /Delete recommended \(2\)/);
-  await button.onclick();
+  assert.equal(label(), "Confirm: delete 2 worktrees");
+  // The same worktree at another commit is a different question too.
+  settle();
+  shown = { ...shown, filtered: [{ ...all[0], head: "moved" }, all[1], all[2]] };
+  view.renderControls();
+  assert.equal(button.classes.has("armed"), false, "a moved HEAD disarms");
+  await button.onclick({ detail: 1 });
+  assert.equal(removed.length, 1, "the moved worktree was not deleted unasked");
+  shown = { ...shown, filtered: all };
+  view.renderControls();
+  // Waiting too long, looking away, or Escape withdraws the question.
+  await button.onclick({ detail: 1 });
+  expire();
+  assert.equal(label(), "Delete recommended (2)");
+  await button.onclick({ detail: 1 });
   button.listeners.blur();
-  assert.match(button.innerHTML, /Delete recommended \(2\)/);
-  await button.onclick();
-  await button.onclick();
+  assert.equal(label(), "Delete recommended (2)");
+  await button.onclick({ detail: 1 });
+  assert.equal(key({ key: "Escape" }), true);
+  assert.equal(label(), "Delete recommended (2)");
+  assert.match(status(), /^3 worktrees · /);
+  await button.onclick({ detail: 1 });
+  settle();
+  await button.onclick({ detail: 1 });
   assert.equal(removed.length, 2);
   assert.deepEqual(
     removed.at(-1).items.map((item) => item.id),
@@ -1635,4 +1691,230 @@ test("selection and the keyboard cursor never outlive a row's place on screen", 
   assert.deepEqual(menus, ["alpha"]);
   assert.deepEqual(deleted.at(-1), []);
   fixture.workspace.dispose();
+});
+
+test("the keyboard stays somewhere useful when its row, or every row, goes away", async (t) => {
+  const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
+  globalThis.CSS = { escape: String };
+  t.after(() => delete globalThis.CSS);
+  const row = (id) => ({
+    id,
+    path: `/local/team/${id}`,
+    head: id,
+    branch: id,
+    repo: "repo",
+    canRemove: true,
+  });
+  let rows = [row("alpha"), row("beta"), row("gamma")];
+  const state = () =>
+    coordinatorState({ report: { worktrees: rows, warnings: [] } });
+  const fixture = await workspaceFixture({
+    getState: async () => state(),
+    refreshHosts: async () => state(),
+  });
+  const deleted = [],
+    menus = [],
+    focused = [];
+  fixture.workspace.deleteWorktrees = (list) => deleted.push(list);
+  const { document, element } = preferenceDocument();
+  document.getElementById = () => null;
+  const listeners = {};
+  for (const selector of ["#table-scroll", "#worktree-grid", "#selection-bar"])
+    element(selector).addEventListener = (type, listener) => {
+      listeners[`${selector} ${type}`] = listener;
+    };
+  for (const selector of ["#worktree-grid", "#refresh-button"])
+    element(selector).focus = () => focused.push(selector);
+  // Focus is on the list itself, not on a control inside its rows.
+  element("#worktree-list").contains = () => false;
+  const trees = createWorktreeView({
+    document,
+    workspace: fixture.workspace,
+    tree: require("./worktree-tree.mjs"),
+    showWorktreeMenu: (id) => menus.push(id),
+  });
+  trees.render();
+  const press = (key, onButton = false) =>
+    listeners["#worktree-grid keydown"]({
+      key,
+      target: { closest: (selector) => (onButton && selector === "button" ? {} : null) },
+      preventDefault() {},
+    });
+  const click = (id) =>
+    listeners["#table-scroll click"]({
+      target: {
+        closest: (selector) =>
+          selector === "[data-id]" ? { dataset: { id } } : null,
+      },
+    });
+  click("beta");
+  document.activeElement = element("#worktree-grid");
+  assert.equal(trees.selectedCount, 1);
+
+  // Beta is deleted. The list still has the keyboard, so the cursor moves to
+  // the row now in beta's place. It selects nothing: Enter has a row to act
+  // on, and Delete still has nothing chosen.
+  rows = [row("alpha"), row("gamma")];
+  await fixture.workspace.refresh();
+  trees.render();
+  press("Enter");
+  press("Delete");
+  assert.deepEqual(menus, ["gamma"]);
+  assert.deepEqual(deleted.at(-1), []);
+  assert.equal(trees.selectedCount, 0);
+  // Removing the last row of the list moves the cursor up, not off the end.
+  rows = [row("alpha")];
+  await fixture.workspace.refresh();
+  trees.render();
+  press("Enter");
+  assert.deepEqual(menus, ["gamma", "alpha"]);
+
+  // Escape clears the selection from one of a row's own buttons as well.
+  click("alpha");
+  assert.equal(trees.selectedCount, 1);
+  press("Escape", true);
+  assert.equal(trees.selectedCount, 0);
+
+  // With no row left to stay on, the keyboard goes to the next thing to do.
+  focused.length = 0;
+  rows = [];
+  await fixture.workspace.refresh();
+  trees.render();
+  assert.deepEqual(focused, ["#refresh-button"]);
+  assert.equal(element("#worktree-grid").tabIndex, -1);
+  fixture.workspace.dispose();
+});
+
+test("an empty list says whether the scan failed, was stopped, or found nothing", async (t) => {
+  const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
+  globalThis.CSS = { escape: String };
+  t.after(() => delete globalThis.CSS);
+  const emptyState = async (changes, prepare = () => {}) => {
+    const fixture = await workspaceFixture({
+      getState: async () => coordinatorState(changes),
+    });
+    prepare(fixture.workspace);
+    const { document, element } = preferenceDocument();
+    document.getElementById = () => null;
+    createWorktreeView({
+      document,
+      workspace: fixture.workspace,
+      tree: require("./worktree-tree.mjs"),
+      showWorktreeMenu() {},
+    }).render();
+    fixture.workspace.dispose();
+    return element("#empty-state").innerHTML;
+  };
+  assert.match(await emptyState({}), /No linked worktrees here/);
+  // The reason is in the middle of the window as well as in the banner,
+  // which can be dismissed.
+  const failed = await emptyState({
+    error: "folder does not exist: /srv/<gone>\nbuild-vps: unreachable",
+  });
+  assert.match(failed, /This scan did not finish/);
+  assert.ok(
+    failed.includes(
+      "<p>Folder does not exist: /srv/&lt;gone&gt;<br />build-vps: unreachable</p>",
+    ),
+    failed,
+  );
+  assert.match(failed, /data-scan-again/);
+  // A command that failed in this window found nothing either.
+  assert.match(
+    await emptyState({}, (workspace) => workspace.showError("Arbor is closing")),
+    /This scan did not finish<\/h2><p>Arbor is closing<\/p>/,
+  );
+  const stopped = await emptyState({ cancelled: true });
+  assert.match(stopped, /Scan stopped before it finished/);
+  assert.match(stopped, /data-scan-again/);
+  assert.doesNotMatch(stopped, /No linked worktrees here/);
+});
+
+test("scan progress redraws only when it changes, keeps the keyboard on Stop, and is announced by stage", async (t) => {
+  const { createWorkspaceView } = await import(
+    "../renderer/workspace-view.mjs"
+  );
+  globalThis.CSS = { escape: String };
+  t.after(() => delete globalThis.CSS);
+  let progress = { stage: "inspect", path: "/local/a", completed: 1, total: 3 };
+  let busy = true;
+  const state = () => {
+    const next = coordinatorState({ busy, canCancelScan: busy, progress });
+    return next;
+  };
+  const fixture = await workspaceFixture({
+    getState: async () => state(),
+    refreshHosts: async () => state(),
+  });
+  const { document, element } = preferenceDocument();
+  const list = element("#host-progress-list");
+  let writes = 0,
+    markup = "";
+  Object.defineProperty(list, "innerHTML", {
+    get: () => markup,
+    set(value) {
+      writes++;
+      markup = value;
+    },
+  });
+  const focused = [];
+  const stop = { disabled: false, focus: () => focused.push("stop") };
+  list.querySelector = () => (busy ? stop : null);
+  element("#refresh-button").focus = () => focused.push("refresh");
+  const view = createWorkspaceView({ document, workspace: fixture.workspace });
+  view.render();
+  assert.equal(writes, 1);
+  assert.equal(
+    element("#announcement").textContent,
+    "This computer: Checking worktrees…",
+  );
+  view.render();
+  assert.equal(writes, 1, "an unchanged row is not rebuilt");
+  // The keyboard is on Stop when the count moves on.
+  document.activeElement = { dataset: { stopHost: "" } };
+  progress = { ...progress, path: "/local/b", completed: 2 };
+  await fixture.workspace.refresh();
+  view.render();
+  assert.equal(writes, 2);
+  assert.deepEqual(focused, ["stop"]);
+  assert.equal(
+    element("#announcement").textContent,
+    "This computer: Checking worktrees…",
+    "a new path within the same stage is not announced again",
+  );
+  // The scan ends, and with it the button that had the keyboard.
+  busy = false;
+  progress = null;
+  await fixture.workspace.refresh();
+  view.render();
+  assert.deepEqual(focused, ["stop", "refresh"]);
+  assert.equal(element("#announcement").textContent, "Finished.");
+  fixture.workspace.dispose();
+});
+
+test("statistics with a host missing never claim there have been no cleanups", async () => {
+  const { createStatisticsController } = await import(
+    "../renderer/statistics-controller.mjs"
+  );
+  const render = async (report) => {
+    const fixture = dialogFixture();
+    await createStatisticsController({
+      document: fixture.document,
+      getHost: () => null,
+      api: { getStats: async () => ({ host: null, report }) },
+    }).open();
+    return fixture.content.innerHTML;
+  };
+  assert.match(await render(statsReport(0)), /<h3>No cleanups yet<\/h3>/);
+  // An unreachable host may have a history. Say only what is known.
+  const partial = await render({
+    ...statsReport(0),
+    warning: "Partial totals. build: unreachable",
+  });
+  assert.match(partial, /Partial totals\. build: unreachable/);
+  assert.match(
+    partial,
+    /<h3>No cleanups recorded on the hosts that answered<\/h3>/,
+  );
+  assert.doesNotMatch(partial, /No cleanups yet/);
 });

@@ -7,7 +7,9 @@ async function fixture() {
     "../renderer/preferences-controller.mjs"
   );
   const elements = new Map(),
-    calls = [];
+    calls = [],
+    // Set `save` to a message to make the next saves fail with it.
+    failure = { save: "" };
   const element = (selector) => {
     if (!elements.has(selector))
       elements.set(selector, {
@@ -38,6 +40,7 @@ async function fixture() {
     defaults: { excludes: ["default-cache"] },
     api: {
       async savePreferences(value) {
+        if (failure.save) throw new Error(failure.save);
         calls.push(["save", structuredClone(value)]);
       },
       async chooseFolder() {
@@ -90,7 +93,7 @@ async function fixture() {
         }),
       },
     });
-  return { controller, element, calls, status, choose };
+  return { controller, element, calls, status, choose, failure };
 }
 
 test("host picker distinguishes All/null, local/empty and SSH aliases without starting scans", async () => {
@@ -222,7 +225,6 @@ test("All-host settings edit a specific machine independently and gate only its 
         github: true,
         fetch: false,
         excludes: ["~/.codex*/.tmp", "folder,with,commas"],
-        theme: "dark",
       },
     ],
     ],
@@ -273,4 +275,122 @@ test("All-host path control opens settings; adding a host saves before selecting
   f.element("#host-input").value = "third-host";
   await f.element("#host-form").onsubmit({ preventDefault() {} });
   assert.equal(f.element("#host-error").hidden, true);
+});
+
+test("a host that is already saved, or could not be saved, never keeps a folder nobody chose", async () => {
+  const f = await fixture();
+  const submit = () => f.element("#host-form").onsubmit({ preventDefault() {} });
+  const saved = () => f.calls.filter(([name]) => name === "save");
+  // The folder typed beside a saved host would be accepted and ignored.
+  f.element("#host-input").value = "vps";
+  f.element("#host-root").value = "/somewhere/else";
+  await submit();
+  assert.deepEqual(f.calls, [], "nothing is saved or selected");
+  assert.match(f.element("#host-error").textContent, /already saved/);
+  assert.equal(f.element("#host-input").value, "vps", "the entry is kept");
+
+  // A save that fails leaves no host behind, so the retry can correct it.
+  f.failure.save = "disk full";
+  f.element("#host-input").value = "build";
+  f.element("#host-root").value = "/wrong";
+  await submit();
+  assert.deepEqual(f.calls, []);
+  assert.equal(
+    f.element("#host-error").textContent,
+    "Could not save this host: disk full",
+  );
+  f.failure.save = "";
+  f.element("#host-root").value = "/correct";
+  await submit();
+  assert.equal(saved().length, 1);
+  assert.deepEqual(
+    saved()[0][1].hosts.map(({ host, root }) => [host, root]),
+    [
+      ["vps", "/saved-remote"],
+      ["build", "/correct"],
+    ],
+  );
+  assert.equal(f.element("#host-error").hidden, true);
+  assert.deepEqual(f.calls.at(-1), ["filter", "build"]);
+});
+
+test("settings keep each host's unsaved edits, and say when appearance could not be saved", async () => {
+  const f = await fixture();
+  f.controller.renderStatus({
+    ...f.status,
+    hosts: f.status.hosts.map((source) => ({ ...source, busy: false })),
+  });
+  const choose = (host) => {
+    f.element("#settings-host").value = host;
+    f.element("#settings-host").onchange();
+  };
+  const submit = () =>
+    f.element("#settings-form").onsubmit({ preventDefault() {} });
+  f.controller.openSettings();
+  f.element("#scan-root").value = "/draft-local";
+  f.element("#scan-fetch").checked = false;
+  // Looking at another host's options does not discard these.
+  choose("vps");
+  assert.equal(f.element("#scan-root").value, "/remote");
+  assert.match(
+    f.element("#settings-host").innerHTML,
+    /<option value="">This computer \(unsaved changes\)<\/option>/,
+  );
+  assert.doesNotMatch(
+    f.element("#settings-host").innerHTML,
+    /Build server \(unsaved changes\)/,
+  );
+  f.element("#scan-root").value = "/draft-remote";
+  choose("");
+  assert.equal(f.element("#scan-root").value, "/draft-local");
+  assert.equal(f.element("#scan-fetch").checked, false);
+  choose("vps");
+  assert.equal(f.element("#scan-root").value, "/draft-remote");
+
+  // Save & scan applies the host on screen. The other edited host is shown
+  // next, still edited, instead of being dropped unseen.
+  submit();
+  assert.deepEqual(
+    f.calls.filter(([name]) => name === "scan").map(([, scan]) => [scan.host, scan.root]),
+    [["vps", "/draft-remote"]],
+  );
+  assert.equal(f.element("#settings-dialog").open, true);
+  assert.equal(f.element("#settings-host").value, "");
+  assert.equal(f.element("#scan-root").value, "/draft-local");
+  assert.equal(
+    f.element("#settings-note").textContent,
+    "Scanning Build server with its new settings. This computer still has unsaved changes.",
+  );
+  submit();
+  assert.deepEqual(
+    f.calls.filter(([name]) => name === "scan").map(([, scan]) => [scan.host, scan.root]),
+    [
+      ["vps", "/draft-remote"],
+      ["", "/draft-local"],
+    ],
+  );
+  assert.equal(f.element("#settings-dialog").open, false);
+
+  // Reopening starts from what is saved, not from an abandoned edit.
+  f.controller.openSettings();
+  f.element("#scan-root").value = "/abandoned";
+  f.element("#settings-dialog").close();
+  f.controller.openSettings();
+  assert.equal(f.element("#scan-root").value, "/local");
+  assert.equal(f.element("#settings-note").hidden, true);
+
+  // The dialog covers the window's notifications, so a failed save of the
+  // appearance is reported inside it.
+  f.calls.length = 0;
+  f.failure.save = "read-only profile";
+  f.element("#theme-select").value = "dark";
+  await f.element("#theme-select").onchange();
+  assert.deepEqual(f.calls, [], "no toast behind the dialog");
+  assert.equal(
+    f.element("#settings-error").textContent,
+    "Appearance changed for this session, but could not be saved: read-only profile",
+  );
+  f.failure.save = "";
+  await f.element("#theme-select").onchange();
+  assert.equal(f.element("#settings-error").hidden, true);
 });

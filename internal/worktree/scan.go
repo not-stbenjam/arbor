@@ -24,12 +24,14 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		return report, err
 	}
 	report.Warnings = append(report.Warnings, warnings...)
-	if err := collectRegistrations(ctx, &report, paths, location.excluded, options); err != nil {
+	defaults, err := collectRegistrations(ctx, &report, paths, location.excluded, options)
+	if err != nil {
 		return report, err
 	}
-	if err := inspectWorktrees(ctx, &report, options, len(paths)); err != nil {
+	if err := inspectWorktrees(ctx, &report, options, len(paths), defaults); err != nil {
 		return report, err
 	}
+	report.Warnings = append(report.Warnings, defaultWarnings(defaults)...)
 	sort.Slice(report.Worktrees, func(i, j int) bool {
 		a, b := report.Worktrees[i], report.Worktrees[j]
 		if a.Repo != b.Repo {
@@ -42,6 +44,19 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 	})
 	report.DurationMS = time.Since(start).Milliseconds()
 	return report, nil
+}
+
+// defaultWarnings explains, once per repository, why none of its worktrees
+// could be recognized as merged. Without it the list would only be quieter.
+func defaultWarnings(defaults map[string]*repositoryDefault) []string {
+	var warnings []string
+	for _, repository := range defaults {
+		if repository.problem != "" {
+			warnings = append(warnings, "Nothing is recommended in "+repository.repository+": "+repository.problem+".")
+		}
+	}
+	sort.Strings(warnings)
+	return warnings
 }
 
 type scanLocation struct {

@@ -13,6 +13,14 @@ import (
 type repositoryDefault struct {
 	once sync.Once
 	ref  string
+	// repository is the path the repository was found at, for its warning.
+	repository string
+	// unconfirmed says, per remote, why this scan's fetch could not learn the
+	// remote's default branch. It is complete before inspection starts.
+	unconfirmed map[string]string
+	// problem says why nothing decides what is merged here, when a remote
+	// should have. It is written once, with ref.
+	problem string
 }
 
 func inspectPublication(ctx context.Context, w *Worktree) {
@@ -41,11 +49,26 @@ var defaultRemotes = []string{"upstream", "origin"}
 // branch is the default.
 var defaultBranches = []string{"main", "master", "trunk"}
 
+// decidingRemote is the one remote whose default branch decides what is
+// merged. A remote has that role when it is configured or when any of its
+// branches are recorded here, and keeps it even when its default branch is
+// not known yet: another remote's branches say nothing about this one's.
+func decidingRemote(ctx context.Context, path string, configured []string) string {
+	for _, remote := range defaultRemotes {
+		if slices.Contains(configured, remote) || tracksRemote(ctx, path, remote) {
+			return remote
+		}
+	}
+	return ""
+}
+
 func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefault, block func(reasonCode)) {
 	if defaultCache == nil {
-		w.DefaultRef = defaultRef(ctx, w.Path)
+		w.DefaultRef, _ = defaultRef(ctx, w.Path, nil)
 	} else {
-		defaultCache.once.Do(func() { defaultCache.ref = defaultRef(ctx, w.Path) })
+		defaultCache.once.Do(func() {
+			defaultCache.ref, defaultCache.problem = defaultRef(ctx, w.Path, defaultCache.unconfirmed)
+		})
 		w.DefaultRef = defaultCache.ref
 	}
 	if w.DefaultRef != "" {
@@ -67,32 +90,54 @@ func inspectMerge(ctx context.Context, w *Worktree, defaultCache *repositoryDefa
 	}
 }
 
-func defaultRef(ctx context.Context, path string) string {
+// defaultRef finds the branch that decides what is merged. When a remote
+// should have named it and could not, there is none, and problem says why:
+// guessing from another remote or a local branch could call unfinished work
+// merged.
+func defaultRef(ctx context.Context, path string, unconfirmed map[string]string) (ref, problem string) {
 	exists := func(ref string) bool {
 		return gitText(ctx, path, "rev-parse", "--verify", ref+"^{commit}") != ""
 	}
-	for _, remote := range defaultRemotes {
-		if ref := gitText(ctx, path, "symbolic-ref", "refs/remotes/"+remote+"/HEAD"); ref != "" && exists(ref) {
-			return ref
-		}
+	// Without a remote to ask, only a conventional name identifies the
+	// default branch. Nothing else in a repository says which one it is.
+	local := func() string {
 		for _, branch := range defaultBranches {
-			if ref := "refs/remotes/" + remote + "/" + branch; exists(ref) {
+			if ref := "refs/heads/" + branch; exists(ref) {
 				return ref
 			}
 		}
+		return ""
 	}
-	// A repository with no remote says nothing about its default branch.
-	// Conventional names come first; the name this user's Git gives new
-	// repositories is the last resort, never a reason to prefer it over one
-	// of those.
-	local := defaultBranches
-	if configured := gitText(ctx, path, "config", "--get", "init.defaultBranch"); configured != "" {
-		local = append(slices.Clone(local), configured)
+	remote := decidingRemote(ctx, path, strings.Fields(gitText(ctx, path, "remote")))
+	if remote == "" {
+		return local(), ""
 	}
-	for _, branch := range local {
-		if ref := "refs/heads/" + branch; exists(ref) {
-			return ref
+	if reason := unconfirmed[remote]; reason != "" {
+		return "", reason
+	}
+	prefix := "refs/remotes/" + remote + "/"
+	if ref := gitText(ctx, path, "symbolic-ref", prefix+"HEAD"); ref != "" && exists(ref) {
+		return ref, ""
+	}
+	for _, branch := range defaultBranches {
+		if ref := prefix + branch; exists(ref) {
+			return ref, ""
 		}
 	}
-	return ""
+	switch {
+	case tracksRemote(ctx, path, remote):
+		return "", "the default branch of " + remote + " is not known. Scan once with fetching on, or run `git remote set-head " + remote + " --auto` there"
+	case remote == "origin":
+		// Nothing of origin is tracked. A bare clone keeps origin's branches
+		// as its own, and a repository that has exchanged nothing with
+		// origin has only its own.
+		return local(), ""
+	default:
+		return "", remote + " has not been fetched, so what has been merged into it is not known. Fetch it, or scan with fetching on"
+	}
+}
+
+// tracksRemote reports whether any of a remote's branches are recorded here.
+func tracksRemote(ctx context.Context, path, remote string) bool {
+	return gitText(ctx, path, "for-each-ref", "--count=1", "--format=%(refname)", "refs/remotes/"+remote+"/") != ""
 }

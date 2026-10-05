@@ -380,14 +380,142 @@ func TestFetchRefreshesTheRemoteDefaultBranch(t *testing.T) {
 	}
 }
 
+// A clone that tracks one branch cannot follow its project to a new default
+// branch. What was merged into the old one is then no evidence, and the scan
+// says why nothing is recommended rather than only going quiet.
+func TestFetchRecommendsNothingWhenTheDefaultBranchIsNotTracked(t *testing.T) {
+	root := t.TempDir()
+	seed := testRepo(t, filepath.Join(t.TempDir(), "seed"))
+	testGit(t, seed, "branch", "trunk")
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	testGit(t, seed, "clone", "--bare", seed, remote)
+	repo := filepath.Join(root, "repo")
+	testGit(t, root, "clone", "--single-branch", "--branch", "main", remote, repo)
+	identity := []string{"-c", "user.name=Arbor Test", "-c", "user.email=arbor@example.invalid"}
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
+	testGit(t, wt, append(identity, "commit", "-am", "Topic work")...)
+	testGit(t, repo, append(identity, "merge", "--no-ff", "-m", "Merge topic", "topic")...)
+	testGit(t, repo, "push", "origin", "main")
+	if w := testTree(t, testScan(t, root), wt); w.DefaultRef != "refs/remotes/origin/main" || !w.Recommended {
+		t.Fatalf("fixture must begin merged into the remote default branch: %+v", w)
+	}
+	testGit(t, remote, "symbolic-ref", "HEAD", "refs/heads/trunk")
+	tracked := testGit(t, repo, "for-each-ref", "refs/remotes")
+	report, err := Scan(context.Background(), Options{Root: root, Fetch: true})
+	if err != nil || !report.Fetched {
+		t.Fatalf("fetch: %v, fetched=%v", err, report.Fetched)
+	}
+	if w := testTree(t, report, wt); w.DefaultRef != "" || w.Merged || w.Recommended {
+		t.Fatalf("a default branch that is not tracked left the old one deciding merges: %+v", w)
+	}
+	want := "Nothing is recommended in " + repo + ": the default branch of origin is trunk, which is not fetched here."
+	if len(report.Warnings) != 1 || report.Warnings[0] != want {
+		t.Fatalf("warnings %q, want %q", report.Warnings, want)
+	}
+	// Nothing is recorded about a branch that was never fetched.
+	if after := testGit(t, repo, "for-each-ref", "refs/remotes"); after != tracked {
+		t.Fatalf("remote-tracking refs changed:\n%s\nwas:\n%s", after, tracked)
+	}
+}
+
+// One remote decides what is merged: a fork's upstream when there is one,
+// otherwise the origin. When it cannot say, nothing else answers for it.
+func TestOnlyTheDecidingRemoteSaysWhatIsMerged(t *testing.T) {
+	fixture := func(t *testing.T) (root, repo, wt string) {
+		root = t.TempDir()
+		repo = testRepo(t, filepath.Join(root, "repo"))
+		wt = testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+		testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
+		testGit(t, wt, "commit", "-am", "Topic work")
+		testGit(t, repo, "merge", "--ff-only", "topic")
+		return root, repo, wt
+	}
+	scan := func(t *testing.T, root, wt string) (Worktree, []string) {
+		t.Helper()
+		report, err := Scan(context.Background(), Options{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return testTree(t, report, wt), report.Warnings
+	}
+	t.Run("an upstream that was never fetched does not yield to a cloned fork", func(t *testing.T) {
+		root, repo, wt := fixture(t)
+		testGit(t, repo, "remote", "add", "origin", "https://example.invalid/me/project.git")
+		testGit(t, repo, "update-ref", "refs/remotes/origin/main", "refs/heads/main")
+		testGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+		if w, warnings := scan(t, root, wt); w.DefaultRef != "refs/remotes/origin/main" || !w.Recommended || len(warnings) != 0 {
+			t.Fatalf("fixture must begin merged into origin: %+v %v", w, warnings)
+		}
+		testGit(t, repo, "remote", "add", "upstream", "https://example.invalid/owner/project.git")
+		w, warnings := scan(t, root, wt)
+		if w.DefaultRef != "" || w.Merged || w.Recommended {
+			t.Fatalf("the fork's default branch answered for the upstream: %+v", w)
+		}
+		want := "Nothing is recommended in " + repo + ": upstream has not been fetched, so what has been merged into it is not known. Fetch it, or scan with fetching on."
+		if len(warnings) != 1 || warnings[0] != want {
+			t.Fatalf("warnings %q, want %q", warnings, want)
+		}
+		// Once the upstream is known, it decides, and it has the work.
+		testGit(t, repo, "update-ref", "refs/remotes/upstream/main", "refs/heads/main")
+		if w, warnings := scan(t, root, wt); w.DefaultRef != "refs/remotes/upstream/main" || !w.Recommended || len(warnings) != 0 {
+			t.Fatalf("a fetched upstream should decide: %+v %v", w, warnings)
+		}
+	})
+	t.Run("a tracked remote with no known default branch does not yield to a local branch", func(t *testing.T) {
+		root, repo, wt := fixture(t)
+		testGit(t, repo, "remote", "add", "origin", "https://example.invalid/me/project.git")
+		testGit(t, repo, "update-ref", "refs/remotes/origin/feature", "refs/heads/main")
+		w, warnings := scan(t, root, wt)
+		if w.DefaultRef != "" || w.Merged || w.Recommended {
+			t.Fatalf("a local branch answered for origin: %+v", w)
+		}
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "the default branch of origin is not known") {
+			t.Fatalf("warnings: %q", warnings)
+		}
+	})
+	t.Run("a remote nothing was ever exchanged with leaves the repository's own branch", func(t *testing.T) {
+		root, repo, wt := fixture(t)
+		testGit(t, repo, "remote", "add", "origin", "https://example.invalid/me/project.git")
+		if w, warnings := scan(t, root, wt); w.DefaultRef != "refs/heads/main" || !w.Recommended || len(warnings) != 0 {
+			t.Fatalf("an unused origin hid the local default branch: %+v %v", w, warnings)
+		}
+	})
+}
+
+// A bare clone keeps origin's branches as its own and tracks none of them as
+// origin's, so its own default branch decides, fetched or not.
+func TestBareCloneUsesItsOwnDefaultBranch(t *testing.T) {
+	isolatedBareGlobalConfig(t, "all")
+	root := t.TempDir()
+	seed := testRepo(t, filepath.Join(t.TempDir(), "seed"))
+	bare := filepath.Join(root, "project.git")
+	testGit(t, seed, "clone", "--bare", seed, bare)
+	wt := testLinked(t, bare, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "tracked.txt"), "topic\n")
+	testGit(t, wt, "-c", "user.name=Arbor Test", "-c", "user.email=arbor@example.invalid", "commit", "-am", "Topic work")
+	testGit(t, bare, "update-ref", "refs/heads/main", "refs/heads/topic")
+	for _, fetch := range []bool{false, true} {
+		report, err := Scan(context.Background(), Options{Root: root, Fetch: fetch})
+		if err != nil || report.Fetched != fetch || len(report.Warnings) != 0 {
+			t.Fatalf("fetch=%v: %v, fetched=%v, warnings=%v", fetch, err, report.Fetched, report.Warnings)
+		}
+		if w := testTree(t, report, wt); w.DefaultRef != "refs/heads/main" || !w.Recommended {
+			t.Fatalf("fetch=%v: a bare clone lost its default branch: %+v", fetch, w)
+		}
+	}
+}
+
 // A repository with no remote and a default branch that is not main or master
-// still has finished work to recognize.
+// still has finished work to recognize. The name Git is configured to give
+// new repositories is a preference about the future, not a record of which
+// branch this repository integrates into, so it vouches for nothing.
 func TestLocalDefaultBranchNames(t *testing.T) {
 	for _, tc := range []struct {
 		name, initial, configured, want string
 	}{
 		{"trunk", "trunk", "", "refs/heads/trunk"},
-		{"the name Git is configured to give new repositories", "stable", "stable", "refs/heads/stable"},
+		{"the name Git is configured to give new repositories", "stable", "stable", ""},
 		{"an unconventional name nothing vouches for", "stable", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -436,6 +564,9 @@ func TestUninspectableRepositoryWarningSaysWhy(t *testing.T) {
 	}
 	if gitReason(nil) != "" || gitReason(errors.New("git: fatal: detected dubious ownership in repository at '/srv/x'\nTo add an exception, run a command")) != " (detected dubious ownership in repository at '/srv/x')" {
 		t.Fatal("a Git failure should reduce to its first line without prefixes")
+	}
+	if got := gitReason(errors.New("git: warning: redirecting to https://example.invalid/\nfatal: unable to access the remote\nerror: could not fetch origin")); got != " (unable to access the remote)" {
+		t.Fatalf("the line Git gave up on should be the reason: %q", got)
 	}
 	if got := gitReason(errors.New("fatal: not a git repository: (null)")); got != " (not a git repository)" {
 		t.Fatalf("Git's placeholder for no directory leaked: %q", got)

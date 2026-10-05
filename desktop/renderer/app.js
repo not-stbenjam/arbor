@@ -21,16 +21,24 @@ function notify(message, error = false) {
   el.innerHTML = `${icon(error ? "warning" : "check-circle")}<span>${esc(message)}</span><button class="icon-button" aria-label="Dismiss notification">${icon("close")}</button>`;
   el.querySelector("button").onclick = () => el.remove();
   $("#toast-region").append(el);
-  // It leaves on its own, but not while someone is reading or reaching for it.
+  // It leaves on its own, but not while someone is reading or reaching for
+  // it: the pointer and the keyboard each hold it, and one letting go does
+  // not release the other.
   let timer;
-  const leave = () => {
-    timer = setTimeout(() => el.remove(), error ? 12000 : 5500);
+  const schedule = () => {
+    clearTimeout(timer);
+    // Focus has not arrived at its destination when focusout fires.
+    queueMicrotask(() => {
+      if (el.matches(":hover") || el.contains(document.activeElement)) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => el.remove(), error ? 12000 : 5500);
+    });
   };
-  const stay = () => clearTimeout(timer);
-  for (const type of ["mouseenter", "focusin"]) el.addEventListener(type, stay);
+  for (const type of ["mouseenter", "focusin"])
+    el.addEventListener(type, () => clearTimeout(timer));
   for (const type of ["mouseleave", "focusout"])
-    el.addEventListener(type, leave);
-  leave();
+    el.addEventListener(type, schedule);
+  schedule();
 }
 
 async function bootstrap() {
@@ -150,7 +158,7 @@ async function bootstrap() {
   $("#statistics-button").onclick = statistics.open;
   $("#warning-button").onclick = () => {
     $("#notes-content").innerHTML =
-      `<p class="field-hint">These were skipped. Everything else was scanned normally.</p><ul class="scan-warnings">${(
+      `<p class="field-hint">Some checks could not be completed. Nothing else was affected.</p><ul class="scan-warnings">${(
         workspace.snapshot.report?.warnings || []
       )
         .map((message) => `<li>${icon("warning")}<span>${esc(message)}</span></li>`)
@@ -208,8 +216,8 @@ async function bootstrap() {
     },
     { once: true },
   );
+  // Drawing the list draws the chrome around it.
   trees.render();
-  chrome.render();
   await preferences.load();
   await workspace.initialize();
 }

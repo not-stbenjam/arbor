@@ -12,9 +12,20 @@ export function hostProgress(hosts) {
   return {
     active: hosts.filter((source) => source.busy).length,
     visible: rows.length > 0,
-    canCancel: hosts.some(stoppable),
     // One host has its own Stop; a shared one only helps with several.
     canCancelAll: hosts.filter(stoppable).length > 1,
+    // What each host is doing, without the paths and counts that change
+    // constantly: the part worth saying aloud once.
+    summary: rows
+      .map(
+        (source) =>
+          `${source.label || source.host || "This computer"}: ${
+            source.busy || source.cancelRequested
+              ? describeProgress(source, source.operation === "remove").stage
+              : "Scan stopped"
+          }`,
+      )
+      .join(". "),
     markup: rows
       .map((source) => {
         const name = source.label || source.host || "This computer";

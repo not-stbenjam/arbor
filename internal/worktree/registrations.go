@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -12,12 +13,13 @@ import (
 // collectRegistrations visits each common repository once and materializes
 // linked registrations before inspection. Discovery markers are not authority
 // to identify a checkout or to offer it for removal.
-func collectRegistrations(ctx context.Context, report *Report, paths []string, excluded func(string) bool, options Options) error {
+func collectRegistrations(ctx context.Context, report *Report, paths []string, excluded func(string) bool, options Options) (map[string]*repositoryDefault, error) {
+	defaults := map[string]*repositoryDefault{}
 	seen := map[string]bool{}
 	registeredPaths := map[string]bool{}
 	for _, path := range paths {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
 		if registeredPaths[path] {
 			continue
@@ -34,14 +36,18 @@ func collectRegistrations(ctx context.Context, report *Report, paths []string, e
 			continue
 		}
 		seen[common] = true
+		defaults[common] = &repositoryDefault{repository: path}
 		if options.Fetch {
 			if options.Progress != nil {
 				options.Progress(Progress{Stage: "fetch", Path: path, Discovered: len(paths), Completed: len(seen) - 1})
 			}
-			if err := fetchRepository(ctx, path); err != nil {
+			unconfirmed, err := fetchRepository(ctx, path)
+			if err != nil {
 				report.Fetched = false
-				report.Warnings = append(report.Warnings, "Fetch failed for "+path+": "+err.Error())
+				// The scan goes on; say what its merge checks then rest on.
+				report.Warnings = append(report.Warnings, "Could not fetch "+path+gitReason(err)+". Merge checks used the Git data already on disk.")
 			}
+			defaults[common].unconfirmed = unconfirmed
 		}
 		args := []string{"worktree", "list", "--porcelain", "-z"}
 		if explicitGitDir != "" {
@@ -53,6 +59,11 @@ func collectRegistrations(ctx context.Context, report *Report, paths []string, e
 			continue
 		}
 		entries := parseList(raw)
+		if len(entries) > 0 {
+			// Its primary checkout names a repository better than whichever
+			// of its worktrees discovery happened to reach first.
+			defaults[common].repository = entries[0].Path
+		}
 		for _, w := range entries {
 			registeredPaths[w.Path] = true
 		}
@@ -64,7 +75,7 @@ func collectRegistrations(ctx context.Context, report *Report, paths []string, e
 			}
 		}
 	}
-	return nil
+	return defaults, nil
 }
 
 // gitReason reduces a Git failure to the one line that says why, for a
@@ -73,8 +84,16 @@ func gitReason(err error) string {
 	if err == nil {
 		return ""
 	}
-	line, _, _ := strings.Cut(strings.TrimSpace(err.Error()), "\n")
-	line = strings.TrimPrefix(strings.TrimPrefix(line, "git: "), "fatal: ")
+	lines := strings.Split(strings.TrimSpace(strings.TrimPrefix(err.Error(), "git: ")), "\n")
+	line := lines[0]
+	// Notices can come first; the line Git gave up on says why.
+	for _, candidate := range lines {
+		if strings.HasPrefix(candidate, "fatal: ") {
+			line = candidate
+			break
+		}
+	}
+	line = strings.TrimPrefix(line, "fatal: ")
 	// Git names the directory it gave up on, or "(null)" when it had none.
 	line = strings.TrimSuffix(line, ": (null)")
 	if line == "" {
@@ -83,25 +102,66 @@ func gitReason(err error) string {
 	return " (" + line + ")"
 }
 
-func fetchRepository(ctx context.Context, path string) error {
+// fetchRepository fetches every remote and then learns which branch the
+// deciding remote calls its default. It returns, for that remote, why the
+// default branch could not be confirmed.
+func fetchRepository(ctx context.Context, path string) (map[string]string, error) {
 	// Fetch only on explicit request; never prune or change a local branch.
 	// Unlike read-only recognition/listing, fetch must use ordinary Git
 	// discovery so explicit-only bare and ownership policies still apply.
 	if _, err := run(ctx, 2*time.Minute, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "fetch", "--all", "--no-recurse-submodules"); err != nil {
-		return err
+		return nil, err
 	}
-	// A fetch updates branches, not which of them the remote calls its
-	// default. After a project renames that branch, the old name would keep
-	// deciding what counts as merged, so ask the remotes that decide it. The
-	// fetch just reached them; what is left to fail here is a repository that
-	// does not track the remote's default branch at all, such as a bare or
-	// single-branch clone, which has no stale selector to correct.
-	for _, remote := range defaultRemotes {
-		if gitText(ctx, path, "remote", "get-url", remote) != "" {
-			_, _ = run(ctx, 30*time.Second, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "remote", "set-head", remote, "--auto")
+	configured := strings.Fields(gitText(ctx, path, "remote"))
+	remote := decidingRemote(ctx, path, configured)
+	// Branches left behind by a remote that is no longer configured cannot
+	// be refreshed; they decide exactly as they would without a fetch.
+	if !slices.Contains(configured, remote) {
+		return nil, nil
+	}
+	if reason := refreshRemoteDefault(ctx, path, remote); reason != "" {
+		return map[string]string{remote: reason}, nil
+	}
+	return nil, nil
+}
+
+// refreshRemoteDefault asks a remote which branch it calls its default and
+// points the local selector at it. A fetch updates branches, not that
+// selector, so after a project renames its default branch the old name would
+// keep deciding what counts as merged. It returns why the default branch is
+// not available here, when the remote names one that is not.
+func refreshRemoteDefault(ctx context.Context, path, remote string) string {
+	listed, err := run(ctx, 30*time.Second, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "ls-remote", "--symref", remote, "HEAD")
+	if err != nil {
+		return remote + " could not be asked for its default branch" + gitReason(err)
+	}
+	branch := ""
+	for _, line := range strings.Split(listed, "\n") {
+		if name, ok := strings.CutPrefix(line, "ref: refs/heads/"); ok {
+			branch, _, _ = strings.Cut(name, "\t")
+			break
 		}
 	}
-	return nil
+	if branch == "" {
+		// The remote names no default branch, so no selector can be stale.
+		return ""
+	}
+	selector, target := "refs/remotes/"+remote+"/HEAD", "refs/remotes/"+remote+"/"+branch
+	if gitText(ctx, path, "rev-parse", "--verify", target+"^{commit}") == "" {
+		if !tracksRemote(ctx, path, remote) {
+			// A bare clone tracks none of the remote's branches as such.
+			return ""
+		}
+		return "the default branch of " + remote + " is " + branch + ", which is not fetched here"
+	}
+	if gitText(ctx, path, "symbolic-ref", selector) == target {
+		return ""
+	}
+	// Full ref names, so a branch name can never be read as an option.
+	if _, err := run(ctx, 30*time.Second, "git", "-c", "core.hooksPath=/dev/null", "-C", path, "symbolic-ref", selector, target); err != nil {
+		return "the default branch of " + remote + " could not be recorded" + gitReason(err)
+	}
+	return ""
 }
 
 // selectRegistrations applies scan scope and assigns stable repository identity.
