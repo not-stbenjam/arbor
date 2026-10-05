@@ -501,7 +501,7 @@ func TestCLIRemovalReportsActualCommitRetention(t *testing.T) {
 func TestCLIHelpDocumentsRemovalPolicies(t *testing.T) {
 	for command, required := range map[string][]string{
 		"remove": {"--force", "--repo", "that alone is refused", "uncommitted,\nuntracked or ignored files", "only when no\nbranch already holds them", "agrees to everything\nthe preview lists"},
-		"clean":  {"--all", "--force", "not a clean delete are skipped\nunless --force is added", "another repository inside the folder", "own branches and commits are kept"},
+		"clean":  {"--all", "--force", "not a clean delete are skipped\nunless --force is added", "another repository inside the folder", "Named branches and the checked-out commit are kept", "reflog or private refs are not protected"},
 		"list":   {"--linked-only=false", "--exclude"},
 	} {
 		var out, stderr bytes.Buffer
