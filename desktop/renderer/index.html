@@ -24,7 +24,9 @@
         aria-label="Workspace navigation"
       >
         <div class="machine-area">
-          <button id="machine-button" class="machine-button">
+          <!-- Disabled until the first state arrives: a control that looks
+               ready and ignores its click is worse than one that waits. -->
+          <button id="machine-button" class="machine-button" disabled>
             <span id="machine-icon" aria-hidden="true"
               ><span data-icon="monitor"></span></span
             ><span id="machine-label">All hosts</span
@@ -91,7 +93,7 @@
         <div class="pathbar">
           <div class="path-location">
             <span data-icon="folder"></span
-            ><button id="path-button" title="Change scan folder…">
+            ><button id="path-button" title="Change scan folder…" disabled>
               <span id="root-label">Home folder</span
               ><span data-icon="edit"></span>
             </button>
