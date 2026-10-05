@@ -166,18 +166,28 @@ func shorten(s string, limit int) string {
 // status is the one thing about a worktree that decides its cleanup. Nothing
 // with something to lose is ever called clean, and the gravest loss is named.
 func status(entry worktree.Worktree) string {
-	switch {
-	case !entry.CanRemove && !entry.CanDiscard && len(entry.Blockers) > 0:
+	if !entry.CanRemove && !entry.CanDiscard && len(entry.Blockers) > 0 {
 		return printable(entry.Blockers[0])
+	}
+	// A missing folder can still leave submodule history or an unfinished
+	// operation in Git's metadata. Name that loss before the absent folder,
+	// as the desktop does; the disappearance of files does not remove it.
+	for _, loss := range []struct{ name, label string }{
+		{"nested", "nested repository"},
+		{"submodules", "submodules"},
+		{"operation", "unfinished operation"},
+	} {
+		if slices.Contains(entry.Losses, loss.name) {
+			return loss.label
+		}
+	}
+	switch {
 	case entry.Missing:
 		return "missing checkout"
 	case entry.Empty:
 		return "empty checkout"
 	}
 	for _, loss := range []struct{ name, label string }{
-		{"nested", "nested repository"},
-		{"submodules", "submodules"},
-		{"operation", "unfinished operation"},
 		{"changes", "local changes"},
 		{"unchecked", "unchecked files"},
 		{"ignored", "ignored files"},

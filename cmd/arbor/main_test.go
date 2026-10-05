@@ -501,7 +501,7 @@ func TestCLIRemovalReportsActualCommitRetention(t *testing.T) {
 func TestCLIHelpDocumentsRemovalPolicies(t *testing.T) {
 	for command, required := range map[string][]string{
 		"remove": {"--force", "--repo", "that alone is refused", "uncommitted,\nuntracked or ignored files", "only when no\nbranch already holds them", "agrees to everything\nthe preview lists"},
-		"clean":  {"--all", "--force", "not a clean delete are skipped\nunless --force is added", "another repository inside the folder", "own branches and commits are kept"},
+		"clean":  {"--all", "--force", "not a clean delete are skipped\nunless --force is added", "another repository inside the folder", "Named branches and the checked-out commit are kept", "reflog or private refs are not protected"},
 		"list":   {"--linked-only=false", "--exclude"},
 	} {
 		var out, stderr bytes.Buffer
@@ -663,6 +663,23 @@ func TestCLIGraveLossesMustBeNamedOrForced(t *testing.T) {
 	for _, target := range []string{first, second} {
 		if _, err := os.Stat(target); !os.IsNotExist(err) {
 			t.Fatalf("%s was not removed: %v", target, err)
+		}
+	}
+}
+
+func TestAbsentCheckoutStatusStillNamesHistoryAtRisk(t *testing.T) {
+	for _, absent := range []worktree.Worktree{{Missing: true}, {Empty: true}} {
+		for _, loss := range []struct{ key, label string }{{"submodules", "submodules"}, {"operation", "unfinished operation"}, {"nested", "nested repository"}} {
+			w := absent
+			w.CanDiscard = true
+			w.Losses = []string{loss.key}
+			var out bytes.Buffer
+			if err := printTable(&out, "/fixture", []worktree.Worktree{w}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), loss.label) || strings.Contains(out.String(), "missing checkout") || strings.Contains(out.String(), "empty checkout") {
+				t.Fatalf("history loss hidden by absent folder: %s", out.String())
+			}
 		}
 	}
 }

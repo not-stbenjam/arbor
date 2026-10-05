@@ -1,0 +1,455 @@
+[
+  {
+    "label": "pty-80",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects\u2026\r\nScan complete: 69 worktrees in 691ms.\r\nWarning: Could not inspect repository: /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/broken (not a git repository)\r\nUnder /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects:\r\nPATH                      BRANCH                                    REPOSITORY  ACTIVITY  SIZE     STATUS\r\nteam-0/broken             broken                                    service-0   \u2014         0 B      Worktree path could not be verified\r\nteam-0/empty              empty                                     service-0   \u2014         0 B      empty checkout\r\nteam-0/missing-submodule  missing-submodule                         service-0   \u2014         \u2014        missing checkout\r\nteam-0/nested             nested                                    service-0   just now  80 B     nested repository\r\nteam-0/operation          operation                                 service-0   2h ago    52 B     unfinished operation\r\nteam-0/protected          develop                                   service-0   41d ago   52 B     protected branch name\r\nteam-0/space and\ufffdnewline  unusual-path                              service-0   3d ago    52 B     merged\r\nteam-0/submodule          submodule                                 service-0   just now  199 B    submodules\r\nteam-0/task-00            feature/a-very-long\u2026with-a-unique-ending  service-0   41d ago   32 B     merged\r\nteam-0/task-01            task-1                                    service-0   3d ago    42 B     merged\r\nteam-0/task-02            task-2                                    service-0   2h ago    52 B     clean\r\nteam-0/task-03            task-3                                    service-0   just now  52 B     new\r\nteam-0/task-04            task-4                                    service-0   3d ago    75 B     local changes\r\nteam-0/unchecked          unchecked                                 service-0   3d ago    59 B     unchecked files\r\nteam-1/task-05            task-5                                    service-1   2h ago    42 B     local changes\r\nteam-1/task-06            task-6                                    service-1   41d ago   1.0 MiB  ignored files\r\nteam-1/task-07            task-7                                    service-1   3d ago    32 B     Git locked\r\nteam-1/task-08            (detached)                                service-1   2h ago    42 B     detached\r\nteam-1/task-09            task-9                                    service-1   \u2014         \u2014        missing checkout\r\nteam-10/task-50           task-50                                   service-10  2h ago    43 B     clean\r\nteam-10/task-51           task-51                                   service-10  just now  43 B     new\r\nteam-10/task-52           task-52                                   service-10  3d ago    66 B     local changes\r\nteam-10/task-53           task-53                                   service-10  2h ago    53 B     local changes\r\nteam-10/task-54           task-54                                   service-10  41d ago   1.0 MiB  ignored files\r\nteam-11/task-55           task-55                                   service-11  3d ago    33 B     Git locked\r\nteam-11/task-56           (detached)                                service-11  2h ago    43 B     detached\r\nteam-11/task-57           task-57                                   service-11  \u2014         \u2014        missing checkout\r\nteam-11/task-58           task-58                                   service-11  3d ago    53 B     clean\r\nteam-11/task-59           task-59                                   service-11  2h ago    43 B     clean\r\nteam-2/task-10            task-10                                   service-2   3d ago    52 B     clean\r\nteam-2/task-11            task-11                                   service-2   2h ago    42 B     clean\r\nteam-2/task-12            task-12                                   service-2   41d ago   32 B     merged\r\nteam-2/task-13            task-13                                   service-2   3d ago    42 B     merged\r\nteam-2/task-14            task-14                                   service-2   2h ago    52 B     clean\r\nteam-3/task-15            task-15                                   service-3   just now  32 B     new\r\nteam-3/task-16            task-16                                   service-3   3d ago    55 B     local changes\r\nteam-3/task-17            task-17                                   service-3   2h ago    42 B     local changes\r\nteam-3/task-18            task-18                                   service-3   41d ago   1.0 MiB  ignored files\r\nteam-3/task-19            task-19                                   service-3   3d ago    32 B     Git locked\r\nteam-4/task-20            (detached)                                service-4   2h ago    42 B     detached\r\nteam-4/task-21            task-21                                   service-4   \u2014         \u2014        missing checkout\r\nteam-4/task-22            task-22                                   service-4   3d ago    52 B     clean\r\nteam-4/task-23            task-23                                   service-4   2h ago    42 B     clean\r\nteam-4/task-24            task-24                                   service-4   41d ago   32 B     merged\r\nteam-5/task-25            task-25                                   service-5   3d ago    42 B     merged\r\nteam-5/task-26            task-26                                   service-5   2h ago    52 B     clean\r\nteam-5/task-27            task-27                                   service-5   just now  52 B     new\r\nteam-5/task-28            task-28                                   service-5   3d ago    75 B     local changes\r\nteam-5/task-29            task-29                                   service-5   2h ago    62 B     local changes\r\nteam-6/task-30            task-30                                   service-6   41d ago   1.0 MiB  ignored files\r\nteam-6/task-31            task-31                                   service-6   3d ago    32 B     Git locked\r\nteam-6/task-32            (detached)                                service-6   2h ago    42 B     detached\r\nteam-6/task-33            task-33                                   service-6   \u2014         \u2014        missing checkout\r\nteam-6/task-34            task-34                                   service-6   3d ago    52 B     clean\r\nteam-7/task-35            task-35                                   service-7   2h ago    42 B     clean\r\nteam-7/task-36            task-36                                   service-7   41d ago   32 B     merged\r\nteam-7/task-37            task-37                                   service-7   3d ago    42 B     merged\r\nteam-7/task-38            task-38                                   service-7   2h ago    52 B     clean\r\nteam-7/task-39            task-39                                   service-7   just now  52 B     new\r\nteam-8/task-40            task-40                                   service-8   3d ago    55 B     local changes\r\nteam-8/task-41            task-41                                   service-8   2h ago    42 B     local changes\r\nteam-8/task-42            task-42                                   service-8   41d ago   1.0 MiB  ignored files\r\nteam-8/task-43            task-43                                   service-8   3d ago    32 B     Git locked\r\nteam-8/task-44            (detached)                                service-8   2h ago    42 B     detached\r\nteam-9/task-45            task-45                                   service-9   \u2014         \u2014        missing checkout\r\nteam-9/task-46            task-46                                   service-9   3d ago    52 B     clean\r\nteam-9/task-47            task-47                                   service-9   2h ago    42 B     clean\r\nteam-9/task-48            task-48                                   service-9   41d ago   32 B     merged\r\nteam-9/task-49            task-49                                   service-9   3d ago    42 B     merged\r\n",
+    "stderr": ""
+  },
+  {
+    "label": "pty-80",
+    "args": [
+      "remove",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-04"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-04\u2026\r\nScan complete: 1 worktree in 65ms.\r\nPATH                                                                 BRANCH  REPOSITORY  ACTIVITY  SIZE  STATUS\r\n/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-04  task-4  service-0   3d ago    75 B  local changes\r\n/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-04: Uncommitted changes and untracked files will be deleted.\r\n\r\nPreview only: 1 worktree, 75 B on disk. Pass --force --yes to remove; branches are kept.\r\n",
+    "stderr": ""
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "lsit"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "arbor: unknown command \"lsit\" for \"arbor\"\n\nDid you mean this?\n\tlist\n\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "list",
+      "--wat"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "arbor: unknown flag: --wat\nRun 'arbor list --help' for usage\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "list",
+      "--json=maybe"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "arbor: invalid argument \"maybe\" for \"--json\" flag: strconv.ParseBool: parsing \"maybe\": invalid syntax\nRun 'arbor list --help' for usage\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "clean",
+      "--force"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "arbor: --force applies to --all; without it, clean removes only clean, merged worktrees\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/no-such-folder"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/no-such-folder\u2026\narbor: folder does not exist: /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/no-such-folder\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/gitconfig"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/gitconfig\u2026\narbor: scan root must be a directory\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "remove",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/home"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/home\u2026\nScan complete: 0 worktrees in 4ms.\nWarning: Could not inspect repository: /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/home (not a git repository (or any parent up to mount point /))\narbor: path is not a linked worktree (primary checkouts and folders inside a worktree are never removed); for an empty or missing checkout, supply --repo with its owning repository\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "remove",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/service-0",
+      "--yes"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/service-0\u2026\nScan complete: 0 worktrees in 6ms.\narbor: path is not a linked worktree (primary checkouts and folders inside a worktree are never removed); for an empty or missing checkout, supply --repo with its owning repository\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "remove",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-00",
+      "--head",
+      "0000",
+      "--yes"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-00\u2026\nScan complete: 1 worktree in 40ms.\narbor: commit changed; scan again\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "remove",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-04",
+      "--yes"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-04\u2026\nScan complete: 1 worktree in 36ms.\narbor: not removed: Uncommitted or untracked files. Add --force to remove it anyway; run without --yes first to see what that involves\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "remove",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-1/task-07",
+      "--yes"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-1/task-07\u2026\nScan complete: 1 worktree in 34ms.\narbor: not removed: Locked worktree. Add --force to remove it anyway; run without --yes first to see what that involves\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "list",
+      "--host",
+      "unknown"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning unknown:~\u2026\nConnecting to unknown\u2026\narbor: Could not connect to unknown over SSH: its name could not be resolved. Check the SSH alias or hostname.\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "list",
+      "--host",
+      "-bad"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "arbor: use an SSH host alias or user@hostname (configure ports and keys in ~/.ssh/config)\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/home"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "No worktrees found under /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/home.\n",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/home\u2026\nScan complete: 0 worktrees in 2ms.\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "clean",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/home",
+      "--yes"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "No matching worktrees to remove. Nothing changed.\n",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/home\u2026\nScan complete: 0 worktrees in 2ms.\n"
+  },
+  {
+    "label": "error-or-empty",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects",
+      "--exclude",
+      "[bad"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects\u2026\narbor: invalid scan exclusion \"[bad\": syntax error in pattern\n"
+  },
+  {
+    "label": "permission",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/denied"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/denied\u2026\narbor: Git is required: git: fatal: cannot change to '/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/denied': Permission denied\n"
+  },
+  {
+    "label": "git-missing",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects\u2026\narbor: Git is required: git: \n"
+  },
+  {
+    "label": "partial-batch",
+    "args": [
+      "clean",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects",
+      "--yes",
+      "--json"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "[{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/space and\\nnewline\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-00\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/task-01\",\"removed\":false,\"error\":\"git: simulated device failure\"},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-2/task-12\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-2/task-13\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-4/task-24\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-5/task-25\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-7/task-36\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-7/task-37\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-9/task-48\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-9/task-49\",\"removed\":true}]\n",
+    "stderr": "Warning: Could not inspect repository: /tmp/arbor-r5-uxcli/arbor-e2e-ux-cli-R721pv/projects/team-0/broken (not a git repository)\narbor: some worktrees could not be removed\n"
+  },
+  {
+    "label": "remote-unquoted",
+    "command": "arbor-cli list --host review-host --path ~/projects",
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning review-host:/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/home/projects\u2026\nConnecting to review-host\u2026\narbor: review-host: folder does not exist: /tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/home/projects\n"
+  },
+  {
+    "label": "remote-quoted",
+    "command": "arbor-cli list --host review-host --path '~/projects'",
+    "status": 0,
+    "signal": null,
+    "stdout": "Under /tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/hosts/review-host/projects:\nPATH  BRANCH  REPOSITORY  ACTIVITY  SIZE  STATUS\nold   old     repo        just now  27 B  merged\n",
+    "stderr": "Scanning review-host:~/projects\u2026\nConnecting to review-host\u2026\nScan complete: 1 worktree in 75ms.\n"
+  },
+  {
+    "label": "completion-query",
+    "args": [
+      "__complete",
+      ""
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "clean\tPreview or delete worktrees beneath a folder\ncompletion\tGenerate the autocompletion script for the specified shell\ngui\tOpen the installed Arbor desktop app\nhelp\tHelp about any command\nlist\tFind and inspect linked worktrees\nremove\tPreview or delete one linked worktree\nstats\tShow cleanup statistics for this computer or an SSH host\nversion\tPrint the Arbor version\n:4\n",
+    "stderr": "Completion ended with directive: ShellCompDirectiveNoFileComp\n"
+  },
+  {
+    "label": "completion-query",
+    "args": [
+      "__complete",
+      "list",
+      "--"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "--exclude\tSkip a directory name, path, or glob (repeatable; quote patterns)\n--fetch\tFetch remote refs before inspection (uses the network)\n--github\tCheck GitHub pull requests using gh credentials on the target host\n--help\thelp for list\n--host\tSSH host alias or user@hostname\n--json\tWrite machine-readable results to stdout\n--linked-only\tShow only linked worktrees; use --linked-only=false for all registrations\n--no-default-excludes\tDo not use the default cache/temp exclusions\n--path\tFolder to scan (default: home directory on the target host)\n--progress\tStream framed JSON progress to stderr (for integrations)\n--quiet\tHide human progress messages; keep results and errors\n--recommended\tShow only clean, merged cleanup recommendations\n:4\n",
+    "stderr": "Completion ended with directive: ShellCompDirectiveNoFileComp\n"
+  },
+  {
+    "label": "completion-query",
+    "args": [
+      "__complete",
+      "list",
+      "--host",
+      ""
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": ":0\n",
+    "stderr": "Completion ended with directive: ShellCompDirectiveDefault\n"
+  },
+  {
+    "label": "completion-query",
+    "args": [
+      "__complete",
+      "list",
+      "--path",
+      ""
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": ":16\n",
+    "stderr": "Completion ended with directive: ShellCompDirectiveFilterDirs\n"
+  },
+  {
+    "label": "partial-scan-json",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects",
+      "--json"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "{\"root\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects\",\"scannedAt\":\"2026-10-05T19:17:39.838474215-04:00\",\"durationMs\":41,\"worktrees\":[{\"id\":\"c6ba4e2dd493270628df0bbe\",\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/old\",\"repo\":\"repo\",\"commonDir\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/repo/.git\",\"branch\":\"old\",\"head\":\"73b12a575b981b6c9ecc4b9834c3fcbb37d2bc57\",\"subject\":\"Start\",\"author\":\"Arbor Test\",\"commitAt\":\"2026-09-05T23:17:39Z\",\"activityAt\":\"2026-10-05T19:17:39.150921067-04:00\",\"sizeBytes\":27,\"main\":false,\"bare\":false,\"detached\":false,\"locked\":false,\"lockReason\":\"\",\"missing\":false,\"empty\":false,\"outsideRoot\":false,\"dirty\":false,\"changedFiles\":0,\"ignored\":false,\"upstream\":\"\",\"ahead\":0,\"behind\":0,\"published\":true,\"publishedRefs\":[\"origin/main\"],\"defaultRef\":\"refs/remotes/origin/main\",\"merged\":true,\"mergeReason\":\"All commits are in refs/remotes/origin/main\",\"fresh\":false,\"githubState\":\"not_checked\",\"recommended\":true,\"canRemove\":true,\"canDiscard\":true,\"discardWarnings\":null,\"losses\":[],\"blockers\":[],\"problems\":[]}],\"warnings\":[\"Cannot read /tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/denied: open /tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/denied: permission denied\"],\"github\":false,\"fetched\":false}\n",
+    "stderr": ""
+  },
+  {
+    "label": "preview-before-new",
+    "args": [
+      "clean",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects",
+      "--json"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "{\"dryRun\":true,\"requiresForce\":false,\"warnings\":[],\"worktrees\":[{\"id\":\"c6ba4e2dd493270628df0bbe\",\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/old\",\"repo\":\"repo\",\"commonDir\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/repo/.git\",\"branch\":\"old\",\"head\":\"73b12a575b981b6c9ecc4b9834c3fcbb37d2bc57\",\"subject\":\"Start\",\"author\":\"Arbor Test\",\"commitAt\":\"2026-09-05T23:17:39Z\",\"activityAt\":\"2026-10-05T19:17:39.150921067-04:00\",\"sizeBytes\":27,\"main\":false,\"bare\":false,\"detached\":false,\"locked\":false,\"lockReason\":\"\",\"missing\":false,\"empty\":false,\"outsideRoot\":false,\"dirty\":false,\"changedFiles\":0,\"ignored\":false,\"upstream\":\"\",\"ahead\":0,\"behind\":0,\"published\":true,\"publishedRefs\":[\"origin/main\"],\"defaultRef\":\"refs/remotes/origin/main\",\"merged\":true,\"mergeReason\":\"All commits are in refs/remotes/origin/main\",\"fresh\":false,\"githubState\":\"not_checked\",\"recommended\":true,\"canRemove\":true,\"canDiscard\":true,\"discardWarnings\":null,\"losses\":[],\"blockers\":[],\"problems\":[]}]}\n",
+    "stderr": ""
+  },
+  {
+    "label": "execute-after-new",
+    "args": [
+      "clean",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects",
+      "--yes",
+      "--json"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "[{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/added-after-preview\",\"removed\":true},{\"path\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/old\",\"removed\":true}]\n",
+    "stderr": ""
+  },
+  {
+    "label": "changed-head",
+    "args": [
+      "remove",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/changed",
+      "--head",
+      "73b12a575b981b6c9ecc4b9834c3fcbb37d2bc57",
+      "--yes"
+    ],
+    "status": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "Scanning /tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/projects/changed\u2026\nScan complete: 1 worktree in 33ms.\narbor: commit changed; scan again\n"
+  },
+  {
+    "label": "empty-list",
+    "args": [
+      "list",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/home",
+      "--json"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "{\"root\":\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/home\",\"scannedAt\":\"2026-10-05T19:17:45.461159544-04:00\",\"durationMs\":2,\"worktrees\":[],\"warnings\":[],\"github\":false,\"fetched\":false}\n",
+    "stderr": ""
+  },
+  {
+    "label": "empty-clean-preview",
+    "args": [
+      "clean",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/home",
+      "--json"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "{\"dryRun\":true,\"requiresForce\":false,\"warnings\":[],\"worktrees\":[]}\n",
+    "stderr": ""
+  },
+  {
+    "label": "empty-clean-execute",
+    "args": [
+      "clean",
+      "-p",
+      "/tmp/arbor-r5-uxcli/arbor-e2e-ux-extra-sa9K4N/home",
+      "--json",
+      "--yes"
+    ],
+    "status": 0,
+    "signal": null,
+    "stdout": "[]\n",
+    "stderr": ""
+  },
+  {
+    "mode": "inventory",
+    "status": 0,
+    "signal": null,
+    "stdout": "path,branch,activityAt,sizeBytes,recommended\r\n/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/projects/dirty,dirty,2026-10-05T19:20:34.026812514-04:00,50,False\r\n\"/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/projects/old with\nnewline\",old,2026-08-25T03:20:34.030999898-04:00,27,True\r\n/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/projects/recent,recent,2026-10-05T19:20:34.009812577-04:00,27,True\r\n",
+    "stderr": ""
+  },
+  {
+    "mode": "paths",
+    "status": 0,
+    "signal": null,
+    "stdout": "/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/projects/old with\nnewline\u0000/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/projects/recent\u0000",
+    "stderr": ""
+  },
+  {
+    "mode": "remote",
+    "status": 0,
+    "signal": null,
+    "stdout": "[{\"host\": \"review-host\", \"path\": \"/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/hosts/review-host/projects/remote-old\"}]\n",
+    "stderr": ""
+  },
+  {
+    "mode": "space",
+    "status": 0,
+    "signal": null,
+    "stdout": "54\n",
+    "stderr": ""
+  },
+  {
+    "mode": "retry",
+    "status": 0,
+    "signal": null,
+    "stdout": "{\"dryRun\": true, \"requiresForce\": false, \"warnings\": [], \"worktrees\": [{\"id\": \"2767d147739117ae607d80f1\", \"path\": \"/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/projects/old with\\nnewline\", \"repo\": \"repo\", \"commonDir\": \"/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/projects/repo/.git\", \"branch\": \"old\", \"head\": \"9718ffa8f27ebdf111f4a5cb98a6fbf65cd35b1b\", \"subject\": \"Start\", \"author\": \"Arbor Test\", \"commitAt\": \"2026-08-04T11:20:33Z\", \"activityAt\": \"2026-08-25T03:20:34.030999898-04:00\", \"sizeBytes\": 27, \"main\": false, \"bare\": false, \"detached\": false, \"locked\": false, \"lockReason\": \"\", \"missing\": false, \"empty\": false, \"outsideRoot\": false, \"dirty\": false, \"changedFiles\": 0, \"ignored\": false, \"upstream\": \"\", \"ahead\": 0, \"behind\": 0, \"published\": true, \"publishedRefs\": [\"origin/main\"], \"defaultRef\": \"refs/remotes/origin/main\", \"merged\": true, \"mergeReason\": \"All commits are in refs/remotes/origin/main\", \"fresh\": false, \"githubState\": \"not_checked\", \"recommended\": true, \"canRemove\": true, \"canDiscard\": true, \"discardWarnings\": null, \"losses\": [], \"blockers\": [], \"problems\": []}]}\n",
+    "stderr": ""
+  },
+  {
+    "mode": "aged",
+    "status": 0,
+    "signal": null,
+    "stdout": "{\"path\": \"/tmp/arbor-r5-uxcli/arbor-e2e-ux-recipes-ljGtj8/projects/old with\\nnewline\", \"removed\": true}\n",
+    "stderr": ""
+  }
+]

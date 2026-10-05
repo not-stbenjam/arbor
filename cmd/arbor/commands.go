@@ -34,7 +34,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 		Use:           "arbor",
 		Short:         "Find Git worktrees. Delete the ones you no longer need.",
 		Long:          "Arbor finds linked Git worktrees locally or over SSH and helps you remove them.\nOrdinary repository checkouts are not cleanup items. Run a command below;\nuse 'arbor gui' to open the desktop app.",
-		Example:       "  arbor list --path ~/code\n  arbor clean --path ~/code\n  arbor remove /path/to/worktree --yes\n  arbor list --host my-vps --path ~/projects\n  arbor gui",
+		Example:       "  arbor list --path ~/code\n  arbor clean --path ~/code\n  arbor remove /path/to/worktree --yes\n  arbor list --host my-vps --path '~/projects'\n  arbor gui",
 		Version:       version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -73,7 +73,7 @@ func addConnectionFlags(cmd *cobra.Command, flags *commandOptions, withPath bool
 		f.StringVarP(&flags.common.root, "path", "p", "", "Folder to scan (default: home directory on the target host)")
 		_ = cmd.MarkFlagDirname("path")
 	}
-	f.StringVar(&flags.common.host, "host", "", "SSH host alias or user@hostname")
+	f.StringVar(&flags.common.host, "host", "", "SSH host alias or user@hostname (quote remote paths beginning with ~)")
 	f.BoolVar(&flags.common.github, "github", false, "Also ask GitHub which pull requests were merged, using gh credentials on the target host")
 	f.BoolVar(&flags.common.fetch, "fetch", false, "Fetch remote refs before inspection (uses the network)")
 }
@@ -129,8 +129,8 @@ func newListCommand() *cobra.Command {
 func newCleanCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("clean", "Preview or delete worktrees beneath a folder",
-		"Preview clean, merged worktrees that can be removed. Nothing is deleted until\n--yes is supplied. --all also takes clean worktrees that are not merged; their\nbranches keep the commits. Worktrees that are not a clean delete are skipped\nunless --force is added. --force agrees to everything the preview lists for\nthem: local files, and where it says so a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder.\nEach worktree's own branches and commits are kept; nothing is sent to Trash.",
-		"  arbor clean -p ~/code\n  arbor clean -p ~/code --yes\n  arbor clean -p ~/old-sessions --all --yes\n  arbor clean -p ~/old-sessions --all --force --yes\n  arbor clean --host my-vps --path ~/projects --json", flags)
+		"Preview clean, merged worktrees that can be removed. Nothing is deleted until\n--yes is supplied. --all also takes clean worktrees that are not merged; their\nbranches keep the commits. Worktrees that are not a clean delete are skipped\nunless --force is added. --force agrees to everything the preview lists for\nthem: local files, and where it says so a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder.\nNamed branches and the checked-out commit are kept. Commits reachable only\nthrough a worktree's reflog or private refs are not protected. Nothing is\nsent to Trash.",
+		"  arbor clean -p ~/code\n  arbor clean -p ~/code --yes\n  arbor clean -p ~/old-sessions --all --yes\n  arbor clean -p ~/old-sessions --all --force --yes\n  arbor clean --host my-vps --path '~/projects' --json", flags)
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)

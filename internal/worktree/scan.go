@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -98,7 +99,10 @@ func prepareScan(ctx context.Context, options Options) (scanLocation, error) {
 	}
 	gitVersion, err := git(ctx, lookupRoot, "--version")
 	if err != nil {
-		return scanLocation{}, fmt.Errorf("Git is required: %w", err)
+		if errors.Is(err, exec.ErrNotFound) {
+			return scanLocation{}, errors.New("Git was not found on PATH. Install Git 2.36 or newer on the machine being scanned and make it available on PATH")
+		}
+		return scanLocation{}, fmt.Errorf("could not run Git in %s; check that the folder is accessible and Git works there: %w", root, err)
 	}
 	var major, minor int
 	if _, err := fmt.Sscanf(gitVersion, "git version %d.%d", &major, &minor); err != nil || major < 2 || (major == 2 && minor < 36) {
