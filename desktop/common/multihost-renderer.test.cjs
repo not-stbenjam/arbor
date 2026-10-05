@@ -239,7 +239,6 @@ test("provisional selection bridges never cross machines with the same path", as
   const local = row("", "temporary", { pending: true });
   const selection = {
     ids: new Set([local.id]),
-    anchor: local.id,
     cursor: local.id,
   };
   assert.equal(

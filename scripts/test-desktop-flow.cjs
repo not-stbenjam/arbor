@@ -290,17 +290,20 @@ app.once("browser-window-created", (_event, win) => {
         // ticks the rows between without selecting their text, and a click on
         // a ticked row unticks that row only.
         const names = await js(
-          `[...document.querySelectorAll('tr[data-id]:not([data-id="${tree1ID}"]) .path-leaf')].slice(0, 3).map((leaf) => { const r = leaf.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })`,
+          `[...document.querySelectorAll('tr[data-id]:not([data-id="${tree1ID}"]) .path-leaf')].slice(0, 3).map((leaf) => { const r = leaf.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), left: Math.round(r.left) + 2, right: Math.round(r.right) - 2 }; })`,
         );
+        const mouseAt = (type, x, y, modifiers = []) =>
+          win.webContents.sendInputEvent({
+            type,
+            x,
+            y,
+            button: "left",
+            clickCount: 1,
+            modifiers,
+          });
         const point = (at, modifiers = []) => {
           for (const type of ["mouseDown", "mouseUp"])
-            win.webContents.sendInputEvent({
-              type,
-              ...at,
-              button: "left",
-              clickCount: 1,
-              modifiers,
-            });
+            mouseAt(type, at.x, at.y, modifiers);
         };
         const boxes = (count, message) =>
           until(async () => (await ticked()).boxes === count, message);
@@ -318,6 +321,29 @@ app.once("browser-window-created", (_event, win) => {
         point(names[0]);
         point(names[2]);
         await boxes(1, "each click unticks its own row");
+        // Dragging across a name selects its text, to copy, and ticks nothing.
+        mouseAt("mouseDown", names[1].left, names[1].y);
+        mouseAt("mouseMove", names[1].right, names[1].y, ["leftButtonDown"]);
+        mouseAt("mouseUp", names[1].right, names[1].y);
+        await until(
+          async () => (await js("getSelection().toString()")) !== "",
+          "a drag across a name selects its text",
+        );
+        assert.equal((await ticked()).boxes, 1, "selecting text ticks nothing");
+        await js("getSelection().removeAllRanges()");
+        // Shift on a row's own box takes the range and selects no text either.
+        const box = await js(
+          `(() => { const r = [...document.querySelectorAll('tr[data-id]:not([data-id="${tree1ID}"]) [data-select]')][2].getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`,
+        );
+        point(names[0]);
+        await boxes(2, "ticked again");
+        point(box, ["shift"]);
+        await boxes(4, "Shift on a box ticks the range");
+        assert.equal(await js("getSelection().toString()"), "");
+        point(names[0]);
+        point(names[1]);
+        point(names[2]);
+        await boxes(1, "back to the one tick");
         // Going to a row with the keyboard ticks nothing and unticks nothing.
         await js(
           "document.querySelector('#worktree-grid').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))",

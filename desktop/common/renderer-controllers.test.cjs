@@ -325,7 +325,7 @@ test("repository sidebar and directory group escape names and every path attribu
     );
 });
 
-test("selection reconciles provisional IDs by path and clears vanished anchors", async () => {
+test("selection reconciles provisional IDs by path and drops what has gone", async () => {
   const { reconcileSelection } = await import("../renderer/selection.mjs");
   const previous = [
     { id: "pending", path: "/one", pending: true },
@@ -334,12 +334,10 @@ test("selection reconciles provisional IDs by path and clears vanished anchors",
   const next = [{ id: "registered", path: "/one" }];
   const before = {
     ids: new Set(["pending", "gone"]),
-    anchor: "gone",
     cursor: "pending",
   };
   const actual = reconcileSelection(previous, next, before);
   assert.deepEqual([...actual.ids], ["registered"]);
-  assert.equal(actual.anchor, "");
   assert.equal(actual.cursor, "registered");
   assert.deepEqual(
     [...before.ids],
@@ -348,59 +346,73 @@ test("selection reconciles provisional IDs by path and clears vanished anchors",
   );
   assert.deepEqual(reconcileSelection(previous, next, before, false), {
     ids: new Set(),
-    anchor: "",
     cursor: "",
   });
 });
 
-test("going to a row never unticks another; a tick flips one row and a range adds, in visible tree order", async () => {
+test("going to a row never unticks another; a tick flips one row and a range adds from the cursor, in visible tree order", async () => {
   const { selectRow } = await import("../renderer/selection.mjs");
-  const rows = ["a", "c", "b"].map((id) => ({ id }));
+  const rows = ["a", "c", "b", "d", "e"].map((id) => ({ id }));
+  const ids = (value) => [...value.ids].sort().join("");
   // An arrow key or a right-click moves the cursor and ticks nothing.
-  let value = selectRow({ ids: new Set(), anchor: "", cursor: "" }, rows, "a");
-  assert.deepEqual([...value.ids], []);
+  let value = selectRow({ ids: new Set(), cursor: "" }, rows, "a");
+  assert.equal(ids(value), "");
   assert.equal(value.cursor, "a");
-  assert.equal(value.anchor, "a");
-  // A range ticks from there to here, in the order the rows are shown.
+  // A range ticks from the cursor to here, in the order the rows are shown.
   value = selectRow(value, rows, "b", { range: true });
-  assert.deepEqual([...value.ids], ["a", "c", "b"]);
-  assert.equal(value.anchor, "a");
+  assert.equal(ids(value), "abc");
+  assert.equal(value.cursor, "b");
   // A tick, which is a click on the row or its box, flips that one row and
   // leaves the rest.
   value = selectRow(value, rows, "c", { tick: true });
-  assert.deepEqual([...value.ids], ["a", "b"]);
-  assert.equal(value.anchor, "c");
+  assert.equal(ids(value), "ab");
   // Going somewhere else afterwards keeps every tick.
   value = selectRow(value, rows, "a");
-  assert.deepEqual([...value.ids], ["a", "b"]);
+  assert.equal(ids(value), "ab");
   assert.equal(value.cursor, "a");
   value = selectRow(value, rows, "c", { tick: true });
-  assert.deepEqual([...value.ids], ["a", "b", "c"]);
+  assert.equal(ids(value), "abc");
   // A range adds to what is ticked, in either direction, and a Shift-click,
-  // which is both, is the range.
-  const backward = selectRow(
-    { ids: new Set(["b"]), anchor: "b", cursor: "b" },
-    rows,
-    "a",
-    { tick: true, range: true },
-  );
-  assert.deepEqual([...backward.ids].sort(), ["a", "b", "c"]);
-  assert.equal(backward.anchor, "b");
-  // With nowhere ticked from yet, a range starts at the cursor.
-  const fromCursor = selectRow(
-    { ids: new Set(), anchor: "", cursor: "a" },
-    rows,
-    "c",
-    { range: true },
-  );
-  assert.deepEqual([...fromCursor.ids], ["a", "c"]);
-  // With nowhere to start from at all, a Shift-click is a tick.
-  const first = selectRow({ ids: new Set(), anchor: "", cursor: "" }, rows, "c", {
+  // which is both a tick and a range, is the range: it never unticks.
+  const backward = selectRow({ ids: new Set(["b"]), cursor: "b" }, rows, "a", {
     tick: true,
     range: true,
   });
-  assert.deepEqual([...first.ids], ["c"]);
-  assert.equal(first.anchor, "c");
+  assert.equal(ids(backward), "abc");
+  const same = selectRow({ ids: new Set(["b"]), cursor: "b" }, rows, "b", {
+    tick: true,
+    range: true,
+  });
+  assert.equal(ids(same), "b");
+  // The range starts where the cursor is, wherever a row was last ticked:
+  // tick a, walk down to b, and Shift-click e takes b to e, not a to e.
+  let walked = selectRow({ ids: new Set(), cursor: "" }, rows, "a", {
+    tick: true,
+  });
+  walked = selectRow(walked, rows, "c");
+  walked = selectRow(walked, rows, "b");
+  walked = selectRow(walked, rows, "e", { tick: true, range: true });
+  assert.equal(ids(walked), "abde");
+  // One range carries on from another: down two, then back up past the
+  // start, has ticked everything it crossed.
+  let run = selectRow({ ids: new Set(), cursor: "b" }, rows, "d", { range: true });
+  run = selectRow(run, rows, "e", { range: true });
+  run = selectRow(run, rows, "c", { range: true });
+  assert.equal(ids(run), "bcde");
+  // With no row to start from, or one no longer shown, a Shift-click is a
+  // tick and a Shift-arrow only moves.
+  for (const cursor of ["", "hidden"]) {
+    const first = selectRow({ ids: new Set(), cursor }, rows, "c", {
+      tick: true,
+      range: true,
+    });
+    assert.equal(ids(first), "c");
+    const moved = selectRow({ ids: new Set(), cursor }, rows, "c", {
+      range: true,
+    });
+    assert.equal(ids(moved), "");
+    assert.equal(moved.cursor, "c");
+  }
 });
 
 test("selection preserves exact registration IDs and never expands duplicate paths", async () => {
@@ -411,21 +423,17 @@ test("selection preserves exact registration IDs and never expands duplicate pat
   ];
   const selection = {
     ids: new Set(["repo-b"]),
-    anchor: "repo-b",
     cursor: "repo-b",
   };
   const kept = reconcileSelection(rows, [...rows].reverse(), selection);
   assert.deepEqual([...kept.ids], ["repo-b"]);
-  assert.equal(kept.anchor, "repo-b");
   assert.equal(kept.cursor, "repo-b");
   const removed = reconcileSelection(rows, [rows[0]], selection);
   assert.deepEqual([...removed.ids], []);
-  assert.equal(removed.anchor, "");
   assert.equal(removed.cursor, "");
   const provisional = [{ id: "pending", path: "/shared", pending: true }];
   const ambiguous = reconcileSelection(provisional, rows, {
     ids: new Set(["pending"]),
-    anchor: "pending",
     cursor: "pending",
   });
   assert.deepEqual([...ambiguous.ids], []);
@@ -2047,7 +2055,7 @@ test("a click on a row or its box ticks it; boxes tick folders and everything sh
   const { document, element } = preferenceDocument();
   document.getElementById = () => null;
   const listeners = {};
-  for (const selector of ["#table-scroll", "#worktree-grid"])
+  for (const selector of ["#table-scroll", "#worktree-grid", "#worktree-list"])
     element(selector).addEventListener = (type, listener) => {
       listeners[`${selector} ${type}`] = listener;
     };
@@ -2175,6 +2183,80 @@ test("a click on a row or its box ticks it; boxes tick folders and everything sh
   assert.equal(trees.selectedCount, 1);
   key("ArrowUp", { shiftKey: true });
   assert.equal(trees.selectedCount, 3);
+
+  // A range starts at the row the cursor is on, which is where the last
+  // click or arrow key left it. A folder's box and the heading's leave no
+  // other place for a later range to start from.
+  const ticked = () => {
+    key("Delete");
+    return deleted.at(-1);
+  };
+  key("End");
+  tick({});
+  assert.equal(trees.selectedCount, 0);
+  key("ArrowUp", { shiftKey: true });
+  assert.deepEqual(ticked(), ["beta", "gamma"]);
+  tick({});
+  tick({});
+  assert.equal(trees.selectedCount, 0);
+  click("alpha");
+  key("End");
+  click("gamma", true);
+  assert.deepEqual(ticked(), ["alpha", "gamma"]);
+
+  // Dragging across a row's text selects the text, to copy. It is not a
+  // click on the row and ticks nothing; a press that barely moves is.
+  const press = (x, y, extra = {}) => {
+    let prevented = false;
+    listeners["#worktree-list mousedown"]({
+      clientX: x,
+      clientY: y,
+      button: 0,
+      target: {
+        closest: (selector) => (selector === "[data-id]" ? {} : null),
+      },
+      preventDefault: () => (prevented = true),
+      ...extra,
+    });
+    return prevented;
+  };
+  const release = (id, x, y) =>
+    listeners["#table-scroll click"]({
+      detail: 1,
+      clientX: x,
+      clientY: y,
+      target: {
+        closest: (selector) =>
+          selector === "[data-id]" ? { dataset: { id } } : null,
+      },
+    });
+  press(100, 50);
+  release("beta", 160, 52);
+  assert.deepEqual(ticked(), ["alpha", "gamma"]);
+  press(100, 50);
+  release("beta", 102, 51);
+  assert.deepEqual(ticked(), ["alpha", "beta", "gamma"]);
+  // An earlier press says nothing about a click made without a pointer.
+  press(400, 400);
+  click("beta");
+  assert.deepEqual(ticked(), ["alpha", "gamma"]);
+
+  // Shift with a press on a row would select the text between two clicks, so
+  // the press is taken. One on the row's own buttons or box is left alone,
+  // and so is one with another button or without Shift.
+  const control = (selector) => ({
+    target: {
+      closest: (asked) =>
+        asked === "[data-id]" || asked === selector ? {} : null,
+    },
+  });
+  assert.equal(press(0, 0, { shiftKey: true }), true);
+  assert.equal(press(0, 0), false);
+  assert.equal(press(0, 0, { shiftKey: true, button: 2 }), false);
+  assert.equal(
+    press(0, 0, { shiftKey: true, ...control("button, input") }),
+    false,
+  );
   fixture.workspace.dispose();
 });
 

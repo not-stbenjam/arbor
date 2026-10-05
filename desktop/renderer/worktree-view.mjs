@@ -24,7 +24,7 @@ export function createWorktreeView({
     search = "",
     sort = "path",
     descending = false;
-  let selection = { ids: new Set(), anchor: "", cursor: "" };
+  let selection = { ids: new Set(), cursor: "" };
   let rowSignature = "",
     repoSignature = "",
     directoryRows = [],
@@ -88,7 +88,7 @@ export function createWorktreeView({
       !rows.some((row) => deletable(row) && workspace.canDelete(row));
   }
   function clearSelection() {
-    selection = { ids: new Set(), anchor: "", cursor: selection.cursor };
+    selection = { ids: new Set(), cursor: selection.cursor };
     selectionChanged();
   }
   // Replacing the rows would drop keyboard focus to the page. Remember the
@@ -194,7 +194,6 @@ export function createWorktreeView({
     cursorVanished = false;
     selection = {
       ids: new Set([...selection.ids].filter((id) => onScreen.has(id))),
-      anchor: onScreen.has(selection.anchor) ? selection.anchor : "",
       cursor: onScreen.has(selection.cursor) ? selection.cursor : "",
     };
     // The row under the keyboard went away, deleted or rescanned. The list
@@ -409,7 +408,7 @@ export function createWorktreeView({
     const every = ids.every((id) => selection.ids.has(id));
     const next = new Set(selection.ids);
     ids.forEach((id) => (every ? next.delete(id) : next.add(id)));
-    selection = { ...selection, ids: next, anchor: ids[0] || selection.anchor };
+    selection = { ...selection, ids: next };
     selectionChanged();
   }
   function selectionChanged() {
@@ -418,6 +417,14 @@ export function createWorktreeView({
     // The status bar explains a lone selection, so it follows each change.
     onRender();
   }
+  // Where the pointer last went down in the list. A click that ends more than
+  // a few pixels from there was a drag. A click made without a pointer, by a
+  // key or by assistive technology, has no press to measure from.
+  let pressed = null;
+  const dragged = (event) =>
+    event.detail > 0 &&
+    !!pressed &&
+    Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 4;
   function selectRow(id, how) {
     selection = chooseRow(selection, visible, id, how);
     selectionChanged();
@@ -481,16 +488,25 @@ export function createWorktreeView({
       return;
     }
     // The whole row is its box: a click anywhere on it ticks or unticks it.
+    // Dragging across its text selects the text, to copy, and ticks nothing.
     const row = event.target.closest("[data-id]");
-    if (row) selectRow(row.dataset.id, { tick: true, range: event.shiftKey });
+    if (row && !dragged(event))
+      selectRow(row.dataset.id, { tick: true, range: event.shiftKey });
   }
   [".views", "#repo-list", "#table-scroll"].forEach((selector) =>
     $(selector).addEventListener("click", handleTreeClick),
   );
-  // Shift with a click takes a range of rows. Left alone, the browser would
-  // also select the text between the two clicks.
   $("#worktree-list").addEventListener("mousedown", (event) => {
-    if (event.shiftKey && event.target.closest("[data-id]"))
+    pressed = { x: event.clientX, y: event.clientY };
+    // Shift with a click takes a range of rows. Left alone, the browser would
+    // also select the text between the two clicks. A row's own buttons and
+    // box keep their press, and the focus that comes with it.
+    if (
+      event.shiftKey &&
+      event.button === 0 &&
+      event.target.closest("[data-id]") &&
+      !event.target.closest("button, input")
+    )
       event.preventDefault();
   });
   $("#worktree-list").addEventListener("contextmenu", (event) => {
@@ -642,7 +658,7 @@ export function createWorktreeView({
   function resetView(full = false) {
     view = "all";
     repo = "";
-    selection = { ids: new Set(), anchor: "", cursor: "" };
+    selection = { ids: new Set(), cursor: "" };
     if (full) {
       search = "";
       sort = "path";
