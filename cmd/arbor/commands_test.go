@@ -244,3 +244,27 @@ func TestCobraRemoveHonorsDoubleDashSeparator(t *testing.T) {
 		t.Fatal("separator preview removed worktree")
 	}
 }
+
+func TestCLIMissingGitHasAnActionableError(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	out, _, err := commandOutput(t, "list", "-p", root, "-q")
+	if err == nil || !strings.Contains(err.Error(), "Git was not found on PATH") || !strings.Contains(err.Error(), "Install Git 2.36") || out != "" {
+		t.Fatalf("missing Git: out=%q err=%v", out, err)
+	}
+}
+
+func TestCLIInaccessibleFolderDoesNotClaimGitIsMissing(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0700) })
+	if _, err := os.ReadDir(root); err == nil {
+		t.Skip("user can read mode-000 directories")
+	}
+	out, _, err := commandOutput(t, "list", "-p", root, "-q")
+	if err == nil || !strings.Contains(err.Error(), "check that the folder is accessible") || strings.Contains(err.Error(), "Git is required") || out != "" {
+		t.Fatalf("inaccessible folder: out=%q err=%v", out, err)
+	}
+}

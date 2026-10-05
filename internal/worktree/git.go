@@ -36,7 +36,11 @@ func run(ctx context.Context, timeout time.Duration, name string, args ...string
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		return "", fmt.Errorf("%s: %s", name, strings.TrimSpace(stderr.String()))
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+		return "", fmt.Errorf("%s: %s", name, message)
 	}
 	return string(data), nil
 }
