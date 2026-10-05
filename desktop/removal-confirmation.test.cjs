@@ -85,18 +85,26 @@ test("confirmation follows force disposal even when detached and locked snapshot
   assert.match(locked.detail, /Any local files.*will be permanently discarded/);
 });
 
-test("force confirmation covers all local-file categories once, independent of cached contents", () => {
-  const dirty = removalConfirmationOptions(
-    [{ ...row, dirty: true, canRemove: false }],
+test("force confirmation covers whatever is in the folder, independent of cached contents", () => {
+  // A row the last scan saw as clean may not be by now. Forcing it says so.
+  const forced = removalConfirmationOptions(
+    [{ ...row, canRemove: false, locked: true, losses: [] }],
     true,
   );
-  assert.equal(dirty.title, "Discard local files and delete?");
-  assert.match(dirty.detail, /uncommitted, untracked, and ignored files/);
-  const ignored = removalConfirmationOptions(
-    [{ ...row, ignored: true, canRemove: false }],
-    true,
-  );
-  assert.match(ignored.detail, /uncommitted, untracked, and ignored files/);
+  assert.equal(forced.title, "Discard local files and delete?");
+  assert.match(forced.detail, /uncommitted, untracked, and ignored files/);
+  // A row it saw as holding something names that, and still covers the rest.
+  for (const loss of ["changes", "ignored"]) {
+    const seen = removalConfirmationOptions(
+      [{ ...row, canRemove: false, losses: [loss] }],
+      true,
+    );
+    assert.equal(seen.title, "Not a clean delete");
+    assert.match(
+      seen.detail,
+      /Anything else in the folder that is not committed goes too, including files added since the last scan\./,
+    );
+  }
 });
 
 test("bulk confirmation bounds long path previews and summarizes warnings once", () => {
@@ -113,10 +121,11 @@ test("bulk confirmation bounds long path previews and summarizes warnings once",
   const options = removalConfirmationOptions(rows, true);
   assert.equal(
     options.message,
-    "Delete 1000 worktrees and discard their local files?",
+    "All 1000 worktrees are not clean. Discard their work and delete all 1000?",
   );
-  assert.ok(options.detail.length < 1500);
-  assert.ok(options.detail.split("\n").length <= 13);
+  assert.ok(options.detail.length < 1700);
+  // Bounded however much is selected: at most six kinds of loss to list.
+  assert.ok(options.detail.split("\n").length <= 16);
   const previews = options.detail
     .split("\n")
     .filter((line) => line.startsWith("/work/"));
@@ -124,7 +133,8 @@ test("bulk confirmation bounds long path previews and summarizes warnings once",
   assert.ok(previews.every((line) => Array.from(line).length <= 120));
   assert.ok(previews.every((line) => !line.includes("\t")));
   assert.match(options.detail, /and 995 more selected worktrees/);
-  assert.equal(options.detail.match(/permanently discarded/g)?.length, 1);
+  assert.equal(options.detail.match(/permanently discards:/g)?.length, 1);
+  assert.equal(options.detail.match(/^• /gm)?.length, 2);
   assert.equal(options.detail.match(/locks.*overridden/g)?.length, 1);
   assert.equal(options.detail.match(/recovery branches/g)?.length, 1);
   assert.doesNotMatch(options.detail, /Repeated per-worktree warning/);
@@ -212,22 +222,82 @@ test("a large selection previews the worktrees that would lose files before the 
     "/work/clean-1",
     "and 7 more selected worktrees",
   ]);
-  assert.match(
-    options.detail,
-    /At the last scan: 1 with uncommitted changes, 1 with ignored files only\./,
+  assert.equal(
+    options.message,
+    "2 of 12 worktrees are not clean. Discard their work and delete all 12?",
   );
-  assert.equal(options.title, "Discard local files and delete?");
+  assert.deepEqual(options.detail.split("\n").slice(0, 4), [
+    "2 of them hold work that is not saved in Git. Deleting permanently discards:",
+    "• uncommitted changes and untracked files (1 worktree)",
+    "• ignored files, such as local configuration or build output (1 worktree)",
+    "Anything else in the folder that is not committed goes too, including files added since the last scan.",
+  ]);
+  assert.equal(options.title, "Not a clean delete");
   assert.equal(options.buttons[1], "Discard & Delete");
   // Without consent to discard, nothing is discarded, so nothing is flagged.
   const kept = removalConfirmationOptions(trees.slice(0, 9), false);
-  assert.doesNotMatch(kept.detail, /uncommitted|At the last scan/);
+  assert.doesNotMatch(kept.detail, /uncommitted|not saved in Git|•/);
   assert.equal(kept.title, "Delete worktrees?");
   assert.equal(kept.buttons[1], "Delete Worktrees");
-  // One worktree needs no tally; its own line already says what it has.
+  // One worktree needs no tally; the list says what it holds.
   const one = removalConfirmationOptions([trees[8]], true);
-  assert.doesNotMatch(one.detail, /At the last scan/);
+  assert.match(
+    one.detail,
+    /^It holds work that is not saved in Git\. Deleting permanently discards:\n• uncommitted changes and untracked files\n/,
+  );
   assert.match(one.detail, /\/work\/dirty — uncommitted changes$/);
-  assert.equal(one.message, "Delete “dirty” and discard its local files?");
+  assert.equal(
+    one.message,
+    "“dirty” is not clean. Discard its work and delete it?",
+  );
+});
+
+test("commits and repositories that would be lost are named, and listed first", () => {
+  const unclean = (name, losses, facts = {}) => ({
+    path: `/work/${name}`,
+    canRemove: false,
+    canDiscard: true,
+    losses,
+    ...facts,
+  });
+  const trees = [
+    { path: "/work/clean", canRemove: true, canDiscard: true, losses: [] },
+    unclean("deps", ["ignored"]),
+    unclean("vendored", ["submodules"]),
+    unclean("midway", ["changes", "operation"]),
+    unclean("holder", ["nested"]),
+  ];
+  const options = removalConfirmationOptions(trees, true);
+  assert.equal(options.title, "Not a clean delete");
+  assert.equal(
+    options.message,
+    "4 of 5 worktrees are not clean. Discard their work and delete all 5?",
+  );
+  assert.deepEqual(options.detail.split("\n\n")[0].split("\n"), [
+    "4 of them hold work that is not saved in Git. Deleting permanently discards:",
+    "• uncommitted changes and untracked files (1 worktree)",
+    "• ignored files, such as local configuration or build output (1 worktree)",
+    "• submodule checkouts, and any commits made inside them that were never pushed (1 worktree)",
+    "• the unfinished rebase, merge or other Git operation (1 worktree)",
+    "• the separate Git repository or worktree inside the folder, with any history kept nowhere else (1 worktree)",
+    "Anything else in the folder that is not committed goes too, including files added since the last scan.",
+    // Commits are among what is lost, so it says whose are kept.
+    "Worktree folders are deleted permanently, not moved to Trash. The branches and commits of the repository they belong to are kept.",
+    "Only these worktrees are deleted; a folder that holds them, and anything else in it, is kept.",
+  ]);
+  // Those that would lose commits or a repository lead the list.
+  assert.deepEqual(options.detail.split("\n\n")[1].split("\n"), [
+    "/work/vendored — submodules",
+    "/work/midway — uncommitted changes, unfinished Git operation",
+    "/work/holder — nested repository",
+    "/work/deps — ignored files",
+    "/work/clean",
+  ]);
+  // Both, when it is two.
+  assert.equal(
+    removalConfirmationOptions(trees.slice(2, 4), true).message,
+    "Both worktrees are not clean. Discard their work and delete both?",
+  );
 });
 
 test("the gravest consequence leads, and a single remote host is named up front", () => {
@@ -241,8 +311,12 @@ test("the gravest consequence leads, and a single remote host is named up front"
   };
   const lines = removalConfirmationOptions([dirty], true).detail.split("\n");
   assert.equal(lines[0], "On Build server [vps].");
-  assert.match(lines[1], /^Any local files.*permanently discarded\.$/);
-  assert.match(lines[2], /^Worktree folders are deleted permanently/);
+  assert.equal(
+    lines[1],
+    "It holds work that is not saved in Git. Deleting permanently discards:",
+  );
+  assert.equal(lines[2], "• uncommitted changes and untracked files");
+  assert.match(lines[4], /^Worktree folders are deleted permanently/);
   const local = removalConfirmationOptions(
     [{ ...dirty, host: "", hostLabel: "This computer" }],
     true,

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -62,17 +63,19 @@ func TestRestrictiveGlobalConfigStillProtectsNestedBareRepositories(t *testing.T
 				t.Fatalf("target scan: %+v %v", targeted, err)
 			}
 			w := targeted.Worktrees[0]
-			if w.CanDiscard || !strings.Contains(strings.Join(w.Blockers, " "), "nested") {
+			if w.CanRemove || w.Recommended || !slices.Contains(w.Losses, "nested") || !strings.Contains(strings.Join(w.Blockers, " "), "Nested repository") {
 				t.Fatalf("explicit-only Git config hid nested bare repository: %+v", w)
 			}
 			full := testScan(t, root)
 			if !testTree(t, full, nested).Bare {
 				t.Fatal("full scan failed to discover the explicit bare repository")
 			}
-			if testTree(t, full, checkout).CanDiscard {
-				t.Fatal("full scan offered parent checkout for deletion")
+			if parent := testTree(t, full, checkout); parent.CanRemove || parent.Recommended || !slices.Contains(parent.Losses, "nested") {
+				t.Fatalf("full scan did not name the nested repository as a loss: %+v", parent)
 			}
-			if _, err := RemoveWorktree(context.Background(), before, RemovalOptions{ExpectedHead: before.Head, DiscardLocal: true}); err == nil || !strings.Contains(err.Error(), "nested") {
+			// It appeared after this snapshot was taken, so no agreement made
+			// then can have covered it.
+			if _, err := RemoveWorktree(context.Background(), before, RemovalOptions{ExpectedHead: before.Head, DiscardLocal: true}); err == nil || !strings.Contains(err.Error(), "separate Git repository") {
 				t.Fatalf("fresh validation failed to protect newly added nested bare repository: %v", err)
 			}
 			if got := testGit(t, repo, "--git-dir="+nested, "rev-parse", "HEAD"); got != heldCommit {
@@ -197,7 +200,10 @@ func TestFetchHonorsOrdinaryRepositorySafetyPolicy(t *testing.T) {
 	}
 }
 
-func TestNestedBareRepositoryBlocksExplicitAndRecommendedDeletion(t *testing.T) {
+// A repository inside a worktree is never offered for cleanup and never goes
+// on a general agreement to discard local files, least of all one given
+// before it was there. It goes only when that loss was shown and accepted.
+func TestNestedBareRepositoryIsDeletedOnlyWhenNamed(t *testing.T) {
 	for _, kind := range []string{"untracked", "ignored", "newline"} {
 		t.Run(kind, func(t *testing.T) {
 			root := canonicalFixtureDir(t)
@@ -226,12 +232,18 @@ func TestNestedBareRepositoryBlocksExplicitAndRecommendedDeletion(t *testing.T) 
 				t.Fatalf("target inspection: %+v, %v", report, err)
 			}
 			w := report.Worktrees[0]
-			if w.CanRemove || w.CanDiscard || w.Recommended || !strings.Contains(strings.Join(w.Blockers, " "), "nested") {
-				t.Fatalf("nested bare data offered for deletion: %+v", w)
+			if w.CanRemove || w.Recommended || !w.CanDiscard || !slices.Contains(w.Losses, "nested") || !strings.Contains(strings.Join(w.Blockers, " "), "Nested repository") {
+				t.Fatalf("nested bare data was not named as a loss: %+v", w)
 			}
-			for _, options := range []RemovalOptions{{ExpectedHead: before.Head, DiscardLocal: true}, {ExpectedHead: before.Head, RecommendedOnly: true}} {
-				if _, err := RemoveWorktree(context.Background(), before, options); err == nil {
-					t.Fatal("fresh deletion check ignored newly nested bare repository")
+			for _, options := range []RemovalOptions{
+				{ExpectedHead: before.Head, DiscardLocal: true},
+				{ExpectedHead: before.Head, RecommendedOnly: true},
+				{ExpectedHead: before.Head},
+				// Naming some other loss is not naming this one.
+				{ExpectedHead: before.Head, DiscardLocal: true, Acknowledged: []string{"submodules", "operation"}},
+			} {
+				if _, err := RemoveWorktree(context.Background(), before, options); err == nil || (options.DiscardLocal && !strings.Contains(err.Error(), "separate Git repository")) {
+					t.Fatalf("a nested repository went without being named (%+v): %v", options, err)
 				}
 			}
 			if got := testGit(t, nested, "rev-parse", "HEAD"); got != heldCommit {
@@ -239,6 +251,12 @@ func TestNestedBareRepositoryBlocksExplicitAndRecommendedDeletion(t *testing.T) 
 			}
 			if _, err := os.Stat(filepath.Join(checkout, "tracked.txt")); err != nil {
 				t.Fatal(err)
+			}
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: []string{"nested"}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(checkout); !os.IsNotExist(err) {
+				t.Fatalf("the worktree was not removed once its loss was named: %v", err)
 			}
 		})
 	}
@@ -256,7 +274,7 @@ func TestBareMarkerLookalikesDoNotBlockManualCleanup(t *testing.T) {
 	testWrite(t, filepath.Join(lookalike, "objects", "payload"), "ordinary disposable output\n")
 	restrictiveBareGlobalConfig(t)
 	w := testTree(t, testScan(t, root), checkout)
-	if !w.CanDiscard || strings.Contains(strings.Join(w.Blockers, " "), "nested") {
+	if !w.CanDiscard || strings.Contains(strings.Join(w.Blockers, " "), "Nested repository") {
 		t.Fatalf("lookalikes classified as repository: %+v", w)
 	}
 	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err != nil {
@@ -289,8 +307,11 @@ func TestNestedSeparateGitDirectoryIsProtected(t *testing.T) {
 					t.Fatal(err)
 				}
 				w := testTree(t, report, checkout)
-				if w.CanRemove || w.CanDiscard || w.Recommended || !strings.Contains(strings.Join(w.Blockers, " "), "nested") {
-					t.Fatalf("separate metadata was offered for deletion: %+v", w)
+				if w.CanRemove || w.Recommended || !slices.Contains(w.Losses, "nested") || !strings.Contains(strings.Join(w.Blockers, " "), "Nested repository") {
+					t.Fatalf("separate metadata was not named as a loss: %+v", w)
+				}
+				if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err == nil {
+					t.Fatal("separate metadata went on a general agreement to discard local files")
 				}
 			}
 			for _, w := range full.Worktrees {

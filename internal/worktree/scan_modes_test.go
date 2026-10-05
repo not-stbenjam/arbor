@@ -96,7 +96,7 @@ func TestTargetOnlyInspectsExactRegisteredCheckout(t *testing.T) {
 	if err != nil || len(report.Worktrees) != 1 {
 		t.Fatalf("nested target: %+v, %v", report, err)
 	}
-	assertProtected(t, report.Worktrees[0], "nested")
+	assertProtected(t, report.Worktrees[0], "Nested repository")
 	if _, err := RemoveWorktree(context.Background(), report.Worktrees[0], RemovalOptions{ExpectedHead: report.Worktrees[0].Head}); err == nil {
 		t.Fatal("target-only scan weakened nested-repository deletion protection")
 	}

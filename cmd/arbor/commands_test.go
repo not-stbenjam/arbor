@@ -54,7 +54,7 @@ func TestCobraCommandHelpIsDescriptiveAndHidesPlumbing(t *testing.T) {
 		if !strings.Contains(help, "Usage:") || !strings.Contains(help, "arbor "+command) {
 			t.Fatalf("missing command usage for %s: %s", command, help)
 		}
-		for _, hidden := range []string{"--target-only", "--watch-stdin", "--id", "--branch", "--discard-local", "--expect-missing", "--expect-empty", "--stats-session"} {
+		for _, hidden := range []string{"--target-only", "--watch-stdin", "--id", "--branch", "--discard-local", "--acknowledge", "--expect-missing", "--expect-empty", "--stats-session"} {
 			if strings.Contains(help, hidden) {
 				t.Errorf("internal flag %s leaked into %s help", hidden, command)
 			}

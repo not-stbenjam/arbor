@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -53,34 +54,59 @@ func inspectStatus(ctx context.Context, w *Worktree, block func(reasonCode)) {
 	}
 }
 
-func inspectIndex(ctx context.Context, w *Worktree, block func(reasonCode)) {
+// inspectIndex reads what the index says about files Git will not vouch for.
+// It returns the folders of the submodules that are checked out.
+func inspectIndex(ctx context.Context, w *Worktree, block func(reasonCode)) (submodules []string) {
 	index, err := git(ctx, w.Path, "ls-files", "-v", "--stage", "-z")
 	if err != nil {
 		block(reasonIndex)
 		block(reasonSubmoduleInspection)
-		return
+		return nil
 	}
-	var sparse, submodules bool
+	unchecked := false
 	for _, line := range strings.Split(index, "\x00") {
-		if len(line) > 0 && (line[0] == 'S' || (line[0] >= 'a' && line[0] <= 'z')) {
-			sparse = true
+		if len(line) == 0 {
+			continue
+		}
+		_, name, found := strings.Cut(line, "\t")
+		entry := filepath.Join(w.Path, filepath.FromSlash(name))
+		// With -v, an upper-case S marks a file as skip-worktree and a lower-
+		// case letter marks it assume-unchanged. Git does not look at either,
+		// so its status cannot vouch for what such a file holds.
+		if tag := line[0]; tag == 'S' || (tag >= 'a' && tag <= 'z') {
+			// A sparse checkout leaves the files it skips out of the folder,
+			// and a file that is not there holds nothing Git failed to
+			// report. Only one that is present can hide a change.
+			if (tag != 'S' && tag != 's') || !found || present(entry) {
+				unchecked = true
+			}
 		}
 		if len(line) >= 2 && strings.HasPrefix(line[2:], "160000 ") {
-			submodules = true
+			switch {
+			case !found || present(filepath.Join(entry, ".git")):
+				// Checked out: a repository of its own, which this worktree's
+				// status says nothing about and which keeps its own commits.
+				submodules = append(submodules, entry)
+			case !vacant(entry):
+				// Not checked out, yet something is in its folder. Git does
+				// not look inside a submodule's folder, so nothing reports it.
+				unchecked = true
+			}
 		}
 	}
-	if sparse {
-		block(reasonSparse)
+	if unchecked {
+		block(reasonUnchecked)
 	}
-	if submodules {
+	if len(submodules) > 0 {
 		block(reasonSubmodules)
 	}
+	return submodules
 }
 
 // inspectActivity combines operation markers and Git metadata timestamps with
 // the file walk, which also identifies nested repositories and local byte size.
-func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode)) {
-	metadata, err := gitPaths(ctx, w.Path, []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "HEAD", "index", "logs/HEAD"})
+func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), submodules []string) {
+	metadata, err := gitPaths(ctx, w.Path, []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "HEAD", "index", "logs/HEAD", "modules"})
 	if err != nil {
 		block(reasonMetadata)
 		w.Problems = append(w.Problems, err.Error())
@@ -91,13 +117,32 @@ func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode)) {
 				break
 			}
 		}
+		// Git keeps the repositories of this worktree's submodules here, and
+		// refuses an unforced removal while the folder exists, whether or not
+		// any of them is still checked out.
+		if st, err := os.Stat(metadata[9]); err == nil && st.IsDir() {
+			block(reasonSubmodules)
+		}
 	}
-	measure(ctx, w, block)
-	if len(metadata) == 9 {
-		for _, path := range metadata[6:] {
+	measure(ctx, w, block, submodules)
+	if len(metadata) == 10 {
+		for _, path := range metadata[6:9] {
 			if st, err := os.Stat(path); err == nil && st.ModTime().After(w.ActivityAt) {
 				w.ActivityAt = st.ModTime()
 			}
 		}
 	}
+}
+
+// vacant reports whether a folder is absent or empty.
+func vacant(path string) bool {
+	entries, err := os.ReadDir(path)
+	return os.IsNotExist(err) || (err == nil && len(entries) == 0)
+}
+
+// present reports whether anything is at path. A path that cannot be examined
+// counts as present: what cannot be seen is not known to be absent.
+func present(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil || !os.IsNotExist(err)
 }

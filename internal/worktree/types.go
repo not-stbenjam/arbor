@@ -30,6 +30,12 @@ type Progress struct {
 	Total      int       `json:"total"`
 	Worktree   *Worktree `json:"worktree,omitempty"`
 	Pending    bool      `json:"pending"`
+	// While one worktree's folder is being deleted (stage "remove", with Path
+	// naming the worktree): a file going about now, relative to it, and how
+	// many of its files are gone.
+	Current    string `json:"current,omitempty"`
+	Files      int    `json:"files,omitempty"`
+	FilesTotal int    `json:"filesTotal,omitempty"`
 }
 
 type Report struct {
@@ -80,8 +86,12 @@ type Worktree struct {
 	CanRemove       bool         `json:"canRemove"`
 	CanDiscard      bool         `json:"canDiscard"`
 	DiscardWarnings []string     `json:"discardWarnings"`
-	Blockers        []string     `json:"blockers"`
-	Problems        []string     `json:"problems"`
+	// Losses names what deleting this worktree anyway would destroy:
+	// "changes", "ignored", "unchecked", "submodules", "operation", "nested".
+	// A worktree with none is a clean delete; one with any never is.
+	Losses   []string `json:"losses"`
+	Blockers []string `json:"blockers"`
+	Problems []string `json:"problems"`
 }
 
 type PullRequest struct {

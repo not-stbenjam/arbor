@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'"
     />
-    <title>Arbor</title>
+    <title>Arbor (Alpha)</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="stats.css" />
     <script src="app.js" type="module"></script>
@@ -15,7 +15,7 @@
   <body>
     <!-- macOS only: the window has no system title bar there. -->
     <header class="titlebar">
-      <span id="window-context">Arbor</span>
+      <span id="window-context">Arbor (Alpha)</span>
     </header>
     <div class="workspace">
       <aside
@@ -160,10 +160,19 @@
                 role="treegrid"
                 tabindex="0"
                 aria-multiselectable="true"
-                aria-label="Worktrees by directory. Use arrow keys to select, Enter for actions, and Delete to remove."
+                aria-label="Worktrees by directory. Use arrow keys to move, Space to tick a row, Enter for actions, and Delete to remove."
               >
                 <thead>
                   <tr>
+                    <th class="check-column">
+                      <input
+                        type="checkbox"
+                        id="select-all"
+                        class="row-check"
+                        aria-label="Select every worktree shown"
+                        title="Select every worktree shown"
+                      />
+                    </th>
                     <th class="branch-column">
                       <button data-sort="path">
                         Worktree <span data-icon="sort"></span>

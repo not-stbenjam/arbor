@@ -514,3 +514,149 @@ func TestCLIHelpDocumentsRemovalPolicies(t *testing.T) {
 		}
 	}
 }
+
+// The table's last column names the one thing that decides cleanup, including
+// what only --force gets past.
+func TestStatusNamesWhatForceIsNeededFor(t *testing.T) {
+	for _, tc := range []struct {
+		want  string
+		entry worktree.Worktree
+	}{
+		{"clean", worktree.Worktree{CanRemove: true, CanDiscard: true}},
+		{"merged", worktree.Worktree{CanRemove: true, CanDiscard: true, Recommended: true}},
+		{"ignored files", worktree.Worktree{CanDiscard: true, Ignored: true, Blockers: []string{"Ignored files on disk (may include local secrets or build output)"}}},
+		{"unchecked files", worktree.Worktree{CanDiscard: true, Blockers: []string{"Unchecked files: Git was told not to look at some tracked files (assume-unchanged or skip-worktree)"}}},
+		{"protected branch name", worktree.Worktree{CanDiscard: true, Blockers: []string{"Protected branch name"}}},
+		{"clean", worktree.Worktree{CanDiscard: true, Detached: true, Blockers: []string{"Detached HEAD; create a branch to retain its commits"}}},
+		{"Contains submodules", worktree.Worktree{Blockers: []string{"Contains submodules"}}},
+	} {
+		if got := status(tc.entry); got != tc.want {
+			t.Errorf("status(%+v) = %q, want %q", tc.entry.Blockers, got, tc.want)
+		}
+	}
+}
+
+// With --progress, the deletion of a folder is reported as framed lines an
+// integration can follow, and the result on stdout is unchanged.
+func TestCLIRemoveStreamsDeletionProgress(t *testing.T) {
+	isolatedCLIStats(t)
+	root, repo := cliTestRepository(t)
+	target := filepath.Join(root, "finished")
+	cliTestGit(t, repo, "worktree", "add", "-b", "finished", target)
+	var out, stderr bytes.Buffer
+	if err := execute(context.Background(), []string{"remove", "--yes", "--json", "--progress", "--", target}, &out, &stderr); err != nil {
+		t.Fatalf("remove: %v\n%s", err, &stderr)
+	}
+	var result struct {
+		Path    string `json:"path"`
+		Removed bool   `json:"removed"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || !result.Removed || result.Path != target {
+		t.Fatalf("result: %v %s", err, &out)
+	}
+	var deleting []worktree.Progress
+	for _, line := range strings.Split(stderr.String(), "\n") {
+		body, framed := strings.CutPrefix(line, worktree.ProgressPrefix)
+		if !framed {
+			continue
+		}
+		var event worktree.Progress
+		if err := json.Unmarshal([]byte(body), &event); err != nil {
+			t.Fatalf("progress line %q: %v", line, err)
+		}
+		if event.Stage == "remove" {
+			deleting = append(deleting, event)
+		}
+	}
+	// The only file in this checkout is its .git file.
+	if len(deleting) == 0 || deleting[0].Path != target || deleting[0].FilesTotal != 1 {
+		t.Fatalf("no deletion progress in:\n%s", &stderr)
+	}
+	// A person is told only about a deletion long enough to wonder about.
+	second := filepath.Join(root, "quick")
+	cliTestGit(t, repo, "worktree", "add", "-b", "quick", second)
+	out.Reset()
+	stderr.Reset()
+	if err := execute(context.Background(), []string{"remove", "--yes", "--", second}, &out, &stderr); err != nil {
+		t.Fatalf("remove: %v\n%s", err, &stderr)
+	}
+	if strings.Contains(stderr.String(), "gone") || strings.Contains(stderr.String(), worktree.ProgressPrefix) {
+		t.Fatalf("a quick deletion was narrated:\n%s", &stderr)
+	}
+}
+
+func TestHumanRemovalProgressWaitsThenSpeaksSparingly(t *testing.T) {
+	var out bytes.Buffer
+	report := removalProgress(&out, false, true)
+	report(worktree.Progress{Stage: "remove", Files: 5, FilesTotal: 10, Current: "a"})
+	if out.Len() != 0 {
+		t.Fatalf("spoke at once: %q", &out)
+	}
+	if removalProgress(&out, false, false) != nil {
+		t.Fatal("quiet mode should not watch the deletion at all")
+	}
+	var framed bytes.Buffer
+	removalProgress(&framed, true, true)(worktree.Progress{Stage: "remove", Path: "/w", Files: 5, FilesTotal: 10, Current: "a/b"})
+	if got := framed.String(); !strings.HasPrefix(got, worktree.ProgressPrefix) || !strings.Contains(got, `"current":"a/b"`) || !strings.Contains(got, `"files":5`) || !strings.Contains(got, `"filesTotal":10`) {
+		t.Fatalf("framed progress: %q", got)
+	}
+}
+
+// A person's --force agrees to everything the preview listed. An integration
+// passes --discard-local, which agrees to losing files in the folder and to
+// nothing graver unless it names what it showed its user.
+func TestCLIGraveLossesMustBeNamedOrForced(t *testing.T) {
+	isolatedCLIStats(t)
+	root, repo := cliTestRepository(t)
+	nest := func(branch string) string {
+		target := filepath.Join(root, branch)
+		cliTestGit(t, repo, "worktree", "add", "-b", branch, target)
+		if err := os.Mkdir(filepath.Join(target, "experiment"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		cliTestGit(t, filepath.Join(target, "experiment"), "init", "-b", "main")
+		cliTestGit(t, filepath.Join(target, "experiment"), "commit", "--allow-empty", "-m", "Kept nowhere else")
+		return target
+	}
+	run := func(args ...string) (string, string, error) {
+		var out, stderr bytes.Buffer
+		err := execute(context.Background(), args, &out, &stderr)
+		return out.String(), stderr.String(), err
+	}
+	first := nest("first")
+	// The preview says what would be lost and that --force is what it takes.
+	out, _, err := run("remove", "--", first)
+	if err != nil || !strings.Contains(out, "separate Git repository") || !strings.Contains(out, "--force --yes") {
+		t.Fatalf("preview: %v\n%s", err, out)
+	}
+	for _, args := range [][]string{
+		{"remove", "--yes", "--", first},
+		{"remove", "--yes", "--discard-local", "--", first},
+		{"remove", "--yes", "--discard-local", "--acknowledge", "submodules", "--", first},
+	} {
+		if _, _, err := run(args...); err == nil {
+			t.Fatalf("%v deleted a worktree holding another repository", args)
+		}
+		if _, err := os.Stat(filepath.Join(first, "experiment", ".git")); err != nil {
+			t.Fatalf("%v: the nested repository is gone", args)
+		}
+	}
+	if _, _, err := run("remove", "--yes", "--discard-local", "--acknowledge", "everything", "--", first); err == nil || !strings.Contains(err.Error(), "--acknowledge accepts") {
+		t.Fatalf("an unknown loss was accepted: %v", err)
+	}
+	if _, _, err := run("remove", "--yes", "--acknowledge", "nested", "--", first); err == nil || !strings.Contains(err.Error(), "--discard-local") {
+		t.Fatalf("--acknowledge without --discard-local: %v", err)
+	}
+	if _, stderr, err := run("remove", "--yes", "--discard-local", "--acknowledge", "nested", "--", first); err != nil {
+		t.Fatalf("named loss refused: %v\n%s", err, stderr)
+	}
+	second := nest("second")
+	if _, stderr, err := run("remove", "--yes", "--force", "--", second); err != nil {
+		t.Fatalf("--force refused: %v\n%s", err, stderr)
+	}
+	for _, target := range []string{first, second} {
+		if _, err := os.Stat(target); !os.IsNotExist(err) {
+			t.Fatalf("%s was not removed: %v", target, err)
+		}
+	}
+}

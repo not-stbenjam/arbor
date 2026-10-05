@@ -36,26 +36,28 @@ export function reconcileSelection(
   };
 }
 
+// Going to a row never unticks anything. A plain click or arrow key only
+// moves the cursor there. Ctrl/Cmd, like a row's own box, ticks or unticks
+// that row, and Shift ticks every row from the last such place to this one.
 export function selectRow(selection, visible, id, modifiers = {}) {
   const next = {
     ids: new Set(selection.ids),
     anchor: selection.anchor,
     cursor: id,
   };
-  if (modifiers.shiftKey && next.anchor) {
-    const a = visible.findIndex((row) => row.id === next.anchor),
+  const from = next.anchor || selection.cursor;
+  if (modifiers.shiftKey && from) {
+    const a = visible.findIndex((row) => row.id === from),
       b = visible.findIndex((row) => row.id === id);
-    if (a >= 0 && b >= 0) {
-      if (!modifiers.metaKey && !modifiers.ctrlKey) next.ids.clear();
+    if (a >= 0 && b >= 0)
       visible
         .slice(Math.min(a, b), Math.max(a, b) + 1)
         .forEach((row) => next.ids.add(row.id));
-    }
+    next.anchor = from;
   } else if (modifiers.metaKey || modifiers.ctrlKey) {
     next.ids.has(id) ? next.ids.delete(id) : next.ids.add(id);
     next.anchor = id;
   } else {
-    next.ids = new Set([id]);
     next.anchor = id;
   }
   return next;

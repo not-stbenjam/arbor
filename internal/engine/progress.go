@@ -69,8 +69,11 @@ func validProgress(event worktree.Progress) bool {
 	if event.Discovered < 0 || event.Completed < 0 || event.Total < 0 || (event.Total > 0 && event.Completed > event.Total) {
 		return false
 	}
+	if event.Files < 0 || event.FilesTotal < 0 || event.Files > event.FilesTotal || len(event.Current) > 4096 {
+		return false
+	}
 	switch event.Stage {
-	case "discovery", "fetch", "inspect", "connecting":
+	case "discovery", "fetch", "inspect", "connecting", "remove":
 		return true
 	}
 	return false

@@ -210,3 +210,25 @@ test("long display copy is normalized without changing identity or removal flags
     /invalid worktree/,
   );
 });
+
+test("deletion progress carries a file and coherent counts, and drops what is malformed", () => {
+  const base = { stage: "remove", path: "/work/topic", discovered: 0, completed: 0, total: 0 };
+  assert.deepEqual(
+    progressEvent({ ...base, current: "node_modules/a.js", files: 12, filesTotal: 40 }),
+    { ...base, current: "node_modules/a.js", files: 12, filesTotal: 40 },
+  );
+  // Each part is optional; a scan's events carry none of them.
+  assert.deepEqual(progressEvent(base), base);
+  // A count that cannot be true, or a name that is not text, is left out
+  // without discarding the rest of the event.
+  for (const bad of [
+    { files: 41, filesTotal: 40 },
+    { files: -1, filesTotal: 40 },
+    { files: 1.5, filesTotal: 40 },
+    { files: 3 },
+    { current: 7 },
+    { current: "a\0b" },
+    { current: "x".repeat(5000) },
+  ])
+    assert.deepEqual(progressEvent({ ...base, ...bad }), base, JSON.stringify(bad).slice(0, 60));
+});

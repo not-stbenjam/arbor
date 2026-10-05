@@ -1,6 +1,7 @@
 "use strict";
 
 const { MAX_WORKTREES } = require("./protocol.cjs");
+const { graveLosses } = require("./common/losses.mjs");
 
 // Pure consent and CLI contract. This module neither starts operations nor
 // changes reports; the backend owns those lifetimes and mutations.
@@ -76,6 +77,8 @@ function removalArguments(
     "remove",
     "--yes",
     "--json",
+    // How far the deletion of the folder has got, file by file.
+    "--progress",
     "--stats-session",
     statsSession,
     "--head",
@@ -90,9 +93,13 @@ function removalArguments(
   if (row.empty) args.push("--expect-empty");
   if (host) args.push("--host", host);
   if (row.pr?.merged) args.push("--github");
-  args.push(
-    usesDiscardLocal(row, discardLocal) ? "--discard-local" : "--keep-local",
-  );
+  if (usesDiscardLocal(row, discardLocal)) {
+    args.push("--discard-local");
+    // Agreeing to discard local files is not agreeing to lose commits or a
+    // repository. Those are passed on by name, as the confirmation showed
+    // them, and the command refuses any it finds that were not.
+    for (const loss of graveLosses(row)) args.push("--acknowledge", loss);
+  } else args.push("--keep-local");
   if (recommendedOnly) args.push("--recommended-only");
   args.push("--", row.path);
   return args;

@@ -9,6 +9,9 @@ import {
 } from "./presentation.mjs";
 import { hostProgress } from "./host-progress.mjs";
 
+// The window's name. Arbor is alpha software and says so in its title.
+export const APP_TITLE = "Arbor (Alpha)";
+
 // How long Delete recommended stays armed, waiting for its confirming click.
 const CONFIRM_WINDOW = 5000;
 // A confirmation is a second decision. The second half of a double-click
@@ -119,10 +122,7 @@ export function createWorkspaceView({
     const ready = recommended();
     const detail = activeHosts
       ? `${activeHosts === 1 ? "scan" : `${activeHosts} scans`} in progress`
-      : shown().selectedCount === 1
-        ? // The bulk controls appear with a second row; say how to get one.
-          `1 selected · Shift- or ${state.platform === "darwin" ? "⌘" : "Ctrl"}-click to add more`
-        : `${repos.size} ${repos.size === 1 ? "repository" : "repositories"}`;
+      : `${repos.size} ${repos.size === 1 ? "repository" : "repositories"}`;
     $("#status-message").textContent = state.setupRequired
       ? "Choose a folder to scan to get started"
       : workspace.removing
@@ -183,12 +183,13 @@ export function createWorkspaceView({
       list = items();
     // macOS draws this in the window's own bar; elsewhere the system title
     // bar shows the document title.
+    // The name carries the stage the app is at, wherever the name is shown.
     const context =
       state.hostFilter === null
-        ? "All hosts — Arbor"
+        ? `All hosts — ${APP_TITLE}`
         : state.host
-          ? `${state.host} — Arbor`
-          : "Arbor";
+          ? `${state.host} — ${APP_TITLE}`
+          : APP_TITLE;
     $("#window-context").textContent = context;
     document.title = context;
     $("#version").textContent = state.version ? `Arbor ${state.version}` : "";

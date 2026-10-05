@@ -63,7 +63,7 @@ function createWindow() {
     minWidth: 850,
     minHeight: 560,
     show: false,
-    title: "Arbor",
+    title: "Arbor (Alpha)",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1f2023" : "#f6f6f7",
     ...(process.platform === "darwin"
       ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 14 } }

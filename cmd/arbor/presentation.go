@@ -176,6 +176,11 @@ func status(entry worktree.Worktree) string {
 		return "ignored files"
 	case entry.Locked:
 		return "Git locked"
+	case !entry.CanRemove && !entry.Detached && len(entry.Blockers) > 0:
+		// Whatever else only --force gets past, in the words before its
+		// explanation: unchecked files, or a default or protected branch.
+		brief, _, _ := strings.Cut(entry.Blockers[0], ":")
+		return printable(strings.ToLower(brief))
 	case entry.Fresh:
 		return "new"
 	case entry.Recommended:

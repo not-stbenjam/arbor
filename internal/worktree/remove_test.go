@@ -2,11 +2,15 @@ package worktree
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestRemoveMergedTreeRetainsBranch(t *testing.T) {
@@ -248,5 +252,115 @@ func TestRemoveRefusesPrimaryAndOutsideRoot(t *testing.T) {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// While a folder is deleted, the watcher says how many of its files are gone
+// and names one that is going. It is driven here by deleting in steps, since
+// how fast Git deletes is not something a test can hold still.
+func TestRemovalIsReportedFileByFile(t *testing.T) {
+	tick, count := removalTick, removalCount
+	removalTick, removalCount = 2*time.Millisecond, 4*time.Millisecond
+	t.Cleanup(func() { removalTick, removalCount = tick, count })
+
+	root := t.TempDir()
+	var files []string
+	for _, dir := range []string{"a", "b/deep"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 10; i++ {
+			path := filepath.Join(root, dir, fmt.Sprintf("file-%02d", i))
+			testWrite(t, path, "x")
+			files = append(files, path)
+		}
+	}
+	var mu sync.Mutex
+	var events []Progress
+	seen := func() []Progress {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(events)
+	}
+	stop := watchRemoval(root, func(event Progress) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, event)
+	})
+	waitFor := func(what string, ok func(Progress) bool) Progress {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if all := seen(); len(all) > 0 && ok(all[len(all)-1]) {
+				return all[len(all)-1]
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatalf("no report of %s; got %+v", what, seen())
+		return Progress{}
+	}
+	first := waitFor("the total", func(p Progress) bool { return p.FilesTotal == 20 })
+	if first.Stage != "remove" || first.Path != root || first.Files != 0 {
+		t.Fatalf("first report: %+v", first)
+	}
+	// A file that is still there is named, relative to the folder.
+	named := waitFor("a file", func(p Progress) bool { return p.Current != "" })
+	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(named.Current))); err != nil {
+		t.Fatalf("named a file that was not there: %q: %v", named.Current, err)
+	}
+	for _, path := range files[:10] {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor("half gone", func(p Progress) bool { return p.Files == 10 })
+	for _, path := range files[10:15] {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor("three quarters gone", func(p Progress) bool { return p.Files == 15 })
+	stop()
+	after := len(seen())
+	time.Sleep(4 * removalTick)
+	if len(seen()) != after {
+		t.Fatal("reports continued after the watcher was stopped")
+	}
+	// The count never goes backwards and never passes the total.
+	last := 0
+	for _, event := range seen() {
+		if event.Files < last || event.Files > event.FilesTotal || event.FilesTotal != 20 {
+			t.Fatalf("report out of order: %+v", seen())
+		}
+		last = event.Files
+	}
+	// With nobody to tell, or nothing to delete, there is nothing to watch.
+	watchRemoval(root, nil)()
+	watchRemoval(filepath.Join(root, "absent"), func(Progress) { t.Error("reported on a folder that is not there") })()
+}
+
+// The real removal reports through the same watcher, and still removes.
+func TestRemoveWorktreeReportsItsProgress(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	w := testTree(t, testScan(t, root), wt)
+	var mu sync.Mutex
+	var events []Progress
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, Progress: func(event Progress) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, event)
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("the worktree was not removed: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// tracked.txt, .gitignore and the worktree's .git file.
+	if len(events) == 0 || events[0].Stage != "remove" || events[0].Path != w.Path || events[0].FilesTotal != 3 {
+		t.Fatalf("removal was not reported: %+v", events)
 	}
 }

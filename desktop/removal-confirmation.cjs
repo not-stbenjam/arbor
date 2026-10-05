@@ -2,6 +2,7 @@
 
 const path = require("node:path");
 const { usesDiscardLocal } = require("./removal-policy.cjs");
+const { LOSSES, lossesOf, graveLosses } = require("./common/losses.mjs");
 
 // Native consent copy for an approved removal plan. Pure: it describes what
 // the operation will do to the selected rows and never reads application state.
@@ -25,19 +26,48 @@ function removalConfirmationOptions(trees, discardLocal) {
   const missing = trees.length - existing.length;
   const registrationsOnly = missing > 0 && !existing.length;
   // Consent follows the operation, not potentially stale scan metadata.
-  const discardsFiles = existing.some(
+  const discarding = existing.filter(
     (row) => !row.empty && usesDiscardLocal(row, discardLocal),
   );
+  const discardsFiles = discarding.length > 0;
+  // What the last scan found that this deletion would destroy, and in how
+  // many of the worktrees. A worktree with any of it is not a clean delete,
+  // and the dialog says so before it says anything else.
+  const unclean = discarding.filter((row) => lossesOf(row).length);
+  const lost = Object.keys(LOSSES)
+    .map((name) => [
+      name,
+      unclean.filter((row) => lossesOf(row).includes(name)).length,
+    ])
+    .filter(([, count]) => count);
   // The gravest consequence leads; what is kept follows it.
   const notes = [];
-  if (discardsFiles)
+  if (unclean.length) {
+    notes.push(
+      `${
+        trees.length === 1
+          ? "It holds"
+          : unclean.length === trees.length
+            ? "They hold"
+            : `${unclean.length} of them ${unclean.length === 1 ? "holds" : "hold"}`
+      } work that is not saved in Git. Deleting permanently discards:`,
+      ...lost.map(
+        ([name, count]) =>
+          `• ${LOSSES[name].text}${trees.length > 1 ? ` (${count} ${count === 1 ? "worktree" : "worktrees"})` : ""}`,
+      ),
+      "Anything else in the folder that is not committed goes too, including files added since the last scan.",
+    );
+  } else if (discardsFiles)
     notes.push(
       "Any local files, including uncommitted, untracked, and ignored files, will be permanently discarded.",
     );
   notes.push(
     registrationsOnly
       ? "Only Git worktree registrations will be removed; their folders are already missing. Git branches and commits are kept."
-      : "Worktree folders are deleted permanently, not moved to Trash. Git branches and commits are kept.",
+      : unclean.some((row) => graveLosses(row).length)
+        ? // Commits are among what is lost here, so say whose are kept.
+          "Worktree folders are deleted permanently, not moved to Trash. The branches and commits of the repository they belong to are kept."
+        : "Worktree folders are deleted permanently, not moved to Trash. Git branches and commits are kept.",
   );
   // A folder's Delete can read as deleting the folder. It never does.
   if (existing.length > 1)
@@ -78,24 +108,13 @@ function removalConfirmationOptions(trees, discardLocal) {
   const risk = (row) =>
     row.missing || row.empty || !usesDiscardLocal(row, discardLocal)
       ? ""
-      : row.dirty
-        ? "uncommitted changes"
-        : row.ignored
-          ? "ignored files"
-          : row.locked
-            ? "locked"
-            : "";
-  if (discardsFiles) {
-    const count = (label) => trees.filter((row) => risk(row) === label).length;
-    const seen = [
-      [count("uncommitted changes"), "with uncommitted changes"],
-      [count("ignored files"), "with ignored files only"],
-    ]
-      .filter(([total]) => total)
-      .map(([total, label]) => `${total} ${label}`);
-    if (trees.length > 1 && seen.length)
-      notes.push(`At the last scan: ${seen.join(", ")}.`);
-  }
+      : lossesOf(row)
+          .map((name) => LOSSES[name].brief)
+          .join(", ") || (row.locked ? "locked" : "");
+  // Worktrees that would lose commits or a repository come before those
+  // that would lose files, and those before the rest.
+  const weight = (row) =>
+    !risk(row) ? 0 : unclean.includes(row) && graveLosses(row).length ? 2 : 1;
   if (trees.some((row) => row.locked && usesDiscardLocal(row, discardLocal)))
     notes.push(
       "Git worktree locks on the selected entries will be overridden.",
@@ -106,7 +125,7 @@ function removalConfirmationOptions(trees, discardLocal) {
     );
   const preview = trees
     .map((row, index) => ({ row, index, risk: risk(row) }))
-    .sort((a, b) => !!b.risk - !!a.risk || a.index - b.index)
+    .sort((a, b) => weight(b.row) - weight(a.row) || a.index - b.index)
     .slice(0, 5)
     .map(({ row, risk }) => {
       const suffix = risk ? ` — ${risk}` : "";
@@ -128,14 +147,22 @@ function removalConfirmationOptions(trees, discardLocal) {
     80,
   );
   const plural = trees.length > 1 ? "s" : "";
+  // Some systems show only the message, so it is the message that says this
+  // is not an ordinary delete.
+  const count = (n) => (n === 2 ? "both" : `all ${n}`);
   return {
     title: registrationsOnly
       ? `Remove missing worktree registration${plural}?`
-      : discardsFiles
-        ? "Discard local files and delete?"
-        : `Delete worktree${plural}?`,
-    message:
-      trees.length === 1
+      : unclean.length
+        ? "Not a clean delete"
+        : discardsFiles
+          ? "Discard local files and delete?"
+          : `Delete worktree${plural}?`,
+    message: unclean.length
+      ? trees.length === 1
+        ? `“${name}” is not clean. Discard its work and delete it?`
+        : `${unclean.length === trees.length ? count(trees.length).replace(/^./, (c) => c.toUpperCase()) : `${unclean.length} of ${trees.length}`} worktrees${hosts.size > 1 ? ` on ${hosts.size} hosts` : ""} ${unclean.length === 1 ? "is" : "are"} not clean. Discard ${unclean.length === 1 ? "its" : "their"} work and delete ${count(trees.length)}?`
+      : trees.length === 1
         ? registrationsOnly
           ? `Remove registration for “${name}”?`
           : `Delete “${name}”${discardsFiles ? " and discard its local files" : ""}?`

@@ -60,8 +60,24 @@ func RemoveWorktree(ctx context.Context, request RemovalRequest) (result worktre
 	} else {
 		args = append(args, "--keep-local")
 	}
+	for _, loss := range request.Options.Acknowledged {
+		args = append(args, "--acknowledge", loss)
+	}
+	if request.Options.Progress != nil {
+		args = append(args, "--progress")
+	}
 	args = append(args, "--", w.Path)
-	data, err := ssh(ctx, host, args...)
+	// The remote reports on its own scan of the target as well; only the
+	// deletion itself is of interest here.
+	var deleting func(worktree.Progress)
+	if report := request.Options.Progress; report != nil {
+		deleting = func(event worktree.Progress) {
+			if event.Stage == "remove" && event.Path == w.Path {
+				report(event)
+			}
+		}
+	}
+	data, err := sshProgress(ctx, host, deleting, args...)
 	if err != nil {
 		// Only a completed remote command may supply a structured refusal.
 		// SSH's transport status 255, cancellation, and malformed/mismatched

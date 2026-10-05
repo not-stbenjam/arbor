@@ -669,6 +669,30 @@ td {
 .worktree-row.selected > td:first-child {
   box-shadow: inset 3px 0 0 var(--accent);
 }
+/* The row last clicked or arrowed to: where Enter and Delete act. It is not
+   ticked by being gone to, so it is marked more quietly than a ticked row. */
+.worktree-row.is-current:not(.selected) {
+  background: var(--hover);
+}
+/* The column of boxes down the left edge, one per row and per folder. */
+.check-column,
+.check-cell,
+.directory-table .check-cell {
+  width: 34px;
+  padding: 0 0 0 14px;
+  overflow: visible;
+}
+.row-check {
+  display: block;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.row-check[hidden] {
+  display: none;
+}
 /* Focus stays on the grid while arrow keys move through it, so the ring
    belongs on the row the cursor is on rather than around the whole table. */
 #worktree-grid:focus-visible {
@@ -1257,9 +1281,46 @@ dialog::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The file being deleted, inside the worktree named before it. It changes
+   many times a second, so it yields its room before anything else does. */
+.host-progress-file {
+  flex: 0 20 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family:
+    ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 10.5px;
+}
+.host-progress-file::before {
+  content: "›";
+  margin-right: 8px;
+  font-family: inherit;
+}
 .host-progress-count {
   flex: none;
+  margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+/* How far along, when there is an end to measure against. */
+.host-progress-bar {
+  display: block;
+  appearance: none;
+  width: calc(100% - 21px);
+  height: 4px;
+  margin: 7px 0 5px 21px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.host-progress-bar::-webkit-progress-bar {
+  background: var(--line);
+}
+.host-progress-bar::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: 2px;
 }
 .host-row .directory-toggle {
   font-weight: 600;
@@ -1584,6 +1645,7 @@ details + .settings-group,
 }
 .directory-table .branch-column {
   width: auto;
+  padding-left: 6px;
 }
 .directory-table .activity-column {
   width: 95px;
@@ -1595,7 +1657,7 @@ details + .settings-group,
   width: 105px;
 }
 .directory-table .branch-cell {
-  padding-left: 13px;
+  padding-left: 6px;
   padding-right: 8px;
 }
 .directory-table .worktree-row td {
@@ -1636,7 +1698,7 @@ th.sorted > button > .icon {
   padding-bottom: 3px;
 }
 .directory-cell {
-  padding-left: 13px;
+  padding-left: 6px;
   padding-right: 8px;
 }
 .directory-line,

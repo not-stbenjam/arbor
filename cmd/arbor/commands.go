@@ -22,6 +22,7 @@ type commandOptions struct {
 	common                                                        commonFlags
 	yes, recommended, progress, all, quiet                        bool
 	linkedOnly, noDefaultExcludes, discardLocal, keepLocal, force bool
+	acknowledge                                                   []string
 	targetOnly, watchStdin                                        bool
 	expectMissing, expectEmpty, expectBranch                      bool
 	excludes                                                      []string
@@ -151,18 +152,19 @@ func newRemoveCommand() *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVarP(&flags.yes, "yes", "y", false, "Perform removal instead of previewing")
 	f.BoolVar(&flags.keepLocal, "keep-local", false, "Refuse removal if local files would be discarded (the default)")
-	f.BoolVarP(&flags.force, "force", "f", false, "Discard local files and override a lock; needed for detached, missing or empty checkouts")
+	f.BoolVarP(&flags.force, "force", "f", false, "Discard whatever the preview lists, and override a lock; needed for anything that is not a clean delete")
 	f.StringVar(&flags.repository, "repo", "", "Owning repository or Git common directory (for missing checkouts)")
 	_ = cmd.MarkFlagDirname("repo")
 	f.StringVar(&flags.head, "head", "", "Require this exact commit before removal")
 	f.BoolVar(&flags.recommended, "recommended-only", false, "Require a fresh clean, merged cleanup recommendation")
-	f.BoolVar(&flags.discardLocal, "discard-local", false, "Same as --force")
+	f.BoolVar(&flags.discardLocal, "discard-local", false, "Discard local files and override a lock (for integrations; see --acknowledge)")
+	f.StringArrayVar(&flags.acknowledge, "acknowledge", nil, "With --discard-local, also accept this loss: submodules, operation or nested. Repeatable (for integrations)")
 	f.StringVar(&flags.id, "id", "", "Require this worktree identity")
 	f.StringVar(&flags.branch, "branch", "", "Require this branch (empty requires a detached HEAD)")
 	f.StringVar(&flags.statsSession, "stats-session", "", "Group removal statistics into a cleanup session")
 	f.BoolVar(&flags.expectMissing, "expect-missing", false, "Require the confirmed checkout to remain missing")
 	f.BoolVar(&flags.expectEmpty, "expect-empty", false, "Require the confirmed checkout to remain empty or missing")
-	for _, name := range []string{"keep-local", "discard-local", "id", "branch", "stats-session", "expect-missing", "expect-empty"} {
+	for _, name := range []string{"keep-local", "discard-local", "acknowledge", "id", "branch", "stats-session", "expect-missing", "expect-empty"} {
 		_ = f.MarkHidden(name)
 	}
 	return cmd

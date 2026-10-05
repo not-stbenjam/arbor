@@ -51,7 +51,13 @@ run(
   ],
   { CGO_ENABLED: "0", GOOS: process.platform, GOARCH: goArch },
 );
-run(process.env.GO || "go", ["run", "./scripts/icon", "build/icons"]);
+// The application icon is drawn from the same file the README shows.
+run(process.env.GO || "go", [
+  "run",
+  "./scripts/icon",
+  "desktop/common/icon.svg",
+  "build/icons",
+]);
 
 if (!process.argv.includes("--prepare")) {
   // Electron 44 downloads its runtime lazily when this module is first loaded.

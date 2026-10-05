@@ -37,6 +37,10 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 		decision := evaluateRemoval(removalFacts{reasons: reasons, verified: verified, problems: len(w.Problems) > 0, merged: w.Merged, fresh: w.Fresh})
 		w.CanRemove, w.CanDiscard, w.Recommended = decision.canRemove, decision.canDiscard, decision.recommended
 		w.DiscardWarnings = decision.warnings
+		w.Losses = decision.losses
+		if w.Losses == nil {
+			w.Losses = []string{}
+		}
 	}()
 	location := inspectLocation(ctx, w, block)
 	if location != inspectionCheckout {
@@ -45,8 +49,8 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 	}
 	inspectCommit(ctx, w)
 	inspectStatus(ctx, w, block)
-	inspectIndex(ctx, w, block)
-	inspectActivity(ctx, w, block)
+	submodules := inspectIndex(ctx, w, block)
+	inspectActivity(ctx, w, block, submodules)
 	inspectPublication(ctx, w)
 	decided := inspectMerge(ctx, w, defaultCache, block)
 	if options.GitHub {

@@ -7,10 +7,12 @@ func TestRemovalPolicyEveryReasonHasExplicitBehavior(t *testing.T) {
 		reasonDirty: true, reasonIgnored: true, reasonLocked: true,
 		reasonDetached: true, reasonMissing: true, reasonEmpty: true,
 		reasonDefaultBranch: true, reasonProtectedBranch: true,
+		reasonUnchecked: true, reasonSubmodules: true,
+		reasonOperation: true, reasonNested: true,
 	}
 	protected := []reasonCode{reasonPrimary, reasonBare, reasonOutside, reasonUnverifiedPath,
 		reasonNoCommit, reasonStatus, reasonIndex, reasonSubmoduleInspection,
-		reasonSparse, reasonSubmodules, reasonMetadata, reasonOperation, reasonNested, reasonFiles}
+		reasonMetadata, reasonFiles}
 	if len(allowed)+len(protected) != int(reasonCount) || len(reasonDescriptions) != int(reasonCount) {
 		t.Fatal("a new policy reason needs an explicit behavior test")
 	}
@@ -48,7 +50,7 @@ func TestRemovalPolicyRequiresVerifiedInspectionAndConservativeRecommendations(t
 		{"clean unmerged", removalFacts{verified: true}, true, true, false},
 		{"clean merged", removalFacts{verified: true, merged: true}, true, true, true},
 		{"unknown reason", removalFacts{verified: true, reasons: []reasonCode{255}}, false, false, false},
-		{"manual then structural", removalFacts{verified: true, reasons: []reasonCode{reasonDirty, reasonNested}}, false, false, false},
+		{"manual then structural", removalFacts{verified: true, reasons: []reasonCode{reasonDirty, reasonMetadata}}, false, false, false},
 		{"multiple manual reasons", removalFacts{verified: true, merged: true, reasons: []reasonCode{reasonDirty, reasonIgnored, reasonLocked}}, false, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

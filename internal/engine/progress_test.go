@@ -55,3 +55,23 @@ func TestRemoteScanStreamsProgressAndPreservesReport(t *testing.T) {
 		t.Fatalf("remote progress/report: %+v %+v %v", report, events, err)
 	}
 }
+
+// A remote deletion reports through the same framed lines as a scan. Counts
+// that could not be true are not passed on.
+func TestProgressWriterAcceptsOnlyCoherentRemovalProgress(t *testing.T) {
+	var events []worktree.Progress
+	w := &progressWriter{callback: func(event worktree.Progress) { events = append(events, event) }}
+	for _, body := range []string{
+		`{"stage":"remove","path":"/work/topic","current":"node_modules/a/index.js","files":12,"filesTotal":40}`,
+		`{"stage":"remove","path":"/work/topic","files":41,"filesTotal":40}`,
+		`{"stage":"remove","path":"/work/topic","files":-1,"filesTotal":40}`,
+		`{"stage":"remove","path":"/work/topic","current":"` + strings.Repeat("x", 5000) + `","filesTotal":40}`,
+		`{"stage":"erase","path":"/work/topic"}`,
+	} {
+		w.Write([]byte(worktree.ProgressPrefix + body + "\n"))
+	}
+	w.flush()
+	if len(events) != 1 || events[0].Current != "node_modules/a/index.js" || events[0].Files != 12 || events[0].FilesTotal != 40 {
+		t.Fatalf("removal progress: %+v", events)
+	}
+}

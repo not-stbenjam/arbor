@@ -7,6 +7,7 @@ import {
 } from "./worktree-presentation.mjs";
 import { icon, esc, ago, sentenceCase } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
+import { lossesOf } from "../common/losses.mjs";
 
 // Owns tree-only interaction state: filters, sorting, expansion and selection.
 // Backend revisions reconcile registration IDs; switching workspaces clears it.
@@ -31,7 +32,8 @@ export function createWorktreeView({
     visible = [],
     // Where the keyboard cursor last was, for when its row disappears.
     cursorIndex = 0,
-    cursorVanished = false;
+    cursorVanished = false,
+    folderRows = new Map();
   const hostFilter = () => workspace.snapshot.hostFilter;
   let previousItems = [],
     previousHost = hostFilter();
@@ -51,8 +53,10 @@ export function createWorktreeView({
         button.disabled = unavailable || (!!row && !workspace.canDelete(row));
       });
   }
+  // Whether a row could ever be deleted, as distinct from whether anything
+  // can be deleted this instant: a scan or another deletion only postpones it.
   const deletable = (row) =>
-    workspace.canDelete(row) && (row.canRemove || row.canDiscard);
+    !row.pending && (row.canRemove || row.canDiscard);
   // Where the keyboard goes when what it was on is gone: the list while it
   // has rows, otherwise the next thing there is to do.
   function focusList() {
@@ -68,19 +72,24 @@ export function createWorktreeView({
     // The bar leaves with the selection. Whoever was using it goes back to
     // the list rather than to nowhere.
     const held = !bar.hidden && !!bar.contains?.(document.activeElement);
-    bar.hidden = rows.length < 2;
+    bar.hidden = rows.length === 0;
     if (held && bar.hidden) focusList();
     // Say before the click how much of the selection can actually go.
+    // ...and how much of it is not a clean delete, which the confirmation
+    // then spells out.
+    const unclean = rows.filter(
+      (row) => deletable(row) && !row.missing && lossesOf(row).length,
+    ).length;
     $("#selection-label").textContent =
-      `${rows.length} worktrees selected${kept ? ` · ${kept} cannot be deleted` : ""}`;
+      `${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"} selected${unclean ? ` · ${unclean} not clean` : ""}${kept ? ` · ${kept} cannot be deleted` : ""}`;
     $("#remove-selected").disabled =
-      blocked() || rows.length === kept || !workspace.snapshot.revision;
+      blocked() ||
+      !workspace.snapshot.revision ||
+      !rows.some((row) => deletable(row) && workspace.canDelete(row));
   }
   function clearSelection() {
     selection = { ids: new Set(), anchor: "", cursor: selection.cursor };
-    renderSelection();
-    renderSelectionBar();
-    onRender();
+    selectionChanged();
   }
   // Replacing the rows would drop keyboard focus to the page. Remember the
   // control that held it by what it acts on, not by its element.
@@ -157,6 +166,21 @@ export function createWorktreeView({
     filtered = projection.filtered;
     directoryRows = projection.directoryRows;
     visible = projection.visible;
+    // What each folder's box ticks: the rows shown under it, in any open
+    // folder beneath. A closed folder shows none, so its box has nothing to do.
+    const shown = new Set(visible.map((row) => row.id));
+    folderRows = new Map(
+      directoryRows
+        .filter((entry) => entry.kind !== "worktree")
+        .map((entry) => [
+          entry.kind === "host"
+            ? entry.key
+            : entry.node.key || entry.node.path,
+          (entry.kind === "host" ? entry.descendants : entry.node.descendants)
+            .filter((row) => shown.has(row.id))
+            .map((row) => row.id),
+        ]),
+    );
     // Only a row on screen can be selected or hold the keyboard cursor. No
     // key or button may reach a worktree that a filter or a collapsed folder
     // has hidden.
@@ -259,6 +283,7 @@ export function createWorktreeView({
       cancelled: workspace.snapshot.cancelled,
     });
     $("#table-scroll").scrollTop = scroll;
+    renderSelection();
     restoreFocus(focus);
     // With no row left to stay on, the keyboard goes to what can be done next.
     if (gridFocused && !visible.length) focusList();
@@ -349,17 +374,64 @@ export function createWorktreeView({
         String(selection.ids.has(row.dataset.id)),
       );
     });
+    // The boxes are the selection, drawn: a row's is ticked when it is
+    // selected, a folder's when every row shown under it is, and half-ticked
+    // when only some are.
+    const tick = (box, ids) => {
+      const chosen = ids.filter((id) => selection.ids.has(id)).length;
+      box.checked = ids.length > 0 && chosen === ids.length;
+      box.indeterminate = chosen > 0 && chosen < ids.length;
+      box.hidden = ids.length === 0;
+    };
+    document
+      .querySelectorAll("[data-select]")
+      .forEach((box) => (box.checked = selection.ids.has(box.dataset.select)));
+    document
+      .querySelectorAll("[data-select-folder]")
+      .forEach((box) =>
+        tick(box, folderRows.get(box.dataset.selectFolder) || []),
+      );
+    tick(
+      $("#select-all"),
+      visible.map((row) => row.id),
+    );
     renderActiveRow();
   }
-  function selectRow(id, event) {
-    selection = chooseRow(selection, visible, id, event);
+  // Ticking is always additive: a box never clears what is already ticked.
+  function tickRows(ids) {
+    const every = ids.every((id) => selection.ids.has(id));
+    const next = new Set(selection.ids);
+    ids.forEach((id) => (every ? next.delete(id) : next.add(id)));
+    selection = { ...selection, ids: next, anchor: ids[0] || selection.anchor };
+    selectionChanged();
+  }
+  function selectionChanged() {
     renderSelection();
     renderSelectionBar();
     // The status bar explains a lone selection, so it follows each change.
     onRender();
+  }
+  function selectRow(id, event) {
+    selection = chooseRow(selection, visible, id, event);
+    selectionChanged();
     $("#worktree-grid").focus({ preventScroll: true });
   }
   function handleTreeClick(event) {
+    // A box, or the cell around it, ticks without disturbing the rest. A
+    // row's box works like Ctrl-click, and Shift still takes a range.
+    const cell = event.target.closest(".check-cell, .check-column");
+    const box = cell?.querySelector("input");
+    if (box) {
+      if (box.dataset.select)
+        selectRow(box.dataset.select, {
+          ctrlKey: true,
+          shiftKey: event.shiftKey,
+        });
+      else if (box.dataset.selectFolder)
+        tickRows(folderRows.get(box.dataset.selectFolder) || []);
+      else tickRows(visible.map((row) => row.id));
+      return;
+    }
     const button = event.target.closest("button");
     if (button) {
       if (button.disabled) return;
@@ -414,7 +486,8 @@ export function createWorktreeView({
     const row = event.target.closest("[data-id]");
     if (!row) return;
     event.preventDefault();
-    if (!selection.ids.has(row.dataset.id)) selectRow(row.dataset.id, event);
+    // The menu is for the row it was opened on; the cursor goes there too.
+    selectRow(row.dataset.id, {});
     showWorktreeMenu(row.dataset.id);
   });
   // Tabbing into the list lands on a row, as in any list: the first selected
@@ -457,7 +530,13 @@ export function createWorktreeView({
       $("#worktree-grid").focus({ preventScroll: true });
       return;
     }
-    if (event.target.closest("button")) return;
+    if (event.target.closest("button, input")) return;
+    // Space ticks the row the cursor is on, as clicking its box does.
+    if (event.key === " " && selection.cursor) {
+      event.preventDefault();
+      selectRow(selection.cursor, { ctrlKey: true });
+      return;
+    }
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
       if (!visible.length) return;
@@ -490,10 +569,16 @@ export function createWorktreeView({
       selection.ids = new Set(visible.map((w) => w.id));
       render();
     }
-    // Deletion always asks first, so the key is as safe as the button.
+    // Deletion always asks first, so the key is as safe as the button. It
+    // takes what is ticked, or with nothing ticked, the row the cursor is on.
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
-      workspace.deleteWorktrees(selected());
+      const ticked = selected();
+      workspace.deleteWorktrees(
+        ticked.length
+          ? ticked
+          : visible.filter((row) => row.id === selection.cursor),
+      );
     }
   });
   // A search opens every folder so its matches show. That is a view of the

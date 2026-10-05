@@ -74,6 +74,7 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 		if status.enabled {
 			fmt.Fprintln(stderr, "Removing", printable(target.Worktree.Path)+"…")
 		}
+		target.Options.Progress = removalProgress(stderr, r.progress, status.enabled)
 		return engine.RemoveWorktree(ctx, target)
 	}
 	var observe removalObserver

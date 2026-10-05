@@ -5,9 +5,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
-func measure(ctx context.Context, w *Worktree, block func(reasonCode)) {
+// measure walks the worktree's files. submodules are the folders of its own
+// checked-out submodules: each is a repository inside the folder, but one the
+// worktree accounts for, and is reported as a submodule rather than as a
+// stray nested repository.
+func measure(ctx context.Context, w *Worktree, block func(reasonCode), submodules []string) {
 	nested := false
 	err := filepath.WalkDir(w.Path, func(path string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
@@ -17,7 +22,7 @@ func measure(ctx context.Context, w *Worktree, block func(reasonCode)) {
 			return err
 		}
 		if d.Name() == ".git" {
-			if filepath.Dir(path) != w.Path {
+			if parent := filepath.Dir(path); parent != w.Path && !slices.Contains(submodules, parent) {
 				nested = true
 			}
 			if d.IsDir() {

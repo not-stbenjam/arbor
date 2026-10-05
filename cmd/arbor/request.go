@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
+	"strings"
 
 	"github.com/not-stbenjam/arbor/internal/engine"
 	"github.com/not-stbenjam/arbor/internal/worktree"
@@ -13,9 +15,12 @@ var cleanupSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // worktreeRequest is validated command intent, independent of Cobra and output.
 type worktreeRequest struct {
-	command, host                             string
-	scan                                      worktree.Options
-	preview, all, recommended, discardLocal   bool
+	command, host                           string
+	scan                                    worktree.Options
+	preview, all, recommended, discardLocal bool
+	// acknowledged names the grave losses that have been agreed to: all of
+	// them with --force, otherwise the ones an integration showed its user.
+	acknowledged                              []string
 	expectMissing, expectEmpty, expectBranch  bool
 	head, id, branch, sessionID               string
 	watchStdin, json, progress, humanProgress bool
@@ -40,6 +45,21 @@ func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, e
 	}
 	if r.discardLocal && flags.keepLocal {
 		return r, fmt.Errorf("%s and --keep-local are mutually exclusive", policyFlag)
+	}
+	// --force is a person agreeing to everything the preview listed. An
+	// integration passes --discard-local and names what it showed instead.
+	if flags.force {
+		r.acknowledged = worktree.GraveLosses()
+	} else {
+		for _, loss := range flags.acknowledge {
+			if !slices.Contains(worktree.GraveLosses(), loss) {
+				return r, fmt.Errorf("--acknowledge accepts %s, not %q", strings.Join(worktree.GraveLosses(), ", "), loss)
+			}
+		}
+		if len(flags.acknowledge) > 0 && !r.discardLocal {
+			return r, errors.New("--acknowledge applies to --discard-local")
+		}
+		r.acknowledged = flags.acknowledge
 	}
 	if r.expectMissing && r.expectEmpty {
 		return r, errors.New("--expect-missing and --expect-empty are mutually exclusive")

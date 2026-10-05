@@ -155,7 +155,31 @@ export function describeProgress(state, removing = false) {
     : Number(progress.discovered) > 0
       ? `${progress.discovered} found`
       : "";
-  return { stage, totalKnown, completed, countText };
+  // How far along, from 0 to 1, when that is known. A deletion counts the
+  // worktrees finished plus how much of the one in hand has gone.
+  const files = Math.max(0, Number(progress.files) || 0),
+    filesTotal = Math.max(0, Number(progress.filesTotal) || 0);
+  const within = deleting && filesTotal ? Math.min(1, files / filesTotal) : 0;
+  const fraction = totalKnown
+    ? Math.min(1, (completed + within) / progress.total)
+    : null;
+  if (!deleting || state.cancelRequested)
+    return { stage, totalKnown, completed, countText, fraction };
+  return {
+    // Which one it is on says more than how many are behind it.
+    stage:
+      progress.total > 1
+        ? `Deleting worktree ${Math.min(completed + 1, progress.total)} of ${progress.total}…`
+        : "Deleting worktree…",
+    totalKnown,
+    completed,
+    countText: filesTotal
+      ? `${wholeNumber.format(files)} of ${wholeNumber.format(filesTotal)} files`
+      : "",
+    fraction,
+    // A file being deleted about now, inside the worktree named beside it.
+    current: typeof progress.current === "string" ? progress.current : "",
+  };
 }
 export {
   icon,

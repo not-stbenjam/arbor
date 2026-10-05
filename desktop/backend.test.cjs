@@ -176,8 +176,9 @@ test("recommended removal binds identity, host and GitHub evidence, then updates
     "remove",
     "--yes",
     "--json",
+    "--progress",
     "--stats-session",
-    calls[1][4],
+    calls[1][5],
     "--head",
     tree.head,
     "--id",
@@ -192,7 +193,7 @@ test("recommended removal binds identity, host and GitHub evidence, then updates
     "--",
     tree.path,
   ]);
-  assert.match(calls[1][4], /^[0-9a-f-]{36}$/);
+  assert.match(calls[1][5], /^[0-9a-f-]{36}$/);
   assert.equal(calls.length, 2);
   assert.deepEqual(result.report.worktrees, []);
   assert.equal(result.results[0].removed, true);

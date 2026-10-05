@@ -14,6 +14,13 @@ type RemovalOptions struct {
 	ExpectedHead    string
 	RecommendedOnly bool
 	DiscardLocal    bool
+	// Acknowledged names the grave losses (see GraveLosses) that the person
+	// deleting was shown and accepted. DiscardLocal alone agrees to losing
+	// files in the folder, not to these.
+	Acknowledged []string
+	// Progress is optional. It is told how far the deletion of the folder
+	// has got, from a goroutine of its own.
+	Progress func(Progress)
 }
 
 // RemoveWorktree freshly validates and removes one registered linked checkout.
@@ -109,6 +116,11 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	if recommendedOnly && !current.Recommended {
 		return errors.New("worktree is no longer a cleanup recommendation")
 	}
+	// Consent is for what was shown. Something graver found since, or never
+	// shown, stops the deletion so that it can be seen and agreed to.
+	if missing := unacknowledged(current.Losses, options.Acknowledged); missing != "" {
+		return fmt.Errorf("not deleted: it would also discard %s. Look at it again and confirm that", missing)
+	}
 	// Retaining the named branch is part of Arbor's removal contract.
 	if current.Detached && discardLocal {
 		// Most detached tool sessions point at an existing branch commit. Avoid
@@ -175,6 +187,11 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		}
 	}
 	args = append(args, "--", current.Path)
+	var progress func(Progress)
+	if !missing {
+		progress = options.Progress
+	}
+	defer watchRemoval(current.Path, progress)()
 	_, err = gitCommon(ctx, common, args...)
 	return err
 }

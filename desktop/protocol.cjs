@@ -58,7 +58,13 @@ const flagFields = [
   "canDiscard",
   "recommended",
 ];
-const listFields = ["publishedRefs", "blockers", "problems", "discardWarnings"];
+const listFields = [
+  "publishedRefs",
+  "blockers",
+  "problems",
+  "discardWarnings",
+  "losses",
+];
 const displayFields = new Set([
   "subject",
   "author",
@@ -227,6 +233,18 @@ function progressEvent(value) {
   if (worktree) {
     result.worktree = worktree;
     result.pending = worktree.pending;
+  }
+  // While a folder is deleted: a file going about now and how many are gone.
+  // Each is optional, and one that is malformed is left out, not passed on.
+  if (boundedText(value.current)) result.current = value.current;
+  if (
+    [value.files, value.filesTotal].every(
+      (count) => Number.isSafeInteger(count) && count >= 0,
+    ) &&
+    value.files <= value.filesTotal
+  ) {
+    result.files = value.files;
+    result.filesTotal = value.filesTotal;
   }
   return result;
 }

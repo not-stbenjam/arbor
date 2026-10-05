@@ -8,7 +8,10 @@ import (
 	"testing"
 )
 
-func TestCombinedIndexInspectionStillDetectsSubmodules(t *testing.T) {
+// A submodule the index names but that is not checked out puts nothing in
+// the folder, and Git removes such a worktree without being forced. What is
+// in the index is still seen: here, the staged addition itself.
+func TestCombinedIndexInspectionReadsSubmoduleEntries(t *testing.T) {
 	root := t.TempDir()
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	linked := testLinked(t, repo, filepath.Join(root, "linked"), "feature")
@@ -18,7 +21,21 @@ func TestCombinedIndexInspectionStillDetectsSubmodules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertProtected(t, testTree(t, report, linked), "submodules")
+	w := testTree(t, report, linked)
+	assertProtected(t, w, "Uncommitted")
+	if len(w.Blockers) != 1 {
+		t.Fatalf("a submodule that is not checked out was held against the worktree: %v", w.Blockers)
+	}
+	// Something in that folder is another matter: Git does not look inside.
+	if err := os.MkdirAll(filepath.Join(linked, "modules", "dependency"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	testWrite(t, filepath.Join(linked, "modules", "dependency", "notes.txt"), "kept nowhere else\n")
+	report, err = Scan(context.Background(), Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertProtected(t, testTree(t, report, linked), "Unchecked files")
 }
 
 func TestBatchedMetadataInspectionFindsAllOperations(t *testing.T) {
@@ -39,7 +56,7 @@ func TestBatchedMetadataInspectionFindsAllOperations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertProtected(t, testTree(t, report, linked), "operation in progress")
+			assertProtected(t, testTree(t, report, linked), "Unfinished Git operation")
 		})
 	}
 }

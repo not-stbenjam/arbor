@@ -452,3 +452,53 @@ test("a stopped-host reply cannot restore an old filter after navigation", async
   assert.equal(workspace.snapshot.hostFilter, "");
   workspace.dispose();
 });
+
+test("a deletion shows which worktree it is on, how far through its files, and one of them", async () => {
+  const { hostProgress } = await import("../renderer/host-progress.mjs");
+  const { describeProgress } = await import("../renderer/presentation.mjs");
+  const deleting = (progress) => ({
+    host: "",
+    busy: true,
+    operation: "remove",
+    progress: { stage: "removing", path: "/work/<two>", discovered: 0, ...progress },
+  });
+  const half = deleting({
+    completed: 1,
+    total: 4,
+    files: 12340,
+    filesTotal: 24680,
+    current: "node_modules/<pkg>/index.js",
+  });
+  assert.deepEqual(describeProgress(half, true), {
+    stage: "Deleting worktree 2 of 4…",
+    totalKnown: true,
+    completed: 1,
+    countText: "12,340 of 24,680 files",
+    // One whole worktree and half of the second, out of four.
+    fraction: 0.375,
+    current: "node_modules/<pkg>/index.js",
+  });
+  const { markup, summary } = hostProgress([half]);
+  assert.match(markup, /<progress class="host-progress-bar" max="1000" value="375" aria-label="Deleting worktree 2 of 4…"><\/progress>/);
+  assert.match(
+    markup,
+    /host-progress-path" title="\/work\/&lt;two&gt;">\/work\/&lt;two&gt;<\/span><span class="host-progress-file" title="node_modules\/&lt;pkg&gt;\/index.js">node_modules\/&lt;pkg&gt;\/index.js<\/span><span class="host-progress-count">12,340 of 24,680 files<\/span>/,
+  );
+  // Said aloud once per worktree, not once per file.
+  assert.equal(summary, "This computer: Deleting worktree 2 of 4…");
+  // Before the first count arrives there is a bar at the worktrees done and
+  // no claim about files.
+  const starting = describeProgress(deleting({ completed: 0, total: 1 }), true);
+  assert.equal(starting.stage, "Deleting worktree…");
+  assert.equal(starting.countText, "");
+  assert.equal(starting.fraction, 0);
+  // A scan with a known end gets the same bar; one without gets none.
+  assert.match(
+    hostProgress([{ host: "", busy: true, progress: { stage: "inspect", path: "/w", completed: 1, total: 4 } }]).markup,
+    /<progress class="host-progress-bar" max="1000" value="250"/,
+  );
+  assert.doesNotMatch(
+    hostProgress([{ host: "", busy: true, progress: { stage: "discovery", path: "/w", discovered: 3 } }]).markup,
+    /<progress/,
+  );
+});

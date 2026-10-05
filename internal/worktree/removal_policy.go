@@ -3,6 +3,8 @@ package worktree
 import (
 	"crypto/sha256"
 	"fmt"
+	"slices"
+	"strings"
 )
 
 // reasonCode is internal policy input, not user-facing copy or a wire format.
@@ -24,7 +26,7 @@ const (
 	reasonIgnored
 	reasonIndex
 	reasonSubmoduleInspection
-	reasonSparse
+	reasonUnchecked
 	reasonSubmodules
 	reasonMetadata
 	reasonOperation
@@ -39,6 +41,17 @@ type reasonDescription struct {
 	message string
 	manual  bool
 	warning string
+	// loss names what deleting anyway destroys: a short stable name that the
+	// app and the command line pass to each other, and the words that finish
+	// "Deleting it permanently discards …". A reason that costs nothing, such
+	// as a lock or a detached commit that is retained, has neither. A
+	// worktree with any loss is not a clean delete, and is told apart from
+	// one that is.
+	loss, lossText string
+	// grave marks a loss of more than files in the folder: commits or a
+	// repository that exist nowhere else. Agreeing to discard local files is
+	// not agreeing to these; each must have been shown and accepted by name.
+	grave bool
 }
 
 var reasonDescriptions = [...]reasonDescription{
@@ -52,17 +65,17 @@ var reasonDescriptions = [...]reasonDescription{
 	reasonNoCommit:            {message: "No commit to preserve"},
 	reasonEmpty:               {message: "Empty checkout directory; only its stale registration remains", manual: true, warning: "Only the empty directory and its stale Git registration will be removed; branches and commits are retained."},
 	reasonStatus:              {message: "Cannot read working directory status"},
-	reasonDirty:               {message: "Uncommitted or untracked files", manual: true, warning: "Uncommitted changes and untracked files will be deleted."},
-	reasonIgnored:             {message: "Ignored files on disk (may include local secrets or build output)", manual: true, warning: "Ignored files will be deleted, including any local configuration or build output."},
+	reasonDirty:               {message: "Uncommitted or untracked files", manual: true, warning: "Uncommitted changes and untracked files will be deleted.", loss: "changes", lossText: "uncommitted changes and untracked files"},
+	reasonIgnored:             {message: "Ignored files on disk (may include local secrets or build output)", manual: true, warning: "Ignored files will be deleted, including any local configuration or build output.", loss: "ignored", lossText: "ignored files, such as local configuration or build output"},
 	reasonIndex:               {message: "Cannot verify index flags"},
 	reasonSubmoduleInspection: {message: "Cannot verify submodules"},
-	reasonSparse:              {message: "Sparse or assume-unchanged index entries"},
-	reasonSubmodules:          {message: "Contains submodules"},
+	reasonUnchecked:           {message: "Unchecked files: Git was told not to look at some files (assume-unchanged, skip-worktree, or inside a submodule that is not checked out)", manual: true, warning: "Files Git was told not to look at will be deleted; changes to them cannot be seen.", loss: "unchecked", lossText: "any changes to files Git was told not to look at"},
+	reasonSubmodules:          {message: "Submodules: has submodule checkouts, which keep commits of their own", manual: true, warning: "Submodule checkouts will be deleted, along with any commits made inside them that were never pushed.", loss: "submodules", lossText: "submodule checkouts, and any commits made inside them that were never pushed", grave: true},
 	reasonMetadata:            {message: "Cannot locate Git metadata"},
-	reasonOperation:           {message: "Git operation in progress"},
+	reasonOperation:           {message: "Unfinished Git operation: a rebase, merge, cherry-pick, revert or bisect is in progress", manual: true, warning: "The unfinished rebase, merge or other Git operation will be abandoned.", loss: "operation", lossText: "the unfinished Git operation (a rebase, merge, cherry-pick, revert or bisect)", grave: true},
 	reasonDefaultBranch:       {message: "Default branch", manual: true},
 	reasonProtectedBranch:     {message: "Protected branch name", manual: true},
-	reasonNested:              {message: "Contains a nested repository or worktree"},
+	reasonNested:              {message: "Nested repository: another Git repository or worktree is inside this folder", manual: true, warning: "The separate Git repository or worktree inside this folder will be deleted with it, including any history kept nowhere else.", loss: "nested", lossText: "the separate Git repository or worktree inside the folder, with any history kept nowhere else", grave: true},
 	reasonFiles:               {message: "Cannot inspect every file"},
 }
 
@@ -79,6 +92,7 @@ type removalDecision struct {
 	canDiscard  bool
 	recommended bool
 	warnings    []string
+	losses      []string
 }
 
 // evaluateRemoval has no Git/filesystem dependencies. Display strings are never
@@ -96,6 +110,9 @@ func evaluateRemoval(facts removalFacts) removalDecision {
 		if warning := reasonDescriptions[reason].warning; warning != "" {
 			decision.warnings = append(decision.warnings, warning)
 		}
+		if loss := reasonDescriptions[reason].loss; loss != "" {
+			decision.losses = append(decision.losses, loss)
+		}
 	}
 	return decision
 }
@@ -112,4 +129,28 @@ func reasonMessage(reason reasonCode) string {
 func RecoveryBranch(w Worktree) string {
 	sum := sha256.Sum256([]byte(w.CommonDir + "\x00" + w.Path + "\x00" + w.Head))
 	return fmt.Sprintf("arbor/retained/%x", sum[:12])
+}
+
+// GraveLosses lists the losses that must each be agreed to by name.
+func GraveLosses() []string {
+	var names []string
+	for _, description := range reasonDescriptions {
+		if description.grave {
+			names = append(names, description.loss)
+		}
+	}
+	return names
+}
+
+// unacknowledged describes the grave losses in a worktree that the person
+// deleting it has not been shown and accepted, or is empty when there are
+// none. What they agreed to was what they saw.
+func unacknowledged(losses, acknowledged []string) string {
+	var missing []string
+	for _, description := range reasonDescriptions {
+		if description.grave && slices.Contains(losses, description.loss) && !slices.Contains(acknowledged, description.loss) {
+			missing = append(missing, description.lossText)
+		}
+	}
+	return strings.Join(missing, "; ")
 }

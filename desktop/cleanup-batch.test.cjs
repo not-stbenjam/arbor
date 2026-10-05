@@ -108,3 +108,35 @@ test("a successful response for another path is a failed action, never a confirm
   ]);
   assert.deepEqual(outcomes, result.results);
 });
+
+test("each worktree's deletion is followed file by file, and only its own", async () => {
+  const progress = [];
+  await executeCleanupBatch(
+    plan,
+    callbacks({
+      run: async (args, { onProgress }) => {
+        const path = args.at(-1);
+        assert.ok(args.includes("--progress"));
+        // The command reports on checking the worktree before deleting it,
+        // and a report for some other path is not this worktree's.
+        onProgress({ stage: "inspect", path, completed: 1, total: 1 });
+        onProgress({ stage: "remove", path: "/elsewhere", files: 9, filesTotal: 9 });
+        onProgress({ stage: "remove", path, files: 0, filesTotal: 40 });
+        onProgress({ stage: "remove", path, current: "a/b.txt", files: 25, filesTotal: 40 });
+        return JSON.stringify({ path, removed: true });
+      },
+      onProgress: (value) => progress.push(value),
+    }),
+  );
+  assert.deepEqual(progress, [
+    // Each worktree starts its own count.
+    { path: "/work/one", completed: 0, current: "", files: 0, filesTotal: 0 },
+    { current: "", files: 0, filesTotal: 40 },
+    { current: "a/b.txt", files: 25, filesTotal: 40 },
+    { path: "/work/one", completed: 1 },
+    { path: "/work/two", completed: 1, current: "", files: 0, filesTotal: 0 },
+    { current: "", files: 0, filesTotal: 40 },
+    { current: "a/b.txt", files: 25, filesTotal: 40 },
+    { path: "/work/two", completed: 2 },
+  ]);
+});

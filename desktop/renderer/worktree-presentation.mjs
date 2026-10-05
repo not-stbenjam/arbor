@@ -9,6 +9,7 @@ import {
   parsedDate,
   repoID,
 } from "./presentation.mjs";
+import { LOSSES, lossesOf, graveLosses } from "../common/losses.mjs";
 
 // Pure tree projection and markup. No DOM, IPC, timers, or mutable view state.
 
@@ -42,6 +43,19 @@ export function worktreeState(w) {
       detail:
         "The folder is empty. Deleting removes it and its leftover Git registration.",
     };
+  // Commits or a repository that would be lost outrank files that would be:
+  // the row names the gravest thing it holds, and its tooltip all of them.
+  const grave = ["nested", "submodules", "operation"].find((name) =>
+    graveLosses(w).includes(name),
+  );
+  if (grave)
+    return {
+      tone: "caution",
+      label: LOSSES[grave].brief.replace(/^./, (c) => c.toUpperCase()),
+      detail: `Deleting this worktree discards ${lossesOf(w)
+        .map((name) => LOSSES[name].text)
+        .join("; ")}.`,
+    };
   if (w.dirty)
     return {
       tone: "caution",
@@ -64,6 +78,16 @@ export function worktreeState(w) {
       tone: "muted",
       label: "Locked",
       detail: w.lockReason || "Locked with git worktree lock.",
+    };
+  // Any other reason that only an explicit discard gets past is named by the
+  // words before its explanation, such as files Git was told not to check or
+  // a checkout of a protected branch. Orange is for what could be lost. A
+  // detached HEAD is already named where the branch would be.
+  if (!w.canRemove && w.canDiscard && !w.detached && w.blockers?.length)
+    return {
+      tone: lossesOf(w).length ? "caution" : "muted",
+      label: w.blockers[0].split(/[:;(]/)[0].trim(),
+      detail: w.blockers.join("\n"),
     };
   if (w.fresh)
     return {
@@ -227,18 +251,22 @@ export function renderTreeRows(
     '<span class="tree-indent" aria-hidden="true"></span>'.repeat(
       Math.min(depth, 12),
     );
+  // A folder's box ticks the rows shown beneath it. The view sets its state,
+  // which depends on what is selected and on which folders are open.
+  const folderCheck = (key, name) =>
+    `<td class="check-cell"><input type="checkbox" class="row-check" tabindex="-1" data-select-folder="${esc(key)}" aria-label="Select the worktrees shown under ${esc(name)}" /></td>`;
   return directoryRows
     .map((entry) => {
       if (entry.kind === "host") {
         const expanded = !collapsed.has(entry.key);
-        return `<tr class="directory-row host-row" data-host="${esc(entry.host)}" aria-level="1" aria-expanded="${expanded}"><td colspan="4" class="directory-cell"><div class="directory-line"><button class="directory-toggle" data-toggle-directory="${esc(entry.key)}" aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${esc(entry.label)}">${icon(expanded ? "chevron-down" : "chevron-right")}${icon(entry.host ? "server" : "monitor")}<span>${esc(entry.label)}</span></button><span class="directory-count">${entry.descendants.length} ${entry.descendants.length === 1 ? "worktree" : "worktrees"}</span></div></td></tr>`;
+        return `<tr class="directory-row host-row" data-host="${esc(entry.host)}" aria-level="1" aria-expanded="${expanded}">${folderCheck(entry.key, entry.label)}<td colspan="4" class="directory-cell"><div class="directory-line"><button class="directory-toggle" data-toggle-directory="${esc(entry.key)}" aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${esc(entry.label)}">${icon(expanded ? "chevron-down" : "chevron-right")}${icon(entry.host ? "server" : "monitor")}<span>${esc(entry.label)}</span></button><span class="directory-count">${entry.descendants.length} ${entry.descendants.length === 1 ? "worktree" : "worktrees"}</span></div></td></tr>`;
       }
       if (entry.kind === "directory") {
         const node = entry.node;
         const key = node.key || node.path;
         const expanded = !collapsed.has(key);
         const count = `${node.descendants.length} ${node.descendants.length === 1 ? "worktree" : "worktrees"}`;
-        return `<tr class="directory-row" data-directory-path="${esc(node.path)}" data-host="${esc(node.host || "")}" aria-level="${entry.depth + 1}" aria-expanded="${expanded}"><td colspan="3" class="directory-cell"><div class="directory-line">${indentation(entry.depth)}<button class="directory-toggle" data-toggle-directory="${esc(key)}" aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${esc(node.path)}">${icon(expanded ? "chevron-down" : "chevron-right")}${icon("folder")}<span title="${esc(node.path)}">${esc(entry.label)}</span></button><span class="directory-count">${count}</span></div></td><td class="action-cell"><div class="row-actions"><button class="row-action folder-delete" data-folder-delete="${esc(key)}" title="Delete the ${count} shown under this folder. The folder itself is kept." aria-label="Delete the ${count} under ${esc(node.path)}; the folder is kept" ${disabled ? "disabled" : ""}>Delete…</button></div></td></tr>`;
+        return `<tr class="directory-row" data-directory-path="${esc(node.path)}" data-host="${esc(node.host || "")}" aria-level="${entry.depth + 1}" aria-expanded="${expanded}">${folderCheck(key, node.path)}<td colspan="3" class="directory-cell"><div class="directory-line">${indentation(entry.depth)}<button class="directory-toggle" data-toggle-directory="${esc(key)}" aria-expanded="${expanded}" aria-label="${expanded ? "Collapse" : "Expand"} ${esc(node.path)}">${icon(expanded ? "chevron-down" : "chevron-right")}${icon("folder")}<span title="${esc(node.path)}">${esc(entry.label)}</span></button><span class="directory-count">${count}</span></div></td><td class="action-cell"><div class="row-actions"><button class="row-action folder-delete" data-folder-delete="${esc(key)}" title="Delete the ${count} shown under this folder. The folder itself is kept." aria-label="Delete the ${count} under ${esc(node.path)}; the folder is kept" ${disabled ? "disabled" : ""}>Delete…</button></div></td></tr>`;
       }
       const w = entry.worktree;
       const rowDisabled = disabled || !canDelete(w);
@@ -252,6 +280,12 @@ export function renderTreeRows(
       const name = `${prefix ? `<span class="path-chain">${esc(prefix)}</span>` : ""}<span class="path-basename">${esc(leaf)}</span>`;
       const state = worktreeState(w);
       const branch = branchName(w);
+      // A row that is not a clean delete says so on the button that would
+      // delete it, before the confirmation does.
+      const lost = w.pending || w.missing ? [] : lossesOf(w);
+      const deleteTitle = lost.length
+        ? ` title="Not a clean delete. It would discard ${esc(lost.map((name) => LOSSES[name].text).join("; "))}. Asks first."`
+        : "";
       const context = w.pending
         ? cancelled
           ? "Scan incomplete"
@@ -260,7 +294,7 @@ export function renderTreeRows(
       const contextMarkup = w.pending
         ? `<span>${esc(context)}</span>`
         : `${state ? `<span class="worktree-state" data-tone="${state.tone}" title="${esc(state.detail)}">${esc(state.label)}</span><span> · </span>` : ""}<span class="worktree-branch">${esc(branch)}</span>${w.repo ? `<span> · </span><span class="worktree-repository">${esc(w.repo)}</span>` : ""}`;
-      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-selected="${selected.has(w.id)}"><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${esc(context)}">${contextMarkup}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending || w.missing ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" tabindex="-1" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}" ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" tabindex="-1" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
+      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-selected="${selected.has(w.id)}"><td class="check-cell"><input type="checkbox" class="row-check" tabindex="-1" data-select="${esc(w.id)}" aria-label="Select ${esc(w.path)}"${selected.has(w.id) ? " checked" : ""} /></td><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${esc(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${esc(context)}">${contextMarkup}</span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending || w.missing ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" tabindex="-1" data-delete="${esc(w.id)}" aria-label="Delete ${esc(w.path)}${lost.length ? ", which is not a clean delete" : ""}"${deleteTitle} ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" tabindex="-1" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${esc(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
     })
     .join("");
 }

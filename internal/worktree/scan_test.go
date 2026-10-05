@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -151,7 +152,7 @@ func TestScanDiscoversLinkedNestedAndOutsideTrees(t *testing.T) {
 	}
 	main := testTree(t, report, repo)
 	assertProtected(t, main, "Primary")
-	assertProtected(t, main, "nested")
+	assertProtected(t, main, "Nested repository")
 	w := testTree(t, report, linked)
 	if w.Main || w.OutsideRoot || !w.Merged || !w.Recommended || !w.CanRemove {
 		t.Fatalf("clean merged linked tree: %+v", w)
@@ -213,13 +214,15 @@ func TestScanDeletionBlockers(t *testing.T) {
 		}},
 		{"locked", "Locked", func(t *testing.T, repo, wt string) { testGit(t, repo, "worktree", "lock", "--reason", "keep this", wt) }},
 		{"detached", "Detached", func(t *testing.T, repo, wt string) { testGit(t, wt, "checkout", "--detach") }},
-		{"assume unchanged", "assume-unchanged", func(t *testing.T, repo, wt string) {
+		{"assume unchanged", "Unchecked files", func(t *testing.T, repo, wt string) {
 			testGit(t, wt, "update-index", "--assume-unchanged", "tracked.txt")
 			testWrite(t, filepath.Join(wt, "tracked.txt"), "hidden modification\n")
 		}},
-		{"skip worktree", "Sparse", func(t *testing.T, repo, wt string) { testGit(t, wt, "update-index", "--skip-worktree", "tracked.txt") }},
-		{"nested repository", "nested", func(t *testing.T, repo, wt string) { testRepo(t, filepath.Join(wt, "nested")) }},
-		{"merge in progress", "operation in progress", func(t *testing.T, repo, wt string) {
+		// The flag alone, on a file that is still in the folder, hides its
+		// changes exactly as assume-unchanged does.
+		{"skip worktree on a file that is present", "Unchecked files", func(t *testing.T, repo, wt string) { testGit(t, wt, "update-index", "--skip-worktree", "tracked.txt") }},
+		{"nested repository", "Nested repository", func(t *testing.T, repo, wt string) { testRepo(t, filepath.Join(wt, "nested")) }},
+		{"merge in progress", "Unfinished Git operation", func(t *testing.T, repo, wt string) {
 			p := testGit(t, wt, "rev-parse", "--path-format=absolute", "--git-path", "MERGE_HEAD")
 			testWrite(t, p, testGit(t, wt, "rev-parse", "HEAD")+"\n")
 		}},
@@ -309,6 +312,227 @@ func TestScanUpstreamDivergence(t *testing.T) {
 	w := testTree(t, testScan(t, root), wt)
 	if w.Upstream != "origin/main" || w.Ahead != 1 || w.Behind != 1 || w.Merged || w.Published || w.Recommended {
 		t.Fatalf("incorrect divergence metadata: %+v", w)
+	}
+}
+
+// A sparse checkout is an ordinary way to work in a large repository. The
+// files it skips are not in the folder, so nothing in them can be lost and
+// Git's status still vouches for everything that is there.
+func TestSparseCheckoutIsAnOrdinaryWorktree(t *testing.T) {
+	fixture := func(t *testing.T) (root, repo, wt string) {
+		root = t.TempDir()
+		repo = testRepo(t, filepath.Join(root, "repo"))
+		for _, dir := range []string{"kept", "skipped"} {
+			if err := os.Mkdir(filepath.Join(repo, dir), 0700); err != nil {
+				t.Fatal(err)
+			}
+			testWrite(t, filepath.Join(repo, dir, "file.txt"), dir+"\n")
+		}
+		testGit(t, repo, "add", ".")
+		testGit(t, repo, "commit", "-m", "Two directories")
+		wt = testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+		testGit(t, wt, "sparse-checkout", "set", "--cone", "kept")
+		if _, err := os.Stat(filepath.Join(wt, "skipped", "file.txt")); !os.IsNotExist(err) {
+			t.Fatalf("fixture: the skipped directory should not be checked out: %v", err)
+		}
+		if flags := testGit(t, wt, "ls-files", "-v", "skipped/file.txt"); !strings.HasPrefix(flags, "S ") {
+			t.Fatalf("fixture: skipped file is not marked skip-worktree: %q", flags)
+		}
+		return root, repo, wt
+	}
+	t.Run("clean and merged, it is recommended and removed like any other", func(t *testing.T) {
+		root, repo, wt := fixture(t)
+		w := testTree(t, testScan(t, root), wt)
+		if len(w.Blockers) != 0 || !w.CanRemove || !w.Recommended {
+			t.Fatalf("a clean sparse checkout was held back: %+v", w)
+		}
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(wt); !os.IsNotExist(err) {
+			t.Fatalf("the worktree was not removed: %v", err)
+		}
+		if testGit(t, repo, "rev-parse", "--verify", "refs/heads/topic") == "" {
+			t.Fatal("its branch was not kept")
+		}
+	})
+	t.Run("with ignored files, only they stand in the way, and consent removes it", func(t *testing.T) {
+		root, _, wt := fixture(t)
+		if err := os.Mkdir(filepath.Join(wt, "ignored"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		testWrite(t, filepath.Join(wt, "ignored", "build.log"), "output\n")
+		w := testTree(t, testScan(t, root), wt)
+		if w.CanRemove || !w.CanDiscard || len(w.Blockers) != 1 || !strings.Contains(w.Blockers[0], "Ignored files") {
+			t.Fatalf("ignored files should be the one, overridable, reason: %+v", w)
+		}
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
+			t.Fatal("ignored files were deleted without consent")
+		}
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(wt); !os.IsNotExist(err) {
+			t.Fatalf("the worktree was not removed: %v", err)
+		}
+	})
+	t.Run("a change in what it does check out is still seen", func(t *testing.T) {
+		root, _, wt := fixture(t)
+		testWrite(t, filepath.Join(wt, "kept", "file.txt"), "edited\n")
+		w := testTree(t, testScan(t, root), wt)
+		if w.CanRemove || w.Recommended || !w.Dirty {
+			t.Fatalf("an edit in a sparse checkout went unseen: %+v", w)
+		}
+	})
+}
+
+// A file Git was told not to look at can hold a change that its status never
+// reports. Such a worktree is never offered for cleanup; like any other
+// local work, it goes only when its owner says to discard it.
+func TestUncheckedFilesNeedConsentToDiscard(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testGit(t, wt, "update-index", "--assume-unchanged", "tracked.txt")
+	testWrite(t, filepath.Join(wt, "tracked.txt"), "hidden modification\n")
+	w := testTree(t, testScan(t, root), wt)
+	if w.Dirty {
+		t.Fatal("fixture: Git should not report the hidden modification")
+	}
+	if w.CanRemove || w.Recommended || !w.CanDiscard || len(w.DiscardWarnings) != 1 {
+		t.Fatalf("unchecked files should need, and accept, consent: %+v", w)
+	}
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true}); err == nil {
+		t.Fatal("cleanup removed a worktree whose files Git does not check")
+	}
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
+		t.Fatal("unchecked files were deleted without consent")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatal("the worktree was removed")
+	}
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("the worktree was not removed: %v", err)
+	}
+}
+
+// Three things Arbor used to refuse outright, leaving their owner to remove
+// the worktree by hand. Each is now like any other local work: never offered
+// for cleanup, never deleted without consent, deleted with it, and named
+// exactly so that what is being agreed to is plain.
+func TestWorkThatOnlyConsentDiscards(t *testing.T) {
+	// A submodule is cloned from a path on this machine.
+	local := []string{"-c", "protocol.file.allow=always"}
+	cases := []struct {
+		name, blocker, loss string
+		prepare             func(t *testing.T, root, repo, wt string)
+		check               func(t *testing.T, w Worktree)
+	}{
+		{
+			name: "a submodule that is checked out", blocker: "Submodules", loss: "submodules",
+			prepare: func(t *testing.T, root, repo, wt string) {
+				library := testRepo(t, filepath.Join(root, "library"))
+				testGit(t, wt, append(local, "submodule", "add", library, "vendor/library")...)
+				testGit(t, wt, "commit", "-m", "Add the library")
+				testGit(t, repo, "merge", "--ff-only", "topic")
+			},
+			check: func(t *testing.T, w Worktree) {
+				// Its own repository is accounted for as a submodule, not
+				// reported a second time as a stray one.
+				if len(w.Blockers) != 1 || w.Dirty {
+					t.Fatalf("a clean worktree with a submodule: %+v", w)
+				}
+			},
+		},
+		{
+			name: "an unfinished merge", blocker: "Unfinished Git operation", loss: "operation",
+			prepare: func(t *testing.T, root, repo, wt string) {
+				marker := testGit(t, wt, "rev-parse", "--path-format=absolute", "--git-path", "MERGE_HEAD")
+				testWrite(t, marker, testGit(t, wt, "rev-parse", "HEAD")+"\n")
+			},
+		},
+		{
+			name: "another repository inside the folder", blocker: "Nested repository", loss: "nested",
+			prepare: func(t *testing.T, root, repo, wt string) {
+				testRepo(t, filepath.Join(wt, "experiment"))
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			repo := testRepo(t, filepath.Join(root, "repo"))
+			wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+			tc.prepare(t, root, repo, wt)
+			report, err := Scan(context.Background(), Options{Root: filepath.Join(root, "linked"), TargetOnly: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := testTree(t, report, wt)
+			assertProtected(t, w, tc.blocker)
+			if !w.CanDiscard || !slices.Contains(w.Losses, tc.loss) {
+				t.Fatalf("should be deletable with consent, and say what that costs: %+v", w)
+			}
+			if tc.check != nil {
+				tc.check(t, w)
+			}
+			others := slices.DeleteFunc(GraveLosses(), func(loss string) bool { return loss == tc.loss })
+			for _, options := range []RemovalOptions{
+				{ExpectedHead: w.Head},
+				{ExpectedHead: w.Head, RecommendedOnly: true},
+				// Agreeing to discard local files is not agreeing to this,
+				// and neither is agreeing to some other loss.
+				{ExpectedHead: w.Head, DiscardLocal: true},
+				{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: others},
+			} {
+				if _, err := RemoveWorktree(context.Background(), w, options); err == nil {
+					t.Fatalf("deleted without consent: %+v", options)
+				}
+			}
+			if _, err := os.Stat(wt); err != nil {
+				t.Fatal("the worktree was removed")
+			}
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: []string{tc.loss}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(wt); !os.IsNotExist(err) {
+				t.Fatalf("the worktree was not removed: %v", err)
+			}
+			if testGit(t, repo, "rev-parse", "--verify", "refs/heads/topic") == "" {
+				t.Fatal("its branch was not kept")
+			}
+		})
+	}
+}
+
+// A clean worktree loses nothing by being deleted, and says so: that is what
+// tells it apart, everywhere it is shown, from one that would.
+func TestOnlyWorkNotInGitCountsAsALoss(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	clean := testLinked(t, repo, filepath.Join(root, "clean"), "clean")
+	locked := testLinked(t, repo, filepath.Join(root, "locked"), "locked")
+	testGit(t, repo, "worktree", "lock", locked)
+	dirty := testLinked(t, repo, filepath.Join(root, "dirty"), "dirty")
+	testWrite(t, filepath.Join(dirty, "tracked.txt"), "edited\n")
+	if err := os.Mkdir(filepath.Join(dirty, "ignored"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	testWrite(t, filepath.Join(dirty, "ignored", "build.log"), "output\n")
+	report := testScan(t, root)
+	if w := testTree(t, report, clean); w.Losses == nil || len(w.Losses) != 0 {
+		t.Fatalf("a clean worktree has nothing to lose: %#v", w.Losses)
+	}
+	// A lock is overridden, not lost.
+	if w := testTree(t, report, locked); len(w.Losses) != 0 || len(w.DiscardWarnings) != 1 {
+		t.Fatalf("a lock is not a loss: %+v", w)
+	}
+	want := []string{"changes", "ignored"}
+	if w := testTree(t, report, dirty); !slices.Equal(w.Losses, want) {
+		t.Fatalf("losses %q, want %q", w.Losses, want)
 	}
 }
 

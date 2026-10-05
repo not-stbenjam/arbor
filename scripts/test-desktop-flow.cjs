@@ -258,22 +258,62 @@ app.once("browser-window-created", (_event, win) => {
           ),
           ["tree-1", root + "/sessions/old/tree-1"],
         );
-        // Selecting one row explains how to select more, where the summary
-        // was; Escape puts the summary back.
+        // Rows are ticked with the boxes down the left. One tick is enough
+        // to offer the bulk action; going to another row unticks nothing;
+        // a folder's box ticks what is shown under it; Escape clears.
         const status = () =>
           js("document.querySelector('#status-message').textContent");
         const summary = await status();
-        await js(`document.querySelector('tr[data-id="${tree1ID}"]').click()`);
-        // The count of what is listed stays; the hint takes the place of the
-        // repository count.
-        assert.match(
-          await status(),
-          /^\d+ worktrees · 1 selected · Shift- or (Ctrl|⌘)-click to add more$/,
+        const ticked = () =>
+          js(
+            `({ boxes: [...document.querySelectorAll('[data-select]')].filter((box) => box.checked).length, rows: document.querySelectorAll('.worktree-row.selected').length, bar: document.querySelector('#selection-bar').hidden ? '' : document.querySelector('#selection-label').textContent, all: [document.querySelector('#select-all').checked, document.querySelector('#select-all').indeterminate] })`,
+          );
+        assert.deepEqual(await ticked(), {
+          boxes: 0,
+          rows: 0,
+          bar: "",
+          all: [false, false],
+        });
+        await js(
+          `document.querySelector('tr[data-id="${tree1ID}"] [data-select]').click()`,
         );
+        // tree-1 holds ignored files, and the bar says so before any dialog.
+        assert.deepEqual(await ticked(), {
+          boxes: 1,
+          rows: 1,
+          bar: "1 worktree selected · 1 not clean",
+          all: [false, true],
+        });
+        assert.equal(await status(), summary, "the totals stay where they are");
+        await js(
+          `document.querySelector('tr[data-id]:not([data-id="${tree1ID}"])').click()`,
+        );
+        assert.equal((await ticked()).boxes, 1, "going to a row unticks nothing");
+        await js(
+          `document.querySelector('tr[data-directory-path="${root}/sessions/old"] [data-select-folder]').click()`,
+        );
+        const folder = await ticked();
+        assert.deepEqual(
+          { ...folder, bar: folder.bar.replace(/ · \d+ not clean$/, "") },
+          {
+            boxes: 20,
+            rows: 20,
+            bar: "20 worktrees selected",
+            all: [false, true],
+          },
+        );
+        assert.match(folder.bar, / · \d+ not clean$/);
+        await js("document.querySelector('#select-all').click()");
+        assert.deepEqual((await ticked()).all, [true, false]);
         await js(
           "document.querySelector('#worktree-grid').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
         );
-        assert.equal(await status(), summary);
+        assert.deepEqual(await ticked(), {
+          boxes: 0,
+          rows: 0,
+          bar: "",
+          all: [false, false],
+        });
         const oldFolder = root + "/sessions/old";
         const oldFolderKey = JSON.stringify(["", oldFolder]);
         await js(
@@ -373,9 +413,12 @@ app.once("browser-window-created", (_event, win) => {
           () => js("window.arbor.getState().then(s=>!s.busy)"),
           "cancel folder deletion",
         );
+        // The folder holds a worktree with ignored files, so this is not a
+        // clean delete, and the dialog leads with exactly what would go.
+        assert.equal(removalDialogs[1].title, "Not a clean delete");
         assert.match(
           removalDialogs[1].detail,
-          /uncommitted, untracked, and ignored files/,
+          /^1 of them holds work that is not saved in Git\. Deleting permanently discards:\n• ignored files, such as local configuration or build output \(1 worktree\)\nAnything else in the folder that is not committed goes too/,
         );
         assert.ok(listed(removalDialogs[1], "/sessions/old/tree-1"));
         assert.ok(!removalDialogs[1].detail.includes("/sessions/recent/"));

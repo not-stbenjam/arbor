@@ -22,7 +22,14 @@ async function executeCleanupBatch(
   onBegin();
   for (const row of selected) {
     if (shouldStop()) break;
-    onProgress({ path: row.path, completed: results.length });
+    // Each worktree starts its own count of files.
+    onProgress({
+      path: row.path,
+      completed: results.length,
+      current: "",
+      files: 0,
+      filesTotal: 0,
+    });
     let outcome;
     try {
       const args = removalArguments(row, {
@@ -31,7 +38,20 @@ async function executeCleanupBatch(
         discardLocal,
         recommendedOnly,
       });
-      const result = JSON.parse(await run(args));
+      const result = JSON.parse(
+        await run(args, {
+          // The command also reports on checking the worktree first. Only
+          // the deletion of this folder moves the bar.
+          onProgress: (event) => {
+            if (event.stage === "remove" && event.path === row.path)
+              onProgress({
+                current: event.current || "",
+                files: event.files || 0,
+                filesTotal: event.filesTotal || 0,
+              });
+          },
+        }),
+      );
       if (!result || result.path !== row.path || result.removed !== true)
         throw new Error(
           (result?.path === row.path && result.error) ||

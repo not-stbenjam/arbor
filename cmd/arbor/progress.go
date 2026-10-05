@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"time"
@@ -63,4 +64,29 @@ func (s *scanStatus) finish(report worktree.Report) {
 	if s.enabled {
 		fmt.Fprintf(s.out, "Scan complete: %s in %s.\n", count(len(report.Worktrees), "worktree"), time.Since(s.started).Round(time.Millisecond))
 	}
+}
+
+// removalProgress says how the deletion of one folder is going: framed JSON
+// for an integration, or for a person a line now and then, and only once a
+// deletion has gone on long enough to wonder about.
+func removalProgress(out io.Writer, framed, human bool) func(worktree.Progress) {
+	switch {
+	case framed:
+		return func(event worktree.Progress) {
+			if data, err := json.Marshal(event); err == nil {
+				fmt.Fprintf(out, "%s%s\n", worktree.ProgressPrefix, data)
+			}
+		}
+	case human:
+		started, last := time.Now(), time.Time{}
+		return func(event worktree.Progress) {
+			now := time.Now()
+			if event.Files == 0 || now.Sub(started) < time.Second || now.Sub(last) < time.Second {
+				return
+			}
+			last = now
+			fmt.Fprintf(out, "  %d of %s gone · %s\n", event.Files, count(event.FilesTotal, "file"), printable(event.Current))
+		}
+	}
+	return nil
 }

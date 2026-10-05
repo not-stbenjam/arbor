@@ -353,26 +353,45 @@ test("selection reconciles provisional IDs by path and clears vanished anchors",
   });
 });
 
-test("selection shift ranges and additive toggles use visible tree order", async () => {
+test("going to a row never unticks; boxes and modifiers tick, in visible tree order", async () => {
   const { selectRow } = await import("../renderer/selection.mjs");
   const rows = ["a", "c", "b"].map((id) => ({ id }));
+  // A plain click or arrow key moves the cursor and ticks nothing.
   let value = selectRow({ ids: new Set(), anchor: "", cursor: "" }, rows, "a");
+  assert.deepEqual([...value.ids], []);
+  assert.equal(value.cursor, "a");
+  assert.equal(value.anchor, "a");
+  // Shift ticks from there to here, in the order the rows are shown.
   value = selectRow(value, rows, "b", { shiftKey: true });
   assert.deepEqual([...value.ids], ["a", "c", "b"]);
   assert.equal(value.anchor, "a");
+  // Ctrl/Cmd, like a row's own box, flips one row and leaves the rest.
   value = selectRow(value, rows, "c", { metaKey: true });
   assert.deepEqual([...value.ids], ["a", "b"]);
   assert.equal(value.anchor, "c");
-  value = selectRow(value, rows, "b", { shiftKey: true, ctrlKey: true });
+  // Going somewhere else afterwards keeps every tick.
+  value = selectRow(value, rows, "a");
+  assert.deepEqual([...value.ids], ["a", "b"]);
+  assert.equal(value.cursor, "a");
+  value = selectRow(value, rows, "c", { ctrlKey: true });
   assert.deepEqual([...value.ids], ["a", "b", "c"]);
+  // A range adds to what is ticked, in either direction.
   const backward = selectRow(
     { ids: new Set(["b"]), anchor: "b", cursor: "b" },
     rows,
     "a",
     { shiftKey: true },
   );
-  assert.deepEqual([...backward.ids], ["a", "c", "b"]);
+  assert.deepEqual([...backward.ids].sort(), ["a", "b", "c"]);
   assert.equal(backward.anchor, "b");
+  // With nowhere ticked from yet, Shift starts at the cursor.
+  const fromCursor = selectRow(
+    { ids: new Set(), anchor: "", cursor: "a" },
+    rows,
+    "c",
+    { shiftKey: true },
+  );
+  assert.deepEqual([...fromCursor.ids], ["a", "c"]);
 });
 
 test("selection preserves exact registration IDs and never expands duplicate paths", async () => {
@@ -1047,10 +1066,13 @@ test("workspace labels have single owners and tree rendering never touches them"
     );
   visited.clear();
   chrome.render();
-  assert.equal(element("#window-context").textContent, "build-vps — Arbor");
+  assert.equal(
+    element("#window-context").textContent,
+    "build-vps — Arbor (Alpha)",
+  );
   assert.equal(
     document.title,
-    "build-vps — Arbor",
+    "build-vps — Arbor (Alpha)",
     "the system title bar names the same host as the in-window one",
   );
   assert.equal(element("#version").textContent, "Arbor test-version");
@@ -1760,7 +1782,7 @@ test("the keyboard stays somewhere useful when its row, or every row, goes away"
     });
   click("beta");
   document.activeElement = element("#worktree-grid");
-  assert.equal(trees.selectedCount, 1);
+  assert.equal(trees.selectedCount, 0, "going to a row ticks nothing");
 
   // Beta is deleted. The list still has the keyboard, so the cursor moves to
   // the row now in beta's place. It selects nothing: Enter has a row to act
@@ -1769,10 +1791,14 @@ test("the keyboard stays somewhere useful when its row, or every row, goes away"
   await fixture.workspace.refresh();
   trees.render();
   press("Enter");
-  press("Delete");
   assert.deepEqual(menus, ["gamma"]);
-  assert.deepEqual(deleted.at(-1), []);
   assert.equal(trees.selectedCount, 0);
+  // With nothing ticked, Delete takes the row the cursor is on.
+  press("Delete");
+  assert.deepEqual(
+    deleted.at(-1).map((entry) => entry.id),
+    ["gamma"],
+  );
   // Removing the last row of the list moves the cursor up, not off the end.
   rows = [row("alpha")];
   await fixture.workspace.refresh();
@@ -1781,8 +1807,8 @@ test("the keyboard stays somewhere useful when its row, or every row, goes away"
   assert.deepEqual(menus, ["gamma", "alpha"]);
 
   // Escape clears the selection from one of a row's own buttons as well.
-  click("alpha");
-  assert.equal(trees.selectedCount, 1);
+  press(" ");
+  assert.equal(trees.selectedCount, 1, "Space ticks the row under the cursor");
   press("Escape", true);
   assert.equal(trees.selectedCount, 0);
 
@@ -1933,4 +1959,241 @@ test("statistics with a host missing never claim there have been no cleanups", a
     /<h3>No cleanups recorded on the hosts that answered<\/h3>/,
   );
   assert.doesNotMatch(partial, /No cleanups yet/);
+});
+
+test("a row names what only an explicit discard gets past, and colors it by what could be lost", async () => {
+  const { worktreeState } = await import(
+    "../renderer/worktree-presentation.mjs"
+  );
+  const discardable = { canRemove: false, canDiscard: true };
+  // Files Git was told not to look at may hold changes nobody can see.
+  assert.deepEqual(
+    worktreeState({
+      ...discardable,
+      blockers: [
+        "Unchecked files: Git was told not to look at some tracked files (assume-unchanged or skip-worktree)",
+      ],
+      losses: ["unchecked"],
+    }),
+    {
+      tone: "caution",
+      label: "Unchecked files",
+      detail:
+        "Unchecked files: Git was told not to look at some tracked files (assume-unchanged or skip-worktree)",
+    },
+  );
+  // A protected branch loses nothing by being deleted; it is only named.
+  const protectedBranch = worktreeState({
+    ...discardable,
+    blockers: ["Protected branch name"],
+    losses: [],
+  });
+  assert.equal(protectedBranch.tone, "muted");
+  assert.equal(protectedBranch.label, "Protected branch name");
+  // A detached HEAD is already named where the branch would be.
+  assert.equal(
+    worktreeState({
+      ...discardable,
+      detached: true,
+      blockers: ["Detached HEAD; create a branch to retain its commits"],
+      losses: [],
+    }),
+    null,
+  );
+  // A sparse checkout with nothing else to say stays quiet, like any other.
+  assert.equal(
+    worktreeState({ canRemove: true, canDiscard: true, blockers: [] }),
+    null,
+  );
+});
+
+test("boxes tick rows, folders and everything shown, and only a tick changes what is ticked", async (t) => {
+  const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
+  globalThis.CSS = { escape: String };
+  t.after(() => delete globalThis.CSS);
+  const row = (id, folder) => ({
+    id,
+    path: `/local/${folder}/${id}`,
+    head: id,
+    branch: id,
+    repo: "repo",
+    canRemove: true,
+  });
+  const fixture = await workspaceFixture({
+    getState: async () =>
+      coordinatorState({
+        report: {
+          worktrees: [row("alpha", "one"), row("beta", "one"), row("gamma", "two")],
+          warnings: [],
+        },
+      }),
+  });
+  const deleted = [];
+  fixture.workspace.deleteWorktrees = (rows) =>
+    deleted.push(rows.map((entry) => entry.id));
+  const { document, element } = preferenceDocument();
+  document.getElementById = () => null;
+  const listeners = {};
+  for (const selector of ["#table-scroll", "#worktree-grid"])
+    element(selector).addEventListener = (type, listener) => {
+      listeners[`${selector} ${type}`] = listener;
+    };
+  const trees = createWorktreeView({
+    document,
+    workspace: fixture.workspace,
+    tree: require("./worktree-tree.mjs"),
+    showWorktreeMenu() {},
+  });
+  trees.render();
+  // A click lands on a box or on the cell around it; either ticks.
+  const tick = (dataset, shiftKey = false) =>
+    listeners["#table-scroll click"]({
+      shiftKey,
+      target: {
+        closest: (selector) =>
+          selector === ".check-cell, .check-column"
+            ? { querySelector: () => ({ dataset }) }
+            : null,
+      },
+    });
+  const go = (id) =>
+    listeners["#table-scroll click"]({
+      target: {
+        closest: (selector) =>
+          selector === "[data-id]" ? { dataset: { id } } : null,
+      },
+    });
+  const press = (key) =>
+    listeners["#worktree-grid keydown"]({
+      key,
+      target: { closest: () => null },
+      preventDefault() {},
+    });
+  const folder = (name) => JSON.stringify(["", `/local/${name}`]);
+
+  tick({ select: "alpha" });
+  assert.equal(trees.selectedCount, 1);
+  // One tick is enough to say what will happen and to offer it.
+  assert.equal(element("#selection-bar").hidden, false);
+  assert.equal(element("#selection-label").textContent, "1 worktree selected");
+  // Going to another row, by pointer or keyboard, leaves the tick alone.
+  go("gamma");
+  assert.equal(trees.selectedCount, 1);
+  tick({ select: "gamma" });
+  assert.equal(element("#selection-label").textContent, "2 worktrees selected");
+  // A folder's box ticks what is shown under it, and unticks it when all is.
+  tick({ selectFolder: folder("one") });
+  assert.equal(trees.selectedCount, 3);
+  tick({ selectFolder: folder("one") });
+  assert.equal(trees.selectedCount, 1);
+  // A row's box unticks its own row only.
+  tick({ select: "gamma" });
+  assert.equal(trees.selectedCount, 0);
+  assert.equal(element("#selection-bar").hidden, true);
+  // Shift on a box ticks the range from the last box used.
+  tick({ select: "alpha" });
+  tick({ select: "gamma" }, true);
+  assert.equal(trees.selectedCount, 3);
+  // The box in the heading ticks everything shown, then nothing.
+  tick({});
+  assert.equal(trees.selectedCount, 0);
+  tick({});
+  assert.equal(trees.selectedCount, 3);
+  // Delete takes what is ticked, whichever row the cursor happens to be on.
+  go("beta");
+  press("Delete");
+  assert.deepEqual(deleted.at(-1), ["alpha", "beta", "gamma"]);
+  fixture.workspace.dispose();
+});
+
+test("a row and a selection say when deleting is not a clean delete, before the confirmation does", async (t) => {
+  const { renderTreeRows } = await import(
+    "../renderer/worktree-presentation.mjs"
+  );
+  const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
+  globalThis.CSS = { escape: String };
+  t.after(() => delete globalThis.CSS);
+  const row = (id, facts = {}) => ({
+    id,
+    path: `/local/team/${id}`,
+    head: id,
+    branch: id,
+    repo: "repo",
+    canRemove: true,
+    canDiscard: true,
+    losses: [],
+    ...facts,
+  });
+  const rows = [
+    row("clean"),
+    row("vendored", {
+      canRemove: false,
+      losses: ["submodules"],
+      blockers: ["Submodules: has submodule checkouts, which keep commits of their own"],
+    }),
+    row("edited", { canRemove: false, dirty: true, losses: ["changes"] }),
+  ];
+  const markup = renderTreeRows(
+    rows.map((worktree) => ({ kind: "worktree", depth: 0, label: worktree.id, worktree })),
+    { selected: new Set(), collapsed: new Set(), disabled: false, canDelete: () => true },
+  );
+  // The Delete button of a clean row is just Delete.
+  assert.match(markup, /data-delete="clean" aria-label="Delete \/local\/team\/clean" >Delete</);
+  assert.match(
+    markup,
+    /data-delete="vendored" aria-label="Delete \/local\/team\/vendored, which is not a clean delete" title="Not a clean delete\. It would discard submodule checkouts, and any commits made inside them that were never pushed\. Asks first\."/,
+  );
+  // Its row names the reason in the colour used for something to lose.
+  assert.match(markup, /<span class="worktree-state" data-tone="caution" title="Deleting this worktree discards submodule checkouts[^"]*">Submodules<\/span>/);
+  // A repository that would be lost outranks files that would be.
+  const { worktreeState } = await import(
+    "../renderer/worktree-presentation.mjs"
+  );
+  assert.equal(
+    worktreeState(
+      row("holder", {
+        canRemove: false,
+        dirty: true,
+        changedFiles: 1,
+        losses: ["changes", "nested"],
+      }),
+    ).label,
+    "Nested repository",
+  );
+
+  const fixture = await workspaceFixture({
+    getState: async () =>
+      coordinatorState({ report: { worktrees: rows, warnings: [] } }),
+  });
+  const { document, element } = preferenceDocument();
+  document.getElementById = () => null;
+  const listeners = {};
+  for (const selector of ["#table-scroll", "#worktree-grid"])
+    element(selector).addEventListener = (type, listener) => {
+      listeners[`${selector} ${type}`] = listener;
+    };
+  const trees = createWorktreeView({
+    document,
+    workspace: fixture.workspace,
+    tree: require("./worktree-tree.mjs"),
+    showWorktreeMenu() {},
+  });
+  trees.render();
+  const tick = (dataset) =>
+    listeners["#table-scroll click"]({
+      target: {
+        closest: (selector) =>
+          selector === ".check-cell, .check-column"
+            ? { querySelector: () => ({ dataset }) }
+            : null,
+      },
+    });
+  tick({ select: "clean" });
+  assert.equal(element("#selection-label").textContent, "1 worktree selected");
+  tick({});
+  assert.equal(
+    element("#selection-label").textContent,
+    "3 worktrees selected · 2 not clean",
+  );
+  fixture.workspace.dispose();
 });

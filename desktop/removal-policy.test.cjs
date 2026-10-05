@@ -77,6 +77,7 @@ test("removal argv binds repository, identity, consent and stats session without
       "remove",
       "--yes",
       "--json",
+      "--progress",
       "--stats-session",
       "batch",
       "--head",
@@ -373,4 +374,33 @@ test("targeted inspection refuses matching ID returned at another physical path"
   assert.equal(current.path, first.path);
   assert.equal(current.retryInspection, true);
   assert.match(current.inspectionError, /different identity/);
+});
+
+test("losses graver than files are passed on by name, and only with consent to discard", () => {
+  const { removalArguments } = require("./removal-policy.cjs");
+  const row = {
+    id: "id",
+    path: "/work/topic",
+    head: "a".repeat(40),
+    branch: "topic",
+    canRemove: false,
+    canDiscard: true,
+    losses: ["changes", "submodules", "nested", "something-newer"],
+  };
+  const args = (discardLocal) =>
+    removalArguments(row, {
+      host: "",
+      statsSession: "batch",
+      discardLocal,
+      recommendedOnly: false,
+    });
+  const discard = args(true);
+  // Files in the folder are covered by --discard-local itself. What is named
+  // is what the confirmation named, and nothing this app does not know.
+  assert.deepEqual(
+    discard.slice(discard.indexOf("--discard-local"), discard.indexOf("--")),
+    ["--discard-local", "--acknowledge", "submodules", "--acknowledge", "nested"],
+  );
+  assert.equal(args(false).includes("--acknowledge"), false);
+  assert.ok(args(false).includes("--keep-local"));
 });
