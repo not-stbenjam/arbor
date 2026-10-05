@@ -261,18 +261,20 @@ app.once("browser-window-created", (_event, win) => {
         // A row is ticked by clicking it or the box at its left. One tick is
         // enough to offer the bulk action; ticking another row unticks
         // nothing; a folder's box ticks what is shown under it; Escape clears.
+        // "all" is the heading's box, and how many boxes anywhere show a dash:
+        // a box over some ticked rows stays empty, so that is never any.
         const status = () =>
           js("document.querySelector('#status-message').textContent");
         const summary = await status();
         const ticked = () =>
           js(
-            `({ boxes: [...document.querySelectorAll('[data-select]')].filter((box) => box.checked).length, rows: document.querySelectorAll('.worktree-row.selected').length, bar: document.querySelector('#selection-bar').hidden ? '' : document.querySelector('#selection-label').textContent, all: [document.querySelector('#select-all').checked, document.querySelector('#select-all').indeterminate] })`,
+            `({ boxes: [...document.querySelectorAll('[data-select]')].filter((box) => box.checked).length, rows: document.querySelectorAll('.worktree-row.selected').length, bar: document.querySelector('#selection-bar').hidden ? '' : document.querySelector('#selection-label').textContent, all: [document.querySelector('#select-all').checked, [...document.querySelectorAll('#worktree-grid input[type=checkbox]')].filter((box) => box.indeterminate).length] })`,
           );
         assert.deepEqual(await ticked(), {
           boxes: 0,
           rows: 0,
           bar: "",
-          all: [false, false],
+          all: [false, 0],
         });
         await js(
           `document.querySelector('tr[data-id="${tree1ID}"] [data-select]').click()`,
@@ -282,7 +284,7 @@ app.once("browser-window-created", (_event, win) => {
           boxes: 1,
           rows: 1,
           bar: "1 worktree selected · 1 not clean",
-          all: [false, true],
+          all: [false, 0],
         });
         assert.equal(await status(), summary, "the totals stay where they are");
         // The whole row is its box. Real clicks on three other rows' names:
@@ -359,12 +361,19 @@ app.once("browser-window-created", (_event, win) => {
             boxes: 20,
             rows: 20,
             bar: "20 worktrees selected",
-            all: [false, true],
+            all: [false, 0],
           },
         );
         assert.match(folder.bar, / · \d+ not clean$/);
+        // The folder's own box is ticked now that everything under it is.
+        assert.equal(
+          await js(
+            `document.querySelector('tr[data-directory-path="${root}/sessions/old"] [data-select-folder]').checked`,
+          ),
+          true,
+        );
         await js("document.querySelector('#select-all').click()");
-        assert.deepEqual((await ticked()).all, [true, false]);
+        assert.deepEqual((await ticked()).all, [true, 0]);
         await js(
           "document.querySelector('#worktree-grid').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
         );
@@ -372,7 +381,7 @@ app.once("browser-window-created", (_event, win) => {
           boxes: 0,
           rows: 0,
           bar: "",
-          all: [false, false],
+          all: [false, 0],
         });
         const oldFolder = root + "/sessions/old";
         const oldFolderKey = JSON.stringify(["", oldFolder]);

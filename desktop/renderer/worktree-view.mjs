@@ -376,12 +376,11 @@ export function createWorktreeView({
       );
     });
     // The boxes are the selection, drawn: a row's is ticked when it is
-    // selected, a folder's when every row shown under it is, and half-ticked
-    // when only some are.
+    // selected, and a folder's or the heading's when every row shown under
+    // it is. With only some of them ticked it stays empty. A dash there would
+    // be a mark on every folder above a row for each tick made in it.
     const tick = (box, ids) => {
-      const chosen = ids.filter((id) => selection.ids.has(id)).length;
-      box.checked = ids.length > 0 && chosen === ids.length;
-      box.indeterminate = chosen > 0 && chosen < ids.length;
+      box.checked = ids.length > 0 && ids.every((id) => selection.ids.has(id));
       box.hidden = ids.length === 0;
     };
     document

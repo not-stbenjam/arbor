@@ -2105,6 +2105,10 @@ test("a click on a row or its box ticks it; boxes tick folders and everything sh
   // One tick is enough to say what will happen and to offer it.
   assert.equal(element("#selection-bar").hidden, false);
   assert.equal(element("#selection-label").textContent, "1 worktree selected");
+  // The heading's box covers rows that are not all ticked, so it stays empty
+  // and shows no dash.
+  assert.equal(element("#select-all").checked, false);
+  assert.ok(!element("#select-all").indeterminate);
   // The whole row is its box. Clicking another row ticks that one too and
   // leaves the first alone; clicking it again unticks only it.
   click("gamma");
@@ -2140,6 +2144,7 @@ test("a click on a row or its box ticks it; boxes tick folders and everything sh
   // The box in the heading ticks everything shown, then nothing.
   tick({});
   assert.equal(trees.selectedCount, 3);
+  assert.equal(element("#select-all").checked, true);
   tick({});
   assert.equal(trees.selectedCount, 0);
   tick({});
