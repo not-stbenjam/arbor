@@ -59,6 +59,11 @@ func platform(uname string) (string, string, error) {
 	return system, architecture, nil
 }
 
+// managedRelease is the folder holding every build of one release on a host.
+func managedRelease(version string) string {
+	return `"$HOME"/` + quote(".cache/arbor/bin/"+version)
+}
+
 func managedBinary(version, system, architecture string) string {
 	return `"$HOME"/` + quote(".cache/arbor/bin/"+version+"/"+system+"_"+architecture+"/arbor")
 }
@@ -86,7 +91,9 @@ func (p *provisioner) prepare(ctx context.Context, host, version string) (string
 		return "", err
 	}
 	binary := managedBinary(version, system, architecture)
-	probe := "if [ ! -L " + binary + " ] && [ -x " + binary + " ]; then " + binary + " --version; fi"
+	// Using a release marks its folder as used, which keeps it from being
+	// cleared away by a later release installed from another computer.
+	probe := "if [ ! -L " + binary + " ] && [ -x " + binary + " ]; then touch " + managedRelease(version) + " 2>/dev/null; " + binary + " --version; fi"
 	current, err := p.command(ctx, 30*time.Second, host, probe, nil)
 	if err != nil {
 		return "", err
@@ -119,11 +126,17 @@ func (p *provisioner) prepare(ctx context.Context, host, version string) (string
 	return binary, nil
 }
 
+// unusedDays is how long a release must have gone unused on a host before a
+// later one clears it away. Another computer still on that release marks it
+// used every time it connects.
+const unusedDays = 14
+
 // prune removes the builds of earlier releases that Arbor left on host, now
 // that this one is installed there. Only a later release clears an earlier
-// one away, so two computers on different releases do not undo each other's
-// installation, and only folders named as a release are touched. Failing to
-// tidy is not a failure of the operation that was asked for.
+// one away, and only one nothing has used for two weeks, so a second
+// computer on an older release keeps its build. Only real folders named as
+// a release are touched. Failing to tidy is not a failure of the operation
+// that was asked for.
 func (p *provisioner) prune(ctx context.Context, host, version string) {
 	listing, err := p.command(ctx, 30*time.Second, host, `ls -1 "$HOME"/.cache/arbor/bin 2>/dev/null || true`, nil)
 	if err != nil || len(listing) > 1<<16 {
@@ -132,12 +145,20 @@ func (p *provisioner) prune(ctx context.Context, host, version string) {
 	var stale []string
 	for _, name := range strings.Split(string(listing), "\n") {
 		if earlierRelease(name, version) {
-			stale = append(stale, `"$HOME"/`+quote(".cache/arbor/bin/"+name))
+			stale = append(stale, managedRelease(name))
 		}
 	}
 	if len(stale) > 0 {
-		_, _ = p.command(ctx, 30*time.Second, host, "rm -rf -- "+strings.Join(stale, " "), nil)
+		_, _ = p.command(ctx, 30*time.Second, host, pruneScript(stale), nil)
 	}
+}
+
+// pruneScript removes each of the named folders that is a folder, is not a
+// link to one, and has not been used lately.
+func pruneScript(folders []string) string {
+	return "for d in " + strings.Join(folders, " ") + `; do ` +
+		`if [ -d "$d" ] && [ ! -L "$d" ] && [ -n "$(find "$d" -maxdepth 0 -mtime +` + strconv.Itoa(unusedDays-1) + ` 2>/dev/null)" ]; then rm -rf -- "$d"; fi; ` +
+		`done`
 }
 
 // earlierRelease reports whether name is a release before version. Builds of

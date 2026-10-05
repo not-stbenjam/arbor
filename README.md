@@ -172,7 +172,7 @@ Run `arbor completion SHELL --help` for installation instructions for your shell
 
 ## SSH hosts
 
-Add an SSH host in the app, choosing the folder to scan on it, or use `--host` in the CLI. Arbor detects the remote OS and architecture, downloads the matching CLI for its own release from GitHub, verifies the release SHA-256 checksum, and installs it under the remote user's `~/.cache/arbor/bin/`, publishing it there only after the transfer is complete and the executable runs. Subsequent connections reuse the managed executable, and installing a newer release there removes the builds of earlier ones. No manual remote app installation, desktop runtime, background service, or listening port is needed.
+Add an SSH host in the app, choosing the folder to scan on it, or use `--host` in the CLI. Arbor detects the remote OS and architecture, downloads the matching CLI for its own release from GitHub, verifies the release SHA-256 checksum, and installs it under the remote user's `~/.cache/arbor/bin/`, publishing it there only after the transfer is complete and the executable runs. Subsequent connections reuse the managed executable, and installing a newer release there removes the builds of earlier releases that nothing has used for two weeks. No manual remote app installation, desktop runtime, background service, or listening port is needed.
 
 ```sh
 arbor gui --host my-vps

@@ -463,3 +463,61 @@ test("Settings stays open until its scan is taken up, and a refused scan is put 
   await late;
   assert.equal(f.element("#settings-dialog").open, false);
 });
+
+test("an answer to an earlier Settings sitting does not close, clear or mislabel the one on screen", async () => {
+  const f = await fixture();
+  f.controller.renderStatus({
+    ...f.status,
+    hosts: f.status.hosts.map((source) => ({ ...source, busy: false })),
+  });
+  const submit = () =>
+    f.element("#settings-form").onsubmit({ preventDefault() {} });
+  const answer = async (asked) => {
+    f.failure.scanning();
+    f.failure.scanning = null;
+    await asked;
+  };
+  const choose = (host) => {
+    f.element("#settings-host").value = host;
+    f.element("#settings-host").onchange();
+  };
+
+  // Edited again while the scan was being asked for: the scan has what was
+  // sent, and what was typed since stays, with the dialog, to be sent.
+  f.controller.openSettings();
+  f.element("#scan-root").value = "/local/first";
+  f.failure.scanning = true;
+  let asked = submit();
+  f.element("#scan-root").value = "/local/second";
+  await answer(asked);
+  assert.equal(f.calls.filter(([name]) => name === "scan").at(-1)[1].root, "/local/first");
+  assert.equal(f.element("#settings-dialog").open, true);
+  assert.equal(f.element("#scan-root").value, "/local/second");
+  assert.match(f.element("#settings-note").textContent, /^Scanning This computer with the settings as they were/);
+  f.element("#settings-dialog").close();
+
+  // Closed and opened afresh: the old answer does not close the new sitting.
+  f.controller.openSettings();
+  f.element("#scan-root").value = "/local/old";
+  f.failure.scanning = true;
+  asked = submit();
+  f.element("#settings-dialog").close();
+  f.controller.openSettings();
+  f.element("#scan-root").value = "/local/fresh";
+  await answer(asked);
+  assert.equal(f.element("#settings-dialog").open, true);
+  assert.equal(f.element("#scan-root").value, "/local/fresh");
+  assert.equal(f.element("#settings-note").hidden, true);
+
+  // Turned to another host: a refusal about the first is not shown as the
+  // second's.
+  f.failure.scanning = true;
+  f.failure.scan = "scan folder does not exist";
+  asked = submit();
+  choose("vps");
+  await answer(asked);
+  f.failure.scan = "";
+  assert.equal(f.element("#settings-host").value, "vps");
+  assert.equal(f.element("#settings-error").hidden, true);
+  assert.equal(f.element("#settings-dialog").open, true);
+});

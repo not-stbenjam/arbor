@@ -2300,45 +2300,75 @@ test("a chart's scale is round, labelled, and never below its tallest day", asyn
   // Bars are drawn against the scale: thirteen of sixteen is not full height.
   assert.match(markup, /<rect class="statistics-bar" x="262" y="19\.875" width="6" height="60\.125"/);
 
-  // The plot is one stop for the keyboard; arrow keys read out each day.
+  assert.equal(scaleTop(Number.MAX_VALUE, true), 1e15, "no scale reaches the sky");
+  for (const damaged of [NaN, Infinity, -5, 0]) assert.equal(scaleTop(damaged, false), 2);
+
+  // The plot is one stop for the keyboard: a choice of day, starting at
+  // today, which a screen reader is told as a sentence.
+  assert.match(
+    markup,
+    /data-chart="removedWorktrees" data-day="29" tabindex="0" role="slider" aria-orientation="horizontal" aria-label="Day in the worktrees deleted chart: 14 in the last 30 days" aria-valuemin="1" aria-valuemax="30" aria-valuenow="30" aria-valuetext="Today: 1 worktree deleted"/,
+  );
   const plot = (field) => {
     const attributes = {},
       marker = { attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } },
       readout = { textContent: "" };
-    return {
-      dataset: { chart: field },
+    const self = {
+      dataset: { chart: field, day: "29" },
       attributes,
       marker,
       readout,
+      hasFocus: false,
+      matches: (selector) => selector === ":focus" && self.hasFocus,
+      contains: () => false,
       setAttribute: (name, value) => (attributes[name] = value),
-      querySelector: () => marker,
+      querySelector: (selector) => (selector === "svg" ? { getBoundingClientRect: () => ({ left: 100, width: 300 }) } : marker),
       parentElement: { querySelector: () => readout },
     };
+    return self;
   };
-  const counts = plot("removedWorktrees");
-  const press = (target, key) => {
+  const send = (type, target, event = {}) => {
     let prevented = false;
-    fixture.content.listeners.keydown({
-      key,
+    fixture.content.listeners[type]({
+      ...event,
       target: { closest: () => target },
       preventDefault: () => (prevented = true),
     });
     return prevented;
   };
-  assert.equal(press(counts, "ArrowLeft"), true);
-  // Under its heading the figure is enough; read aloud it is a sentence.
+  const press = (target, key) => send("keydown", target, { key });
+  const focus = (target, on) => {
+    target.hasFocus = on;
+    send(on ? "focusin" : "focusout", target);
+  };
+  const counts = plot("removedWorktrees");
+  // With the keyboard on it, the plot shows the day it is on: today.
+  focus(counts, true);
   assert.equal(counts.readout.textContent, "Today: 1");
-  assert.equal(counts.attributes["aria-valuetext"], "Today: 1 worktree deleted");
-  assert.equal(counts.attributes["aria-valuenow"], 30);
   assert.equal(counts.marker.attributes.x, 290);
-  press(counts, "ArrowLeft");
+  assert.equal(counts.marker.attributes.visibility, "visible");
+  // One step back is yesterday, not today again.
+  assert.equal(press(counts, "ArrowLeft"), true);
   assert.match(counts.readout.textContent, /: 0$/);
+  assert.equal(counts.attributes["aria-valuenow"], 29);
   assert.match(counts.attributes["aria-valuetext"], /: Nothing deleted$/);
   press(counts, "ArrowLeft");
   press(counts, "ArrowLeft");
   assert.match(counts.readout.textContent, /: 13$/);
   assert.match(counts.attributes["aria-valuetext"], /: 13 worktrees deleted$/);
-  assert.equal(counts.marker.attributes.visibility, "visible");
+  assert.equal(counts.dataset.day, 26);
+  // Pointing at another day shows it without choosing it, and leaving, even
+  // into the margin beside the drawing, shows the chosen day again.
+  send("pointermove", counts, { clientX: 100 + 29.5 * 10 });
+  assert.equal(counts.readout.textContent, "Today: 1");
+  assert.equal(counts.attributes["aria-valuenow"], 27, "pointing chooses nothing");
+  send("pointermove", counts, { clientX: 100 + 31 * 10 });
+  assert.match(counts.readout.textContent, /: 13$/);
+  send("pointermove", counts, { clientX: 100 + 29.5 * 10 });
+  send("pointerout", counts, { relatedTarget: null });
+  assert.match(counts.readout.textContent, /: 13$/);
+  press(counts, "ArrowRight");
+  assert.equal(counts.attributes["aria-valuenow"], 28, "the keyboard carries on from where it was");
   press(counts, "Home");
   assert.equal(counts.attributes["aria-valuenow"], 1);
   press(counts, "ArrowLeft");
@@ -2348,27 +2378,19 @@ test("a chart's scale is round, labelled, and never below its tallest day", asyn
   assert.equal(counts.attributes["aria-valuenow"], 30, "and at today");
   assert.equal(press(counts, "a"), false, "other keys are left alone");
   assert.equal(press(null, "ArrowLeft"), false, "and so are keys outside a plot");
-  const sizes = plot("estimatedBytesReclaimed");
-  press(sizes, "End");
-  assert.equal(sizes.readout.textContent, "Today: 300 MB");
-  assert.equal(sizes.attributes["aria-valuetext"], "Today: 300 MB recovered");
-  press(sizes, "ArrowLeft");
-  assert.match(sizes.attributes["aria-valuetext"], /: Nothing recovered$/);
-  // Pointing at a day reads it out too, and leaving the plot clears it.
-  const box = { left: 100, width: 300 };
-  const point = (target, clientX) =>
-    fixture.content.listeners.pointermove({
-      clientX,
-      target: { closest: () => ({ ...target, querySelector: (selector) => (selector === "svg" ? { getBoundingClientRect: () => box } : target.marker) }) },
-    });
-  point(counts, 100 + 26.5 * 10);
-  assert.match(counts.readout.textContent, /: 13$/);
-  fixture.content.listeners.pointerout({
-    relatedTarget: null,
-    target: { closest: () => ({ ...counts, contains: () => false }) },
-  });
+  // Without the keyboard the plot shows a day only while it is pointed at.
+  focus(counts, false);
   assert.equal(counts.readout.textContent, "");
   assert.equal(counts.marker.attributes.visibility, "hidden");
+  send("pointermove", counts, { clientX: 100 + 26.5 * 10 });
+  assert.match(counts.readout.textContent, /: 13$/);
+  send("pointerout", counts, { relatedTarget: null });
+  assert.equal(counts.readout.textContent, "");
+  const sizes = plot("estimatedBytesReclaimed");
+  focus(sizes, true);
+  assert.equal(sizes.readout.textContent, "Today: 300 MB");
+  press(sizes, "ArrowLeft");
+  assert.match(sizes.attributes["aria-valuetext"], /: Nothing recovered$/);
 });
 
 test("statistics with a host missing never claim there have been no cleanups", async () => {

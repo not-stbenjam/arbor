@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPlatform(t *testing.T) {
@@ -230,11 +231,12 @@ func TestPrepareInstallsMatchingReleaseAndRechecksRemote(t *testing.T) {
 			// Earlier releases, this one, a later one, a candidate of this one,
 			// and things that are not Arbor's.
 			return []byte("v1.2.2\nv0.9.10\nv1.2.3\nv1.10.0\nv1.2.3-rc.1\nnotes\nv1.2\n$(reboot)\n\n"), nil
-		case strings.HasPrefix(command, "rm -rf -- "):
+		case strings.HasPrefix(command, "for d in "):
 			cleared = append(cleared, command)
 			return nil, nil
 		case strings.Contains(command, "--version"):
-			if !strings.Contains(command, "linux_arm64") {
+			// Using a release marks its folder as used.
+			if !strings.Contains(command, "linux_arm64") || !strings.Contains(command, `touch "$HOME"/'.cache/arbor/bin/v1.2.3'`) {
 				t.Fatalf("wrong remote binary: %s", command)
 			}
 			if installed {
@@ -255,12 +257,80 @@ func TestPrepareInstallsMatchingReleaseAndRechecksRemote(t *testing.T) {
 	if requests != 2 || installs != 1 || probes != 2 {
 		t.Fatalf("warm cache must recheck remote without download/upload: requests=%d installs=%d probes=%d", requests, installs, probes)
 	}
-	// Installing clears away the earlier releases it finds, once, and nothing
+	// Installing considers the earlier releases it finds, once, and nothing
 	// else: not a later release, not this one or its candidates, and nothing
 	// that is not named as a release.
-	want := `rm -rf -- "$HOME"/'.cache/arbor/bin/v1.2.2' "$HOME"/'.cache/arbor/bin/v0.9.10'`
-	if len(cleared) != 1 || cleared[0] != want {
+	want := `for d in "$HOME"/'.cache/arbor/bin/v1.2.2' "$HOME"/'.cache/arbor/bin/v0.9.10'; do `
+	if len(cleared) != 1 || !strings.HasPrefix(cleared[0], want) {
 		t.Fatalf("cleared %q, want %q", cleared, want)
+	}
+}
+
+func TestPruneScriptRemovesOnlyUnusedRealFolders(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("a POSIX shell is required to run the script")
+	}
+	// A home folder with a space and a quote exercises the script's quoting.
+	home := filepath.Join(t.TempDir(), "dev's home")
+	bin := filepath.Join(home, ".cache", "arbor", "bin")
+	elsewhere := filepath.Join(home, "elsewhere")
+	for _, dir := range []string{
+		filepath.Join(bin, "v1.0.0", "linux_arm64"),
+		filepath.Join(bin, "v1.1.0", "linux_arm64"),
+		filepath.Join(bin, "v2.0.0", "linux_arm64"),
+		elsewhere,
+	} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Something that is not Arbor's, though it is named like a release, and
+	// a link named like one that leads somewhere else.
+	if err := os.WriteFile(filepath.Join(bin, "v1.2.0"), []byte("notes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(elsewhere, "kept"), []byte("kept"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(bin, "v1.3.0")); err != nil {
+		t.Fatal(err)
+	}
+	// v1.0.0 was last used a month ago; v1.1.0 yesterday, by another computer.
+	month := time.Now().Add(-30 * 24 * time.Hour)
+	for _, name := range []string{"v1.0.0", "v1.2.0", "v1.3.0"} {
+		if err := os.Chtimes(filepath.Join(bin, name), month, month); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(elsewhere, month, month); err != nil {
+		t.Fatal(err)
+	}
+	p := &provisioner{}
+	p.run = func(_ context.Context, _, command string, _ io.Reader) ([]byte, error) {
+		cmd := exec.Command("sh", "-c", command)
+		cmd.Env = append(os.Environ(), "HOME="+home)
+		return cmd.CombinedOutput()
+	}
+	p.prune(context.Background(), "host", "v2.0.0")
+	exists := func(name string) bool {
+		_, err := os.Lstat(filepath.Join(bin, name))
+		return err == nil
+	}
+	if exists("v1.0.0") {
+		t.Error("an earlier release unused for a month was kept")
+	}
+	for name, why := range map[string]string{
+		"v1.1.0": "an earlier release another computer used yesterday",
+		"v1.2.0": "a file that is not a release folder",
+		"v1.3.0": "a link named like a release",
+		"v2.0.0": "the release just installed",
+	} {
+		if !exists(name) {
+			t.Errorf("%s was removed", why)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(elsewhere, "kept")); err != nil || string(data) != "kept" {
+		t.Errorf("what a link led to was disturbed: %v", err)
 	}
 }
 
@@ -290,7 +360,7 @@ func TestEarlierReleaseComparesNumbersNotText(t *testing.T) {
 }
 
 func TestFailingToClearEarlierReleasesDoesNotFailTheInstallation(t *testing.T) {
-	for _, failing := range []string{"ls -1 ", "rm -rf -- "} {
+	for _, failing := range []string{"ls -1 ", "for d in "} {
 		p := &provisioner{binaries: map[string][]byte{"v1.2.3/linux/arm64": []byte("cached executable")}}
 		installed := false
 		p.run = func(_ context.Context, _, command string, _ io.Reader) ([]byte, error) {

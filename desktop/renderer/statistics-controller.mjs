@@ -13,6 +13,8 @@ const dayLabel = new Intl.DateTimeFormat(undefined, {
 // size is rounded in the unit it is shown in, 16 GB rather than
 // 17,179,869,184, and its half is never less than one of that unit.
 export function scaleTop(maximum, whole) {
+  // A damaged record is not a reason to draw to the sky, or for ever.
+  maximum = Number.isFinite(maximum) ? clampScale(maximum) : 1;
   let unit = 1;
   if (!whole) while (maximum >= unit * 1024 && unit < 1024 ** 4) unit *= 1024;
   const half = maximum / unit / 2;
@@ -22,6 +24,7 @@ export function scaleTop(maximum, whole) {
     if (step) return 2 * step * power * unit;
   }
 }
+const clampScale = (value) => Math.min(Math.max(value, 1), 1e15);
 // What one day's bar stands for, in words.
 const counted = (value) =>
   value
@@ -58,9 +61,11 @@ function statisticsChart(days, field) {
     })
     .join("");
   const total = days.reduce((sum, day) => sum + statisticCount(day[field]), 0);
-  // The plot is one stop for the keyboard. Arrow keys walk its days, each
-  // read out beneath it and to a screen reader, as pointing at a day does.
-  return `<section class="statistics-chart-card"><div class="statistics-chart-heading"><h4>${esc(label)}</h4><strong>${esc(format(total))}</strong></div><div class="statistics-plot" data-chart="${field}" tabindex="0" role="slider" aria-orientation="horizontal" aria-label="${esc(label)}, day by day" aria-valuemin="1" aria-valuemax="${days.length}" aria-valuenow="${days.length}" aria-valuetext="${esc(label)} in the last 30 days: ${esc(format(total))}. Use the arrow keys to read each day."><svg class="statistics-chart" data-testid="statistics-chart" viewBox="0 0 300 86" aria-hidden="true"><rect class="statistics-day" y="0" width="10" height="86" visibility="hidden"/><path class="statistics-grid" d="M0 6h300M0 43h300M0 80h300"/>${bars}</svg><div class="statistics-scale" aria-hidden="true"><span>${esc(format(top))}</span><span>${esc(format(top / 2))}</span><span>0</span></div></div><div class="statistics-axis"><span>${esc(dayLabel.format(new Date(days[0].date)))}</span><span class="statistics-readout"></span><span>Today</span></div></section>`;
+  // The plot is one stop for the keyboard: a choice of day, which starts at
+  // today. Arrow keys walk the days, each read out beneath the chart and to
+  // a screen reader. Pointing at a day shows it too, without choosing it.
+  const today = days.length - 1;
+  return `<section class="statistics-chart-card"><div class="statistics-chart-heading"><h4>${esc(label)}</h4><strong>${esc(format(total))}</strong></div><div class="statistics-plot" data-chart="${field}" data-day="${today}" tabindex="0" role="slider" aria-orientation="horizontal" aria-label="Day in the ${esc(label.toLowerCase())} chart: ${esc(format(total))} in the last 30 days" aria-valuemin="1" aria-valuemax="${days.length}" aria-valuenow="${days.length}" aria-valuetext="${esc(`${dayName(days, today)}: ${CHARTS[field].say(statisticCount(days[today][field]))}`)}"><svg class="statistics-chart" data-testid="statistics-chart" viewBox="0 0 300 86" aria-hidden="true"><rect class="statistics-day" y="0" width="10" height="86" visibility="hidden"/><path class="statistics-grid" d="M0 6h300M0 43h300M0 80h300"/>${bars}</svg><div class="statistics-scale" aria-hidden="true"><span>${esc(format(top))}</span><span>${esc(format(top / 2))}</span><span>0</span></div></div><div class="statistics-axis"><span>${esc(dayLabel.format(new Date(days[0].date)))}</span><span class="statistics-readout"></span><span>Today</span></div></section>`;
 }
 
 // Each opening owns its request; closed dialogs and switched hosts cannot be overwritten.
@@ -69,55 +74,72 @@ export function createStatisticsController({ document, api, getHost }) {
   let statisticsGeneration = 0;
   // The thirty days the charts are drawing, for reading one of them out.
   let charted = [];
-  // Shows which day of a chart is being read, or none.
-  function readDay(plot, index) {
-    const { say, format } = CHARTS[plot.dataset.chart];
+  // Shows one day of a chart beneath it, or none.
+  function show(plot, index) {
+    const { format } = CHARTS[plot.dataset.chart];
     const marker = plot.querySelector(".statistics-day"),
       readout = plot.parentElement.querySelector(".statistics-readout");
     if (index === null || !charted[index]) {
-      delete plot.dataset.day;
       marker.setAttribute("visibility", "hidden");
       readout.textContent = "";
       return;
     }
-    const day = dayName(charted, index),
-      value = statisticCount(charted[index][plot.dataset.chart]);
-    plot.dataset.day = index;
     marker.setAttribute("x", index * 10);
     marker.setAttribute("visibility", "visible");
     // Under its chart the figure needs no more words than the chart's own
-    // heading gives it. Read aloud, away from the heading, it is a sentence.
-    readout.textContent = `${day}: ${format(value)}`;
-    plot.setAttribute("aria-valuenow", index + 1);
-    plot.setAttribute("aria-valuetext", `${day}: ${say(value)}`);
+    // heading gives it.
+    readout.textContent = `${dayName(charted, index)}: ${format(statisticCount(charted[index][plot.dataset.chart]))}`;
   }
+  // The day the keyboard has chosen. It is what a screen reader is told, as
+  // a sentence, and what shows while the plot has the keyboard.
+  const chosen = (plot) => clamp(Number(plot.dataset.day), charted.length - 1);
+  function choose(plot, index) {
+    const { say } = CHARTS[plot.dataset.chart];
+    plot.dataset.day = index;
+    plot.setAttribute("aria-valuenow", index + 1);
+    plot.setAttribute("aria-valuetext", `${dayName(charted, index)}: ${say(statisticCount(charted[index][plot.dataset.chart]))}`);
+    show(plot, index);
+  }
+  const clamp = (index, last) => (Number.isInteger(index) ? Math.min(Math.max(index, 0), last) : last);
   const plotOf = (event) => event.target.closest?.(".statistics-plot");
+  const focused = (plot) => plot.matches?.(":focus") ?? false;
   $("#statistics-content").addEventListener("keydown", (event) => {
     const plot = plotOf(event);
-    if (!plot) return;
+    if (!plot || !charted.length) return;
     const last = charted.length - 1,
-      at = plot.dataset.day === undefined ? null : Number(plot.dataset.day);
+      at = chosen(plot);
     const next = {
-      ArrowLeft: at === null ? last : Math.max(0, at - 1),
-      ArrowRight: at === null ? last : Math.min(last, at + 1),
+      ArrowLeft: Math.max(0, at - 1),
+      ArrowRight: Math.min(last, at + 1),
       Home: 0,
       End: last,
     }[event.key];
     if (next === undefined) return;
     event.preventDefault();
-    readDay(plot, next);
+    choose(plot, next);
+  });
+  $("#statistics-content").addEventListener("focusin", (event) => {
+    const plot = plotOf(event);
+    if (plot && charted.length) show(plot, chosen(plot));
+  });
+  $("#statistics-content").addEventListener("focusout", (event) => {
+    const plot = plotOf(event);
+    if (plot) show(plot, null);
   });
   $("#statistics-content").addEventListener("pointermove", (event) => {
     const plot = plotOf(event);
-    if (!plot) return;
+    if (!plot || !charted.length) return;
     const box = plot.querySelector("svg").getBoundingClientRect();
     const index = Math.floor(((event.clientX - box.left) / box.width) * charted.length);
-    readDay(plot, index >= 0 && index < charted.length ? index : null);
+    // Over the margin beside the drawing there is no day to point at.
+    show(plot, index >= 0 && index < charted.length ? index : focused(plot) ? chosen(plot) : null);
   });
   $("#statistics-content").addEventListener("pointerout", (event) => {
     const plot = plotOf(event);
     // The pointer has left the plot, not moved between two of its parts.
-    if (plot && !plot.contains(event.relatedTarget)) readDay(plot, null);
+    // What the keyboard had chosen, if it is still there, shows again.
+    if (plot && !plot.contains(event.relatedTarget))
+      show(plot, focused(plot) ? chosen(plot) : null);
   });
   async function openStatistics() {
     const generation = ++statisticsGeneration,

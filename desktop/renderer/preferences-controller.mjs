@@ -38,6 +38,9 @@ export function createPreferencesController({
   let editingHost = "";
   // Save & scan has been pressed and the backend has not yet answered.
   let submitting = false;
+  // Which form is on screen: a new number each time Settings is opened or
+  // turned to another host. An answer to an earlier one is not this one's.
+  let sitting = 0;
   // Unsaved edits, kept per host while Settings is open, so looking at
   // another host's options does not throw away the ones being changed.
   const drafts = new Map();
@@ -194,6 +197,7 @@ export function createPreferencesController({
     $("#settings-host").value = selected;
   }
   function editHost(host) {
+    sitting++;
     editingHost = host;
     const form = drafts.get(host) || savedForm(host);
     $("#scan-root").value = form.root;
@@ -347,6 +351,9 @@ export function createPreferencesController({
     // a folder that does not exist, say, is put right here, with everything
     // else still as it was typed.
     fieldError("#settings-error");
+    fieldNote();
+    const asked = sitting,
+      sent = JSON.stringify(readForm());
     submitting = true;
     renderStatus(context);
     let outcome;
@@ -356,12 +363,23 @@ export function createPreferencesController({
       submitting = false;
       renderStatus(context);
     }
+    // Closed, opened afresh, or turned to another host while the scan was
+    // being asked for: the answer is not about what is on screen now. A
+    // refusal is still shown in the window behind.
+    if (!$("#settings-dialog").open || sitting !== asked) return;
     if (outcome?.error) {
       fieldError("#settings-error", outcome.error);
       return;
     }
-    // Closed, or moved to another host, while the scan was being asked for.
-    if (!$("#settings-dialog").open || editingHost !== host) return;
+    // Edited again while waiting: the scan has what was sent, and what was
+    // typed since is still here to be sent.
+    if (JSON.stringify(readForm()) !== sent) {
+      drafts.set(host, readForm());
+      fieldNote(
+        `Scanning ${hostName(host)} with the settings as they were when you pressed Save & scan. Your changes since are not applied yet.`,
+      );
+      return;
+    }
     drafts.delete(host);
     // Save & scan applies the host on screen. Another host edited in the
     // same sitting is shown next instead of being dropped unseen.
