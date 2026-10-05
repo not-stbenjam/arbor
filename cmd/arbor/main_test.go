@@ -666,3 +666,20 @@ func TestCLIGraveLossesMustBeNamedOrForced(t *testing.T) {
 		}
 	}
 }
+
+func TestAbsentCheckoutStatusStillNamesHistoryAtRisk(t *testing.T) {
+	for _, absent := range []worktree.Worktree{{Missing: true}, {Empty: true}} {
+		for _, loss := range []struct{ key, label string }{{"submodules", "submodules"}, {"operation", "unfinished operation"}, {"nested", "nested repository"}} {
+			w := absent
+			w.CanDiscard = true
+			w.Losses = []string{loss.key}
+			var out bytes.Buffer
+			if err := printTable(&out, "/fixture", []worktree.Worktree{w}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), loss.label) || strings.Contains(out.String(), "missing checkout") || strings.Contains(out.String(), "empty checkout") {
+				t.Fatalf("history loss hidden by absent folder: %s", out.String())
+			}
+		}
+	}
+}
