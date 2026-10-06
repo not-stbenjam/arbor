@@ -231,6 +231,7 @@ test("All-host settings edit a specific machine independently and gate only its 
         github: true,
         fetch: false,
         excludes: ["~/.codex*/.tmp", "folder,with,commas"],
+        safeIgnored: [],
       },
     ],
     ],
@@ -520,4 +521,17 @@ test("an answer to an earlier Settings sitting does not close, clear or mislabel
   assert.equal(f.element("#settings-host").value, "vps");
   assert.equal(f.element("#settings-error").hidden, true);
   assert.equal(f.element("#settings-dialog").open, true);
+});
+
+test("safe ignored settings persist edits per host and reset to defaults", async () => {
+ const f = await fixture();
+ f.controller.openSettings();
+ f.element("#scan-safe-ignored").value="custom-cache\n*.generated";
+ f.element("#settings-host").value="vps";f.element("#settings-host").onchange();
+ f.element("#settings-host").value="";f.element("#settings-host").onchange();
+ assert.equal(f.element("#scan-safe-ignored").value,"custom-cache\n*.generated");
+ await f.element("#settings-form").onsubmit({preventDefault(){}});
+ assert.deepEqual(f.calls.find(([name])=>name==="scan")[1].safeIgnored,["custom-cache","*.generated"]);
+ f.element("#scan-reset-safe-ignored").onclick();
+ assert.equal(f.element("#scan-safe-ignored").value,"");
 });

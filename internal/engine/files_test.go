@@ -30,11 +30,11 @@ func TestFilesRemoteArgumentsAndResponse(t *testing.T) {
 		command = value
 		return json.Marshal(report)
 	}}
-	result, err := Files(context.Background(), "fixture-host", path, repo, 7)
+	result, err := FilesWithRules(context.Background(), "fixture-host", path, repo, 7, []string{"custom cache"})
 	if err != nil || result.Path != path {
 		t.Fatalf("%+v %v", result, err)
 	}
-	for _, part := range []string{"'files' '--json' '--watch-stdin' '--limit' '7'", "'--repo' " + quote(repo), "'--' " + quote(path)} {
+	for _, part := range []string{"'--no-default-safe-ignored'", "'--safe-ignored' 'custom cache'", "'files' '--json' '--watch-stdin' '--limit' '7'", "'--repo' " + quote(repo), "'--' " + quote(path)} {
 		if !strings.Contains(command, part) {
 			t.Fatalf("missing %q: %s", part, command)
 		}
@@ -63,5 +63,18 @@ func TestFilesRemoteArgumentsAndResponse(t *testing.T) {
 	report.Entries = nil
 	if _, err := Files(context.Background(), "fixture-host", path, repo, 7); err == nil {
 		t.Fatal("accepted incomplete result")
+	}
+}
+
+func TestSafeIgnoredRemoteArguments(t *testing.T) {
+	args := safeIgnoredArguments([]string{"list"}, []string{"cache with spaces", "**/custom"})
+	command := remoteCommand("arbor", args)
+	for _, want := range []string{"'--no-default-safe-ignored'", "'--safe-ignored' 'cache with spaces'", "'--safe-ignored' '**/custom'"} {
+		if !strings.Contains(command, want) {
+			t.Fatal(command)
+		}
+	}
+	if got := safeIgnoredArguments(nil, []string{}); len(got) != 1 {
+		t.Fatal(got)
 	}
 }

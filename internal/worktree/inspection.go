@@ -92,7 +92,7 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 		block(reasonFilterOff)
 	}
 	inspectCommit(ctx, w)
-	inspectStatus(ctx, w, block)
+	inspectStatus(ctx, w, block, options.SafeIgnored)
 	details.submodules = inspectIndex(ctx, w, block)
 	details.markers, details.modules = inspectActivity(ctx, w, block, details.submodules)
 	inspectPublication(ctx, w)

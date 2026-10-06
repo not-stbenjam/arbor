@@ -11,6 +11,7 @@ import (
 var data []byte
 
 type defaults struct {
+	SafeIgnored []string `json:"safeIgnored"`
 	Excludes    []string `json:"excludes"`
 	MaxExcludes int      `json:"maxExcludes"`
 }
@@ -28,3 +29,7 @@ func Excludes() []string { return slices.Clone(values.Excludes) }
 
 // MaxExcludes is the shared CLI and desktop limit for exclusion rules.
 func MaxExcludes() int { return values.MaxExcludes }
+
+// SafeIgnored contains disposable install/build output or OS-generated metadata.
+// Never add names commonly holding secrets, handwritten work, databases or logs.
+func SafeIgnored() []string { return slices.Clone(values.SafeIgnored) }

@@ -1,5 +1,6 @@
 import { icon, esc, plain, branchName, size, sizeOf, viewHost } from "./presentation.mjs";
 import { recommendationReason } from "./worktree-presentation.mjs";
+import { safeIgnoredSummary } from "../common/safe-ignored.mjs";
 import { LOSSES, lossesOf, graveLosses } from "../common/losses.mjs";
 
 const plural = (count, noun) => `${count} ${count === 1 ? noun : `${noun}s`}`;
@@ -47,16 +48,20 @@ export function deletionMeaning(row) {
       tone: "kept",
       text: `Cannot be deleted: ${sentence((row.blockers || []).concat(row.problems || []).join("; ") || "it is still being checked")}`,
     };
-  if (row.recommended) return { tone: "safe", text: recommendationReason(row) };
+  if (row.recommended) return {
+    tone: "safe", text: recommendationReason(row),
+    ...(row.allIgnoredSafe ? { notes: [safeIgnoredSummary(row)] } : {}),
+  };
   const lost = lossesOf(row);
+  const safeNotes = row.allIgnoredSafe ? [safeIgnoredSummary(row)] : [];
   const notes = [row.missing && "Registration only; folder gone", row.locked && "Lock overridden"].filter(Boolean);
   if (lost.length) {
     const ordinary = lost.filter((name) => !LOSSES[name].grave);
     const words = ordinary.length === 3 ? "Changes, ignored and unchecked files" : ordinary.map((name) => LOSSES[name].brief).join(" and ");
     return { tone: "risk", text: words ? words.replace(/^./, (c) => c.toUpperCase()) : "",
-      grave: graveLosses(row).map((name) => `Permanently loses ${LOSSES[name].text}`), notes };
+      grave: graveLosses(row).map((name) => `Permanently loses ${LOSSES[name].text}`), notes: [...notes, ...safeNotes] };
   }
-  return { tone: notes.length ? "note" : "safe", text: notes.join(" · ") || (row.fresh ? "New; branch kept" : row.merged ? "Branch and commits kept" : "Not merged; branch kept") };
+  return { tone: notes.length ? "note" : "safe", ...(safeNotes.length ? { notes: safeNotes } : {}), text: notes.join(" · ") || (row.fresh ? "New; branch kept" : row.merged ? "Branch and commits kept" : "Not merged; branch kept") };
 
 }
 
@@ -137,7 +142,7 @@ export function createCleanupController({
           .map(named)
           .join(" · ");
         const meaning = deletionMeaning(row);
-        return `<li class="cleanup-item${refused.has(row.id) ? " refused" : ""}" data-review="${esc(row.id)}" data-tone="${meaning.tone}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${row.missing ? "—" : size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(meaning.text)}${lossesOf(row).length ? `${meaning.text ? " · " : ""}<button type="button" class="state-files cleanup-files" data-files="${esc(row.id)}">Show files</button>` : ""}${(meaning.grave || []).map((text) => `<strong class="cleanup-grave">${named(text)}</strong>`).join("")}${(meaning.notes || []).map((text) => `<span class="cleanup-note">${named(text)}</span>`).join("")}</span><span class="cleanup-changed">Changed just now, so it is kept.</span><span class="cleanup-path">${pathed(row.path)}</span></li>`;
+        return `<li class="cleanup-item${refused.has(row.id) ? " refused" : ""}" data-review="${esc(row.id)}" data-tone="${meaning.tone}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${row.missing ? "—" : size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(meaning.text)}${lossesOf(row).length || row.ignored ? `${meaning.text ? " · " : ""}<button type="button" class="state-files cleanup-files" data-files="${esc(row.id)}">Show files</button>` : ""}${(meaning.grave || []).map((text) => `<strong class="cleanup-grave">${named(text)}</strong>`).join("")}${(meaning.notes || []).map((text) => `<span class="cleanup-note">${named(text)}</span>`).join("")}</span><span class="cleanup-changed">Changed just now, so it is kept.</span><span class="cleanup-path">${pathed(row.path)}</span></li>`;
       })
       .join("");
   }
@@ -233,6 +238,7 @@ export function createCleanupController({
     // be kept: what is kept is the repository each worktree belongs to.
     const grave = going.some((row) => graveLosses(row).length);
     $("#cleanup-lead").innerHTML = `<p>${grave ? "Parent repository branches are kept; permanent losses are listed below." : going.some((row) => !row.canRemove && !row.missing && !row.empty) ? "Branches and commits are kept; uncommitted files are discarded." : "Branches and commits are kept."}</p>`;
+    if (going.some((row) => row.allIgnoredSafe)) $("#cleanup-lead").innerHTML += "<p>Safe ignored files are deleted permanently.</p>";
     $("#cleanup-list").setAttribute(
       "aria-label",
       chosen

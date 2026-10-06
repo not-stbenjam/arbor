@@ -8,6 +8,8 @@ type Options struct {
 	Fetch  bool   `json:"fetch"`
 	// Nil uses DefaultExcludes; an explicit empty slice scans every directory.
 	Excludes []string `json:"excludes"`
+	// Nil uses defaults; an explicit empty list disables safe ignored rules.
+	SafeIgnored []string `json:"safeIgnored"`
 	// LinkedOnly lists linked worktrees, not ordinary repository roots.
 	LinkedOnly bool `json:"linkedOnly"`
 	// TargetOnly resolves one exact registered checkout, without a discovery walk.
@@ -52,43 +54,45 @@ type Report struct {
 }
 
 type Worktree struct {
-	ID              string       `json:"id"`
-	Path            string       `json:"path"`
-	Repo            string       `json:"repo"`
-	CommonDir       string       `json:"commonDir"`
-	Branch          string       `json:"branch"`
-	Head            string       `json:"head"`
-	Subject         string       `json:"subject"`
-	Author          string       `json:"author"`
-	CommitAt        time.Time    `json:"commitAt"`
-	ActivityAt      time.Time    `json:"activityAt"`
-	SizeBytes       int64        `json:"sizeBytes"`
-	Main            bool         `json:"main"`
-	Bare            bool         `json:"bare"`
-	Detached        bool         `json:"detached"`
-	Locked          bool         `json:"locked"`
-	LockReason      string       `json:"lockReason"`
-	Missing         bool         `json:"missing"`
-	Empty           bool         `json:"empty"`
-	OutsideRoot     bool         `json:"outsideRoot"`
-	Dirty           bool         `json:"dirty"`
-	ChangedFiles    int          `json:"changedFiles"`
-	Ignored         bool         `json:"ignored"`
-	Upstream        string       `json:"upstream"`
-	Ahead           int          `json:"ahead"`
-	Behind          int          `json:"behind"`
-	Published       bool         `json:"published"`
-	PublishedRefs   []string     `json:"publishedRefs"`
-	DefaultRef      string       `json:"defaultRef"`
-	Merged          bool         `json:"merged"`
-	MergeReason     string       `json:"mergeReason"`
-	Fresh           bool         `json:"fresh"`
-	GitHubState     string       `json:"githubState"`
-	PR              *PullRequest `json:"pr,omitempty"`
-	Recommended     bool         `json:"recommended"`
-	CanRemove       bool         `json:"canRemove"`
-	CanDiscard      bool         `json:"canDiscard"`
-	DiscardWarnings []string     `json:"discardWarnings"`
+	ID                 string       `json:"id"`
+	Path               string       `json:"path"`
+	Repo               string       `json:"repo"`
+	CommonDir          string       `json:"commonDir"`
+	Branch             string       `json:"branch"`
+	Head               string       `json:"head"`
+	Subject            string       `json:"subject"`
+	Author             string       `json:"author"`
+	CommitAt           time.Time    `json:"commitAt"`
+	ActivityAt         time.Time    `json:"activityAt"`
+	SizeBytes          int64        `json:"sizeBytes"`
+	Main               bool         `json:"main"`
+	Bare               bool         `json:"bare"`
+	Detached           bool         `json:"detached"`
+	Locked             bool         `json:"locked"`
+	LockReason         string       `json:"lockReason"`
+	Missing            bool         `json:"missing"`
+	Empty              bool         `json:"empty"`
+	OutsideRoot        bool         `json:"outsideRoot"`
+	Dirty              bool         `json:"dirty"`
+	ChangedFiles       int          `json:"changedFiles"`
+	Ignored            bool         `json:"ignored"`
+	AllIgnoredSafe     bool         `json:"allIgnoredSafe"`
+	MatchedSafeIgnored []string     `json:"matchedSafeIgnored"`
+	Upstream           string       `json:"upstream"`
+	Ahead              int          `json:"ahead"`
+	Behind             int          `json:"behind"`
+	Published          bool         `json:"published"`
+	PublishedRefs      []string     `json:"publishedRefs"`
+	DefaultRef         string       `json:"defaultRef"`
+	Merged             bool         `json:"merged"`
+	MergeReason        string       `json:"mergeReason"`
+	Fresh              bool         `json:"fresh"`
+	GitHubState        string       `json:"githubState"`
+	PR                 *PullRequest `json:"pr,omitempty"`
+	Recommended        bool         `json:"recommended"`
+	CanRemove          bool         `json:"canRemove"`
+	CanDiscard         bool         `json:"canDiscard"`
+	DiscardWarnings    []string     `json:"discardWarnings"`
 	// Losses names what deleting this worktree anyway would destroy:
 	// "changes", "ignored", "unchecked", "submodules", "operation", "nested".
 	// A worktree with none is a clean delete; one with any never is.

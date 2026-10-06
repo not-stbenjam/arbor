@@ -1,4 +1,5 @@
 "use strict";
+const safeArguments = ["--no-default-safe-ignored", ...require("./protocol.cjs").DEFAULT_SAFE_IGNORED.flatMap((rule) => ["--safe-ignored", rule])];
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -117,6 +118,7 @@ test("scan returns busy state immediately, invokes CLI with exact arguments, and
     "user@remote",
     "--github",
     "--fetch",
+    ...safeArguments,
     "--no-default-excludes",
     ...scanOptions().excludes.flatMap((entry) => ["--exclude", entry]),
   ]);
@@ -190,6 +192,7 @@ test("recommended removal binds identity, host and GitHub evidence, then updates
     tree.id,
     "--branch",
     tree.branch,
+    ...safeArguments,
     "--host",
     "vps",
     "--github",
@@ -356,6 +359,7 @@ test("input validation and preference schema are bounded and match renderer cont
         github: false,
         fetch: false,
         excludes: scanOptions().excludes,
+        safeIgnored: scanOptions().safeIgnored,
       },
     },
   );
@@ -482,7 +486,7 @@ test("preferences migrate to setup and preserve saved scan choices", () => {
   const scan = { root: "~/src", host: "vps", github: true, fetch: true };
   const prefs = validatePreferences({ setupCompleted: true, scan });
   assert.equal(prefs.setupCompleted, true);
-  assert.deepEqual(prefs.scan, { ...scan, excludes: scanOptions().excludes });
+  assert.deepEqual(prefs.scan, { ...scan, excludes: scanOptions().excludes, safeIgnored: scanOptions().safeIgnored });
   assert.throws(
     () => validatePreferences({ scan: { host: "bad host" } }),
     /host alias/,
@@ -1047,6 +1051,7 @@ test("failed deletion re-inspects only its exact path and keeps the untouched sn
     "--json",
     "--path",
     tree.path,
+    ...safeArguments,
     "--host",
     "vps",
     "--github",

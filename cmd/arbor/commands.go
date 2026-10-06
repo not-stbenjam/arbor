@@ -21,6 +21,8 @@ func (c commonFlags) options() worktree.Options {
 }
 
 type commandOptions struct {
+	safeIgnored                                                   []string
+	noDefaultSafeIgnored                                          bool
 	strict                                                        bool
 	sortOrder                                                     string
 	olderThan                                                     ageDuration
@@ -98,7 +100,13 @@ func addOutputFlags(cmd *cobra.Command, flags *commandOptions) {
 	f.BoolVarP(&flags.quiet, "quiet", "q", false, "Hide human progress messages; keep results and errors")
 }
 
+func addSafeIgnoredFlags(cmd *cobra.Command, flags *commandOptions) {
+	cmd.Flags().StringArrayVar(&flags.safeIgnored, "safe-ignored", nil, "Add a safe ignored name, relative path, or glob (repeatable)")
+	cmd.Flags().BoolVar(&flags.noDefaultSafeIgnored, "no-default-safe-ignored", false, "Disable default safe ignored rules; otherwise install/build output is deleted without --force")
+}
+
 func addDiscoveryFlags(cmd *cobra.Command, flags *commandOptions) {
+	addSafeIgnoredFlags(cmd, flags)
 	f := cmd.Flags()
 	f.StringArrayVar(&flags.excludes, "exclude", nil, "Skip a directory name, path, or glob (repeatable; quote patterns)")
 	f.BoolVar(&flags.noDefaultExcludes, "no-default-excludes", false, "Do not use the default cache/temp exclusions")
@@ -152,7 +160,7 @@ func newListCommand() *cobra.Command {
 func newCleanCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("clean", "Preview or delete worktrees beneath a folder",
-		"Preview clean, merged worktrees that can be removed. Nothing is deleted until\n--yes is supplied. --all also takes clean worktrees that are not merged; their\nbranches keep the commits. Worktrees that are not a clean delete are skipped\nunless --force is added. --force agrees to everything the preview lists for\nthem: local files, and where it says so a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder.\nNamed branches and the checked-out commit are kept. Commits reachable only\nthrough a worktree's reflog or private refs are not protected. Nothing is\nsent to Trash.",
+		"Preview clean, merged worktrees that can be removed. Nothing is deleted until\n--yes is supplied. --all also takes clean worktrees that are not merged; their\nbranches keep the commits. Worktrees that are not a clean delete are skipped\nunless --force is added. --force agrees to everything the preview lists for\nthem: local files, and where it says so a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder.\nNamed branches and the checked-out commit are kept. Commits reachable only\nthrough a worktree's reflog or private refs are not protected. Nothing is\nsent to Trash. Default safe ignored rules include install/build output.\nclean --yes now deletes merged worktrees containing only covered ignored files\nwithout --force. Use --no-default-safe-ignored to disable those defaults.\nThese files are deleted permanently; restore does not bring them back.",
 		"  arbor clean -p ~/code\n  arbor clean -p ~/code --yes\n  arbor clean --path ~/code --older-than 30d --yes\n  arbor clean -p ~/old-sessions --all --yes\n  arbor clean -p ~/old-sessions --all --force --yes\n  arbor clean --host my-vps --path '~/projects' --json", flags)
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
@@ -169,8 +177,9 @@ func newCleanCommand() *cobra.Command {
 func newRemoveCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("remove PATH", "Preview or delete one linked worktree",
-		"Preview removal of one linked checkout. Pass --yes to delete it. Like\n'git worktree remove', that alone is refused when the checkout has uncommitted,\nuntracked or ignored files, or is locked; the preview says which. Add --force\nto discard those files and override the lock. --force agrees to everything\nthe preview lists, which can include a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder. It is\nalso what removes a detached, missing or empty checkout.\nThe worktree's own branches are kept. Detached commits get a recovery branch only when no\nbranch already holds them. A missing checkout removes only its Git\nregistration; provide --repo when its owning repository cannot be found from\nthe path. Flags may follow PATH. Use -- before a path beginning with a dash.",
+		"Preview removal of one linked checkout. Pass --yes to delete it. Like\n'git worktree remove', that alone is refused when the checkout has uncommitted,\nuntracked or uncovered ignored files, or is locked; the preview says which. Add --force\nto discard those files and override the lock. --force agrees to everything\nthe preview lists, which can include a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder. It is\nalso what removes a detached, missing or empty checkout.\nThe worktree's own branches are kept. Detached commits get a recovery branch only when no\nbranch already holds them. A missing checkout removes only its Git\nregistration; provide --repo when its owning repository cannot be found from\nthe path. Flags may follow PATH. Use -- before a path beginning with a dash.",
 		"  arbor remove /path/to/worktree\n  arbor remove /path/to/worktree --yes\n  arbor remove /path/to/worktree --force --yes\n  arbor remove /missing/worktree --repo ~/code/project --force --yes\n  arbor remove --yes -- ./-old-session", flags)
+	addSafeIgnoredFlags(cmd, flags)
 	cmd.Args = checkedArgs(cobra.ExactArgs(1))
 	cmd.ValidArgsFunction = cobra.FixedCompletions(nil, cobra.ShellCompDirectiveFilterDirs)
 	addConnectionFlags(cmd, flags, false)

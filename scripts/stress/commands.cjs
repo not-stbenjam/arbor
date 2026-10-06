@@ -68,6 +68,19 @@ main(() => scenario("commands", async (f) => {
     assert.equal(strict.status, 3);
     assert.ok(JSON.parse(strict.stdout).warnings.length);
   }
+  const safe = f.repository("safe-options/repo").worktree("safe-flags", { ignored: {"node_modules/cache": "generated"} });
+  const scanned = (...args) => json(f.cli("list", "--path", safe.path, "--json", ...args)).worktrees[0];
+  assert.equal(scanned().allIgnoredSafe, true);
+  assert.equal(scanned("--no-default-safe-ignored").recommended, false);
+  assert.equal(scanned("--no-default-safe-ignored", "--safe-ignored", "node_modules", "--safe-ignored", "*.pyc").recommended, true);
+  const files = json(f.cli("files", safe.path, "--json", "--no-default-safe-ignored", "--safe-ignored", "node_modules"));
+  assert.equal(files.entries.find(e => e.kind === "ignored").safeIgnored, true);
+  for (const command of ["list", "clean", "remove", "files"]) {
+    const args = ["list", "clean"].includes(command) ? ["--path", safe.path] : [safe.path];
+    assert.equal(f.cli(command, ...args, "--safe-ignored", "[").status, 2);
+  }
+  assert.notEqual(f.cli("remove", safe.path, "--yes", "--no-default-safe-ignored").status, 0);
+  assert.equal(f.cli("remove", safe.path, "--yes", "--no-default-safe-ignored", "--safe-ignored", "node_modules").status, 0);
 }));
 
 // README scripting examples run locally and through a fixture-only SSH host.

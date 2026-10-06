@@ -63,7 +63,7 @@ scenario({
       const p = saved(t);
       assert.equal(p.setupCompleted, true);
       assert.equal(p.theme, "dark");
-      assert.deepEqual(p.scan, { root: t.fixture.root, host: "", github: true, fetch: true, excludes: ["skip-me"] });
+      assert.deepEqual(p.scan, { root: t.fixture.root, host: "", github: true, fetch: true, excludes: ["skip-me"], safeIgnored: require("../../internal/config/defaults.json").safeIgnored });
       assert.equal(scans(t).length, 1);
       assert.ok(scans(t)[0].includes("--github") && scans(t)[0].includes("--fetch"));
       await cached(t, t.world.kept);

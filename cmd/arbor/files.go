@@ -15,6 +15,7 @@ import (
 )
 
 func newFilesCommand() *cobra.Command {
+	flags := &commandOptions{}
 	var host, repository string
 	var limit int
 	var asJSON, watchStdin, progress bool
@@ -40,7 +41,11 @@ func newFilesCommand() *cobra.Command {
 				defer cancel()
 				defer watchInput(ctx, os.Stdin, cancel)()
 			}
-			report, err := engine.Files(ctx, host, args[0], repository, limit, removalProgress(cmd.ErrOrStderr(), progress, false))
+			rules, err := safeIgnoredRules(flags)
+			if err != nil {
+				return usageError(cmd, err)
+			}
+			report, err := engine.FilesWithRules(ctx, host, args[0], repository, limit, rules, removalProgress(cmd.ErrOrStderr(), progress, false))
 			if err != nil {
 				return err
 			}
@@ -50,6 +55,7 @@ func newFilesCommand() *cobra.Command {
 			return printFiles(cmd.OutOrStdout(), report)
 		},
 	}
+	addSafeIgnoredFlags(cmd, flags)
 	cmd.Flags().StringVar(&repository, "repo", "", "The repository it belongs to: its folder, or its .git folder (needed when the worktree's own folder is gone)")
 	cmd.Flags().StringVar(&host, "host", "", "SSH host alias or user@hostname")
 	cmd.Flags().IntVar(&limit, "limit", 200, "How many to list under each heading (1–10000)")
@@ -91,6 +97,13 @@ func printFiles(out io.Writer, report worktree.FilesReport) error {
 			detail := ""
 			if entry.Status != "" {
 				detail = " · " + entry.Status
+			}
+			if entry.Kind == "ignored" {
+				if entry.SafeIgnored {
+					detail += " · Marked safe (" + printable(entry.SafeIgnoredRule) + ")"
+				} else {
+					detail += " · Not marked safe"
+				}
 			}
 			if entry.Directory {
 				detail += fmt.Sprintf(" · %s%d files", prefix, entry.Files)

@@ -77,7 +77,7 @@ function planRemoval(state, request) {
 
 function removalArguments(
   row,
-  { host, statsSession, discardLocal, recommendedOnly },
+  { host, safeIgnored = require("./protocol.cjs").DEFAULT_SAFE_IGNORED, statsSession, discardLocal, recommendedOnly },
 ) {
   const args = [
     "remove",
@@ -94,6 +94,8 @@ function removalArguments(
     "--branch",
     row.branch,
   ];
+  args.push("--no-default-safe-ignored");
+  for (const rule of safeIgnored) args.push("--safe-ignored", rule);
   if (row.commonDir) args.push("--repo", row.commonDir);
   if (row.missing) args.push("--expect-missing");
   if (row.empty) args.push("--expect-empty");

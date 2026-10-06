@@ -80,7 +80,7 @@ func TestExcludedDirectoriesStillBlockUnsafeRemoval(t *testing.T) {
 	}
 	testWrite(t, filepath.Join(wt, "node_modules", "precious-data"), "retain this file")
 	for _, rules := range [][]string{nil, {"node_*"}} {
-		report, err := Scan(context.Background(), Options{Root: root, Excludes: rules})
+		report, err := Scan(context.Background(), Options{Root: root, Excludes: rules, SafeIgnored: []string{}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +88,7 @@ func TestExcludedDirectoriesStillBlockUnsafeRemoval(t *testing.T) {
 		if !w.Ignored || w.CanRemove || w.Recommended || w.SizeBytes < int64(len("retain this file")) {
 			t.Fatalf("excluded files were hidden from safety/measurement: %+v", w)
 		}
-		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
+		if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, SafeIgnored: []string{}}); err == nil {
 			t.Fatal("removed ignored files inside excluded folder")
 		}
 	}

@@ -12,5 +12,26 @@
     "~/.local/share/containers",
     "~/.local/share/docker"
   ],
-  "maxExcludes": 128
+  "maxExcludes": 128,
+  "safeIgnored": [
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "*.pyc",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".gradle",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    ".cache",
+    "coverage",
+    ".DS_Store",
+    "dist",
+    "build",
+    "target"
+  ]
 }

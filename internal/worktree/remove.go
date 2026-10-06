@@ -15,6 +15,7 @@ import (
 
 // RemovalOptions binds a requested cleanup to the confirmed commit and policy.
 type RemovalOptions struct {
+	SafeIgnored     []string
 	NotActiveSince  time.Time
 	ExpectedHead    string
 	RecommendedOnly bool
@@ -108,7 +109,7 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	if current.Head != expectedHead || current.Branch != snapshot.Branch {
 		return errors.New("worktree commit or branch changed; scan again")
 	}
-	details := inspect(ctx, current, Options{GitHub: snapshot.PR != nil && snapshot.PR.Merged})
+	details := inspect(ctx, current, Options{GitHub: snapshot.PR != nil && snapshot.PR.Merged, SafeIgnored: options.SafeIgnored})
 	// Git looks at the worktree once more itself before deleting it, and is
 	// to run none of the repository's filter programs then either. Which
 	// those are is read now, so that nothing slow comes after the last checks.

@@ -82,6 +82,7 @@ func Scan(ctx context.Context, host string, options worktree.Options) (worktree.
 			args = append(args, "--exclude", exclude)
 		}
 	}
+	args = safeIgnoredArguments(args, options.SafeIgnored)
 	if options.Progress != nil {
 		args = append(args, "--progress")
 	}
@@ -103,4 +104,15 @@ func Scan(ctx context.Context, host string, options worktree.Options) (worktree.
 		return report, errors.New("remote Arbor returned an incomplete report")
 	}
 	return report, nil
+}
+
+func safeIgnoredArguments(args []string, rules []string) []string {
+	if rules == nil {
+		rules = worktree.DefaultSafeIgnored()
+	}
+	args = append(args, "--no-default-safe-ignored")
+	for _, rule := range rules {
+		args = append(args, "--safe-ignored", rule)
+	}
+	return args
 }

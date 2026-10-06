@@ -74,6 +74,7 @@ export function createPreferencesController({
       github: !!value.github,
       fetch: !!value.fetch,
       excludes: [...(value.excludes || defaults.excludes)],
+      safeIgnored: [...(value.safeIgnored ?? defaults.safeIgnored ?? [])],
     };
   };
   function applyTheme() {
@@ -192,6 +193,7 @@ export function createPreferencesController({
       github: !!scan.github,
       fetch: !!scan.fetch,
       excludes: (scan.excludes || defaults.excludes).join("\n"),
+      safeIgnored: (scan.safeIgnored ?? defaults.safeIgnored ?? []).join("\n"),
     };
   }
   const readForm = () => ({
@@ -199,6 +201,7 @@ export function createPreferencesController({
     github: $("#scan-github").checked,
     fetch: $("#scan-fetch").checked,
     excludes: $("#scan-excludes").value,
+    safeIgnored: $("#scan-safe-ignored").value,
   });
   const edited = (host) =>
     drafts.has(host) &&
@@ -220,6 +223,7 @@ export function createPreferencesController({
     $("#scan-github").checked = form.github;
     $("#scan-fetch").checked = form.fetch;
     $("#scan-excludes").value = form.excludes;
+    $("#scan-safe-ignored").value = form.safeIgnored;
     showExcludeCount();
     $("#choose-folder").hidden = !!host;
     $("#root-help").textContent = host
@@ -279,6 +283,7 @@ export function createPreferencesController({
     ++loadGeneration;
     initialize(saved);
     $("#settings-form").reset();
+    $("#scan-safe-ignored").value = (state.options?.safeIgnored ?? saved.scan?.safeIgnored ?? defaults.safeIgnored ?? []).join("\n");
     $("#host-form").reset();
     $("#scan-excludes").value = (
       state.options?.excludes ||
@@ -302,6 +307,9 @@ export function createPreferencesController({
   $("#add-host").onclick = () => {
     openMachines();
     $("#host-input").focus();
+  };
+  $("#scan-reset-safe-ignored").onclick = () => {
+    $("#scan-safe-ignored").value = (defaults.safeIgnored || []).join("\n");
   };
   $("#scan-reset-excludes").onclick = () => {
     $("#scan-excludes").value = defaults.excludes.join("\n");
@@ -363,6 +371,7 @@ export function createPreferencesController({
       github: $("#scan-github").checked,
       fetch: $("#scan-fetch").checked,
       excludes: readExcludes($("#scan-excludes")),
+      safeIgnored: readExcludes($("#scan-safe-ignored")),
     };
     // The dialog stays until the scan is taken up. One that is refused, for
     // a folder that does not exist, say, is put right here, with everything

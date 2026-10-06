@@ -73,7 +73,7 @@ test("backend resolves row IDs, routes the host, rejects stale revisions and mis
   const { WorkspaceCache } = require("./workspace-cache.cjs");
   const { scanOptions } = require("./protocol.cjs");
   for (const host of ["", "fixture-host"]) {
-    const options = scanOptions({ root: "/work", host });
+    const options = scanOptions({ root: "/work", host, safeIgnored: ["custom cache"] });
     const cache = new WorkspaceCache();
     cache.put(options, {
       root: "/work",
@@ -110,6 +110,7 @@ test("backend resolves row IDs, routes the host, rejects stale revisions and mis
       "files",
       "--json",
       "--progress",
+      "--no-default-safe-ignored", "--safe-ignored", "custom cache",
       "--repo",
       "/work/repo/.git",
       ...(host ? ["--host", host] : []),
