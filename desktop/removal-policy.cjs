@@ -111,6 +111,17 @@ function removalArguments(
   return args;
 }
 
+// The command-line program says how to go on from a refusal in its own
+// terms, with flags. In the window the way on is the row itself, which is
+// looked at again after a refusal and shows what it now holds.
+function inWindowTerms(message) {
+  const refused =
+    /^not removed: (.+?)\. Add --force to remove it anyway\b[^]*$/.exec(message);
+  return refused
+    ? `Not deleted. It has changed since the list was read: ${refused[1]}. Nothing in it was touched; its row now shows what it holds.`
+    : message;
+}
+
 function removalFailure(error, requestedPath) {
   if (typeof error?.stdout === "string" && error.stdout.length <= 65536) {
     try {
@@ -126,13 +137,13 @@ function removalFailure(error, requestedPath) {
           matches[0].error.length <= 8192 &&
           !matches[0].error.includes("\0")
         )
-          return matches[0].error;
+          return inWindowTerms(matches[0].error);
       }
     } catch {
       /* Unknown output keeps the runner's bounded failure contract. */
     }
   }
-  return error?.message || "Worktree removal failed";
+  return inWindowTerms(error?.message || "Worktree removal failed");
 }
 
 module.exports = {

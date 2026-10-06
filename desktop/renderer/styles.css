@@ -830,6 +830,37 @@ td {
   height: 23px;
   color: inherit;
 }
+/* The list is a saved one from an earlier day. Said where it is seen, with
+   the way to bring it up to date. */
+.stale-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px;
+  font-size: 12px;
+  color: var(--secondary);
+  background: var(--subtle);
+  border-bottom: 1px solid var(--line);
+}
+.stale-note[hidden] {
+  display: none;
+}
+.stale-note > .icon {
+  width: 14px;
+  flex: none;
+}
+.stale-note > span {
+  flex: 1;
+  min-width: 0;
+}
+.stale-note > .button {
+  flex: none;
+  min-height: 24px;
+}
+.stale-note > .icon-button {
+  width: 23px;
+  height: 23px;
+}
 .recommendation-note {
   display: flex;
   align-items: center;

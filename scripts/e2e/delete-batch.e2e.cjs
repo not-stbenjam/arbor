@@ -50,6 +50,9 @@ scenario({
       await gone(t, safe); await gone(t, dirty);
       await t.until(() => t.visible("#error-banner"), "failed row explanation");
       assert.match(await t.text("#error-message"), /c-stale.*Uncommitted or untracked files/);
+      // What to do next is said in the window's terms, not as flags.
+      assert.match(await t.text("#error-message"), /Not deleted\. It has changed since the list was read.*its row now shows what it holds/);
+      assert.doesNotMatch(await t.text("#error-message"), /--force|--yes/);
       assert.equal(t.fixture.read(`${stale.path}/new-work.txt`), "arrived after the scan");
       assert.equal(registered(t, stale.repository, stale.path), true);
       assert.equal(await t.text(`${await t.row(stale.path)} .worktree-state`), "1 changed file");

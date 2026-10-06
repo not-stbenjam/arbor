@@ -57,6 +57,26 @@ test("removal plan validates every identity but consents to each physical path o
   );
 });
 
+test("a refusal is reported in the window's terms, not with command-line flags", () => {
+  const refusal =
+    "not removed: Uncommitted or untracked files. Add --force to remove it anyway; run without --yes first to see what that involves";
+  const said =
+    "Not deleted. It has changed since the list was read: Uncommitted or untracked files. Nothing in it was touched; its row now shows what it holds.";
+  assert.equal(
+    removalFailure(
+      { stdout: JSON.stringify({ path: "/work/topic", removed: false, error: refusal }) },
+      "/work/topic",
+    ),
+    said,
+  );
+  assert.equal(removalFailure({ message: refusal }, "/work/topic"), said);
+  // Anything else is passed on as it was said.
+  assert.equal(
+    removalFailure({ message: "worktree commit or branch changed; scan again" }, "/work/topic"),
+    "worktree commit or branch changed; scan again",
+  );
+});
+
 test("a selection reviewed in the window is asked about again only when something would be discarded", () => {
   const clean = { ...first, recommended: false };
   const dirty = {

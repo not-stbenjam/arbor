@@ -43,6 +43,18 @@ scenario({
         if (["locked", "reason", "missing"].includes(tree.name)) assert.match(question.detail, /locks.*overridden/);
         if (tree.name === "missing") assert.match(question.detail, /Only Git worktree registrations will be removed/);
         if (tree.name === "detached") assert.match(question.detail, /Detached commits will be kept/);
+        // A clean worktree that is only locked or detached is not said to
+        // hold work: it is asked about by what it is, and still as forced.
+        if (["locked", "reason"].includes(tree.name)) {
+          assert.equal(question.title, "Delete locked worktree?");
+          assert.equal(question.message, `Delete “${tree.name}” and override its lock?`);
+          assert.deepEqual(question.buttons, ["Cancel", "Override Lock & Delete"]);
+          assert.match(question.detail, /^The last scan found nothing uncommitted in it\. It is deleted whatever it holds now/);
+        }
+        if (tree.name === "detached") {
+          assert.equal(question.title, "Delete detached worktree?");
+          assert.deepEqual(question.buttons, ["Cancel", "Delete Worktree"]);
+        }
         assert.equal(t.fixture.exists(tree.path), tree.name !== "missing");
         assert.equal(registered(t, tree.repository, tree.path), true);
         if (tree.name === "modified") assert.match(t.fixture.read(`${tree.path}/README.md`), /edited, not committed/);

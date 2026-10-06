@@ -65,8 +65,14 @@ function removalConfirmationOptions(trees, discardLocal) {
         "Anything else in the folder that is not committed goes too, including files added since the last scan.",
       );
   } else if (discardsFiles)
+    // A lock, a detached commit or a protected branch name is why these
+    // are deleted only by being told to; nothing was seen in them to lose.
+    // They are deleted all the same whatever they hold by now, and that is
+    // said, without calling it discarding work that nobody has seen.
     notes.push(
-      "Any local files, including uncommitted, untracked, and ignored files, will be permanently discarded.",
+      trees.length === 1
+        ? "The last scan found nothing uncommitted in it. It is deleted whatever it holds now, so any file added since goes too."
+        : "The last scan found nothing uncommitted in them. They are deleted whatever they hold now, so any file added since goes too.",
     );
   notes.push(
     registrationsOnly
@@ -168,14 +174,17 @@ function removalConfirmationOptions(trees, discardLocal) {
   // Some systems show only the message, so it is the message that says this
   // is not an ordinary delete.
   const count = (n) => (n === 2 ? "both" : `all ${n}`);
+  // One worktree deleted only by being told to, with nothing in it to
+  // lose, is asked about by what makes it so.
+  const lone = trees.length === 1 && !unclean.length && discardsFiles,
+    overriding = lone && trees[0].locked,
+    kind = overriding ? "locked " : lone && trees[0].detached ? "detached " : "";
   return {
     title: unclean.length
       ? "Not a clean delete"
       : registrationsOnly
         ? `Remove missing worktree registration${plural}?`
-        : discardsFiles
-          ? "Discard local files and delete?"
-          : `Delete worktree${plural}?`,
+        : `Delete ${kind}worktree${plural}?`,
     message: unclean.length
       ? trees.length === 1
         ? `“${name}” is not clean. Discard its work and delete it?`
@@ -183,8 +192,8 @@ function removalConfirmationOptions(trees, discardLocal) {
       : trees.length === 1
         ? registrationsOnly
           ? `Remove registration for “${name}”?`
-          : `Delete “${name}”${discardsFiles ? " and discard its local files" : ""}?`
-        : `${registrationsOnly ? "Remove" : "Delete"} ${trees.length} ${registrationsOnly ? "missing worktree registrations" : "worktrees"}${hosts.size > 1 ? ` on ${hosts.size} hosts` : ""}${discardsFiles ? " and discard their local files" : ""}?`,
+          : `Delete “${name}”${overriding ? " and override its lock" : ""}?`
+        : `${registrationsOnly ? "Remove" : "Delete"} ${trees.length} ${registrationsOnly ? "missing worktree registrations" : "worktrees"}${hosts.size > 1 ? ` on ${hosts.size} hosts` : ""}?`,
     detail: `${notes.join("\n")}\n\n${preview.join("\n")}`,
     buttons: [
       "Cancel",
@@ -192,8 +201,8 @@ function removalConfirmationOptions(trees, discardLocal) {
         ? "Discard & Delete"
         : registrationsOnly
           ? `Remove Registration${plural}`
-          : discardsFiles
-            ? "Discard & Delete"
+          : overriding
+            ? "Override Lock & Delete"
             : `Delete Worktree${plural}`,
     ],
   };

@@ -55,22 +55,21 @@ test("bulk mixed-host consent names hosts beyond the bounded path preview", () =
   );
 });
 
-test("confirmation follows force disposal even when detached and locked snapshots were clean", () => {
+test("a clean worktree deleted only by being told to is asked about by what makes it so, and still says it is forced", () => {
   const cleanDetached = removalConfirmationOptions(
     [{ ...row, branch: "", detached: true, canRemove: false }],
     true,
   );
-  assert.equal(
-    cleanDetached.message,
-    "Delete “topic” and discard its local files?",
-  );
-  assert.equal(cleanDetached.title, "Discard local files and delete?");
-  assert.equal(cleanDetached.buttons[1], "Discard & Delete");
+  // Nothing was seen in it to lose, so it is not called discarding work.
+  assert.equal(cleanDetached.message, "Delete “topic”?");
+  assert.equal(cleanDetached.title, "Delete detached worktree?");
+  assert.equal(cleanDetached.buttons[1], "Delete Worktree");
   assert.match(cleanDetached.detail, /recovery branches/);
   assert.match(cleanDetached.detail, /only if needed/);
+  // It is deleted whatever it holds by now, all the same, and says so.
   assert.match(
     cleanDetached.detail,
-    /Any local files.*will be permanently discarded/,
+    /^The last scan found nothing uncommitted in it\. It is deleted whatever it holds now, so any file added since goes too\./,
   );
   const cleanProtected = removalConfirmationOptions(
     [{ ...row, branch: "develop" }],
@@ -81,8 +80,23 @@ test("confirmation follows force disposal even when detached and locked snapshot
     [{ ...row, locked: true, canRemove: false }],
     true,
   );
+  assert.equal(locked.title, "Delete locked worktree?");
+  assert.equal(locked.message, "Delete “topic” and override its lock?");
+  assert.equal(locked.buttons[1], "Override Lock & Delete");
   assert.match(locked.detail, /locks.*overridden/);
-  assert.match(locked.detail, /Any local files.*will be permanently discarded/);
+  assert.match(locked.detail, /deleted whatever it holds now/);
+  // Several of them at once are worktrees to delete, no more alarming.
+  const both = removalConfirmationOptions(
+    [
+      { ...row, locked: true, canRemove: false },
+      { ...row, id: "b", path: "/work/b", branch: "", detached: true, canRemove: false },
+    ],
+    true,
+  );
+  assert.equal(both.title, "Delete worktrees?");
+  assert.equal(both.message, "Delete 2 worktrees?");
+  assert.equal(both.buttons[1], "Delete Worktrees");
+  assert.match(both.detail, /They are deleted whatever they hold now/);
 });
 
 test("force confirmation covers whatever is in the folder, independent of cached contents", () => {
@@ -91,8 +105,8 @@ test("force confirmation covers whatever is in the folder, independent of cached
     [{ ...row, canRemove: false, locked: true, losses: [] }],
     true,
   );
-  assert.equal(forced.title, "Discard local files and delete?");
-  assert.match(forced.detail, /uncommitted, untracked, and ignored files/);
+  assert.equal(forced.title, "Delete locked worktree?");
+  assert.match(forced.detail, /deleted whatever it holds now, so any file added since goes too/);
   // A row it saw as holding something names that, and still covers the rest.
   for (const loss of ["changes", "ignored"]) {
     const seen = removalConfirmationOptions(

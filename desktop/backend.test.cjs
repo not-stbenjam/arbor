@@ -66,10 +66,15 @@ test("cached manual cleanup binds consent and missing/empty expectations without
       selection(backend, { recommendedOnly: false, discardLocal: true }),
       (rows, { discardLocal }) => {
         const dialog = removalConfirmationOptions(rows, discardLocal);
+        // Forced, with nothing seen in it to lose: it says it is deleted
+        // whatever it holds, and is not called discarding work.
         if (kind === "locked" || kind === "detached") {
-          assert.match(dialog.detail, /Any local files.*permanently discarded/);
-          assert.equal(dialog.buttons[1], "Discard & Delete");
-        } else assert.doesNotMatch(dialog.detail, /permanently discarded/);
+          assert.match(dialog.detail, /deleted whatever it holds now/);
+          assert.equal(
+            dialog.buttons[1],
+            kind === "locked" ? "Override Lock & Delete" : "Delete Worktree",
+          );
+        } else assert.doesNotMatch(dialog.detail, /whatever it holds now/);
         return true;
       },
     );
