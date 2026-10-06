@@ -131,7 +131,7 @@ scenario({
     await t.step("empty filters clear together with a search and announce once", async () => {
       await t.fill("#search", "no-such-worktree");
       assert.equal(await t.text("#empty-state h2"), "No worktrees match these filters");
-      assert.match(await t.text("#empty-state p"), /State: Merged.*Last used: not for a month.*Search:/);
+      assert.match(await t.text("#empty-state p"), /State: Merged.*Last active: not for a month.*Search:/);
       assert.equal(await t.count("#empty-state button"), 1);
       await t.click("[data-clear-filters]");
       assert.equal(await t.value("#search"), "");

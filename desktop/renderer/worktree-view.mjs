@@ -198,7 +198,7 @@ export function createWorktreeView({
       const select = $(`#${id}`);
       select.value = value;
       select.classList.toggle("active", !!value);
-      select.title = `${id === "state-filter" ? "State" : "Last used"}: ${select.selectedOptions?.[0]?.textContent || value}`;
+      select.title = `${id === "state-filter" ? "State" : "Last active"}: ${select.selectedOptions?.[0]?.textContent || value}`;
     }
   }
   function renderRows() {
@@ -470,7 +470,7 @@ export function createWorktreeView({
         [
           stateFilter ? `State: ${esc(stateFilter)}.` : "",
           ageDays
-            ? `Last used: not for ${{ 7: "a week", 30: "a month", 90: "3 months", 365: "a year" }[ageDays]}. Worktrees with unknown activity are left out.`
+            ? `Last active: not for ${{ 7: "a week", 30: "a month", 90: "3 months", 365: "a year" }[ageDays]}. Worktrees with unknown activity are left out.`
             : "",
           search.trim() ? `Search: “${esc(search.trim())}”.` : "",
           "Try different filters, or clear them to see more worktrees.",
