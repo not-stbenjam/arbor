@@ -1,5 +1,5 @@
 class Arbor < Formula
-  desc "Manage Git worktrees"
+  desc "Find and delete linked Git worktrees you no longer need"
   homepage "https://github.com/stbenjam/arbor"
   license "MIT"
 

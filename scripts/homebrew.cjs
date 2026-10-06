@@ -49,7 +49,7 @@ ${architectures.join("\n\n")}
   });
   // Homebrew infers the formula version from the URLs; audit rejects a duplicate.
   const formula = `class Arbor < Formula
-  desc "Manage Git worktrees"
+  desc "Find and delete linked Git worktrees you no longer need"
   homepage "${base}"
   license "MIT"
 
@@ -78,7 +78,7 @@ end
 
   url "${base}/releases/download/v#{version}/arbor_v#{version}_darwin_#{arch}.app.zip"
   name "Arbor"
-  desc "Manage Git worktrees"
+  desc "Find and delete linked Git worktrees you no longer need"
   homepage "${base}"
 
   livecheck do

@@ -7,7 +7,7 @@ cask "arbor" do
 
   url "https://github.com/stbenjam/arbor/releases/download/v#{version}/arbor_v#{version}_darwin_#{arch}.app.zip"
   name "Arbor"
-  desc "Manage Git worktrees"
+  desc "Find and delete linked Git worktrees you no longer need"
   homepage "https://github.com/stbenjam/arbor"
 
   livecheck do
