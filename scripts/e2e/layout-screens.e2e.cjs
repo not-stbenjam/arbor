@@ -25,7 +25,7 @@ scenario({
           await t.zoom(zoom);
           await t.step(`${theme} ${width}x${height} at ${zoom*100}%`, async () => {
             assert.deepEqual(await layout(t), [], "list geometry");
-            for (const [b,d] of [["#cleanup-button","#cleanup-dialog"],["#settings-button","#settings-dialog"],["#statistics-button","#statistics-dialog"],["#machine-button","#machine-dialog"]]) {
+            for (const [b,d] of [["#cleanup-button","#cleanup-dialog"],["#settings-button","#settings-dialog"],["#statistics-button","#statistics-dialog"],["#add-host","#machine-dialog"]]) {
               await open(t,b,d);
               assert.deepEqual(await layout(t,d), [], d);
               await close(t,b,d);

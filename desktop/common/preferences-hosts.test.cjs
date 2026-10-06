@@ -32,6 +32,7 @@ async function fixture() {
           this.open = false;
         },
         focus() {},
+        setAttribute() {},
         reset() {},
         querySelector: () => null,
       });
@@ -110,7 +111,8 @@ test("host picker distinguishes All/null, local/empty and SSH aliases without st
     "background scanning must not lock navigation",
   );
   assert.equal(f.element("#machine-label").textContent, "All hosts");
-  assert.equal(f.element("#root-label").textContent, "Folders on all hosts");
+  assert.equal(f.element("#root-label").textContent, "");
+  assert.equal(f.element("#path-location").hidden, true);
   assert.equal(f.element("#machine-icon").dataset.kind, "server");
   f.controller.openMachines();
   const markup = f.element("#machine-list").innerHTML;
@@ -242,10 +244,10 @@ test("All-host settings edit a specific machine independently and gate only its 
   );
 });
 
-test("All-host path control opens settings; adding a host saves before selecting without scanning", async () => {
+test("All-host path control is hidden; adding a host saves before selecting without scanning", async () => {
   const f = await fixture();
   await f.element("#path-button").onclick();
-  assert.equal(f.element("#settings-dialog").open, true);
+  assert.equal(f.element("#settings-dialog").open, false);
   assert.deepEqual(
     f.calls,
     [],

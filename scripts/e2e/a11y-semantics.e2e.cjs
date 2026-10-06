@@ -52,7 +52,7 @@ scenario({
         await tabTo(t, "[data-toggle-directory]"); await t.press("Left");
         assert.equal(await t.attribute(":focus", "aria-expanded"), "false");
         await t.press("Right"); assert.equal(await t.attribute(":focus", "aria-expanded"), "true");
-        for (const [b,d] of [["#settings-button","#settings-dialog"],["#machine-button","#machine-dialog"],["#statistics-button","#statistics-dialog"],["#cleanup-button","#cleanup-dialog"]]) {
+        for (const [b,d] of [["#settings-button","#settings-dialog"],["#add-host","#machine-dialog"],["#statistics-button","#statistics-dialog"],["#cleanup-button","#cleanup-dialog"]]) {
           await open(t,b,d,true); await accessible(t); await close(t,b,d);
         }
         const readings = await contrast(t);

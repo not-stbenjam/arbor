@@ -14,7 +14,7 @@ scenario({
     await t.settled();
     for(const theme of ['light','dark']) {
       if(theme==='dark') await t.click('#theme-button');
-      for(const [b,d] of [['#settings-button','#settings-dialog'],['#statistics-button','#statistics-dialog'],['#machine-button','#machine-dialog'],['#cleanup-button','#cleanup-dialog'],['#warning-button','#notes-dialog']]) {
+      for(const [b,d] of [['#settings-button','#settings-dialog'],['#statistics-button','#statistics-dialog'],['#add-host','#machine-dialog'],['#cleanup-button','#cleanup-dialog'],['#warning-button','#notes-dialog']]) {
         await open(t,b,d,true);
         if(d==='#statistics-dialog') {
           await t.until(()=>t.count('.statistics-plot'),'charts');

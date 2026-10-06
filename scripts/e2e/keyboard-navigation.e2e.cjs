@@ -57,7 +57,7 @@ scenario({
       await tabTo(t, "#sort-direction"); await t.press("Enter"); await focus(t, "#sort-direction");
       await tabTo(t, '[data-view="recommended"]'); await t.press("Enter");
       await focus(t, '[data-view="recommended"]');
-      for (const [button, dialog] of [["#settings-button","#settings-dialog"],["#statistics-button","#statistics-dialog"],["#machine-button","#machine-dialog"],["#cleanup-button","#cleanup-dialog"]]) {
+      for (const [button, dialog] of [["#settings-button","#settings-dialog"],["#statistics-button","#statistics-dialog"],["#add-host","#machine-dialog"],["#cleanup-button","#cleanup-dialog"]]) {
         await open(t, button, dialog, true); await close(t, button, dialog);
       }
     });

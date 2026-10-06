@@ -28,7 +28,8 @@ scenario({
     await t.press("Escape");
     await t.click("#path-button");
     assert.equal(t.choosers.length, 1, "the local path opens the folder picker");
-    await t.click("#machine-button");
+    assert.equal(await t.enabled("#machine-button"), false);
+    await t.click("#add-host");
     assert.equal(await t.count("[data-all-hosts]"), 0);
     assert.equal(await t.attribute('.machine-option[data-host=""]', "aria-current"), "true");
     await t.fill("#host-input", "build");
@@ -38,9 +39,10 @@ scenario({
     await t.click("#machine-button");
     await t.click("[data-all-hosts]");
     await t.until(() => t.text("#machine-label").then((label) => label === "All hosts"), "all hosts view");
-    assert.equal(await t.text("#root-label"), "Folders on all hosts");
+    assert.equal(await t.visible("#path-location"), false);
     assert.equal(await t.count(".host-row"), 2);
     await t.click("#machine-button");
+    await t.click("#host-menu [data-manage]");
     await t.click('[data-forget-host="build"]');
     await t.press("Escape");
     await t.until(() => t.text("#machine-label").then((label) => label === "This computer"), "local wording after forgetting the last host");

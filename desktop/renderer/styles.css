@@ -2461,3 +2461,34 @@ th.sorted > button > .icon {
 @media (prefers-reduced-motion: reduce) {
   #files-progress:indeterminate { animation: none; }
 }
+
+/* The host picker lives in the top layer, clear of the scrolling sidebar. */
+#host-menu {
+  margin: 0;
+  padding: 4px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 6px 20px #0003;
+}
+#host-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+#host-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#host-menu [aria-checked="true"] { color: var(--accent); background: var(--selected); }
+#host-menu [data-manage] { margin-top: 4px; border-top: 1px solid var(--line); }
+
+
+.machine-row .host-name { width: 130px; min-width: 0; font-size: 12px; }

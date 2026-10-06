@@ -43,6 +43,7 @@ scenario({
       await t.settled();
       assert.equal(await t.text("#machine-label"), "Build");
       await t.click("#machine-button");
+      await t.click("#host-menu [data-manage]");
       await t.click('[data-forget-host="build"]');
       await t.until(() => JSON.parse(t.fixture.read("user-data/preferences.json")).hosts.length === 0, "forgotten host");
     },

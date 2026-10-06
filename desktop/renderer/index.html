@@ -26,12 +26,13 @@
         <div class="machine-area">
           <!-- Disabled until the first state arrives: a control that looks
                ready and ignores its click is worse than one that waits. -->
-          <button id="machine-button" class="machine-button" disabled>
+          <button id="machine-button" class="machine-button" aria-haspopup="menu" aria-controls="host-menu" aria-expanded="false" disabled>
             <span id="machine-icon" aria-hidden="true"
               ><span data-icon="monitor"></span></span
             ><span id="machine-label">This computer</span
             ><span data-icon="chevrons"></span>
           </button>
+          <div id="host-menu" popover="auto" role="menu" aria-label="Hosts"></div>
         </div>
         <nav class="views" aria-label="Worktree views">
           <button data-view="all" class="nav-item active">
@@ -97,7 +98,7 @@
           </div>
         </header>
         <div class="pathbar">
-          <div class="path-location">
+          <div class="path-location" id="path-location">
             <span data-icon="folder"></span
             ><button id="path-button" title="Change scan folder…" disabled>
               <span id="root-label">Home folder</span
