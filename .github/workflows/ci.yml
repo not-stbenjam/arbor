@@ -160,3 +160,77 @@ jobs:
             dist/arbor_*.desktop.tar.gz
           if-no-files-found: error
           retention-days: 14
+
+  homebrew:
+    name: Homebrew (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - run: npm run test:scripts
+      - name: Generate a temporary tap from the latest release
+        run: |
+          set -euo pipefail
+          tag=$(curl --fail --silent --show-error --location \
+            https://api.github.com/repos/stbenjam/arbor/releases/latest | jq -er .tag_name)
+          echo "ARBOR_RELEASE=$tag" >> "$GITHUB_ENV"
+          curl --fail --silent --show-error --location \
+            "https://github.com/stbenjam/arbor/releases/download/$tag/arbor_${tag}_checksums.txt" \
+            --output "$RUNNER_TEMP/arbor-checksums.txt"
+          tap="$(brew --repository)/Library/Taps/arbor/homebrew-check"
+          mkdir -p "$tap"
+          git -C "$tap" init -b main
+          node scripts/homebrew.cjs "$tag" "$RUNNER_TEMP/arbor-checksums.txt" "$tap"
+          git -C "$tap" add Formula Casks
+          git -C "$tap" -c user.name='Arbor CI' -c user.email='ci@example.invalid' \
+            commit -m 'Generate recipes for validation'
+      - name: Check Homebrew style and audit
+        run: |
+          brew style arbor/check
+          brew audit --strict --tap=arbor/check
+      - name: Install and test the CLI
+        run: |
+          set -euo pipefail
+          brew install --formula arbor/check/arbor
+          brew test arbor/check/arbor
+          arbor version | tee "$RUNNER_TEMP/arbor-version.txt"
+          grep -Fx "arbor $ARBOR_RELEASE" "$RUNNER_TEMP/arbor-version.txt"
+          prefix=$(brew --prefix arbor/check/arbor)
+          test -s "$prefix/etc/bash_completion.d/arbor"
+          test -s "$prefix/share/zsh/site-functions/_arbor"
+          test -s "$prefix/share/fish/vendor_completions.d/arbor.fish"
+      - name: Install and check the macOS app without opening it
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install --cask arbor/check/arbor
+          test -d /Applications/Arbor.app
+          /Applications/Arbor.app/Contents/Resources/bin/arbor-cli version \
+            | tee "$RUNNER_TEMP/arbor-app-version.txt"
+          cmp "$RUNNER_TEMP/arbor-version.txt" "$RUNNER_TEMP/arbor-app-version.txt"
+      - name: Remove installations and the temporary tap
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == macOS ]] && brew list --cask arbor/check/arbor >/dev/null 2>&1; then
+            brew uninstall --cask arbor/check/arbor
+          fi
+          if brew list --formula arbor/check/arbor >/dev/null 2>&1; then
+            brew uninstall --formula arbor/check/arbor
+          fi
+          if [[ -d "$(brew --repository)/Library/Taps/arbor/homebrew-check" ]]; then
+            brew untap arbor/check
+          fi
