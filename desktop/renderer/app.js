@@ -1,3 +1,5 @@
+import { installDialogDismiss } from "./dialog-dismiss.mjs";
+import { createSidebarController } from "./sidebar-controller.mjs";
 import { createFilesController } from "./files-controller.mjs";
 import * as tree from "../common/worktree-tree.mjs";
 import { icon, esc, shown, initializeDOM, viewHost } from "./presentation.mjs";
@@ -18,6 +20,7 @@ document.body.classList.toggle(
   window.arbor?.platform === "darwin",
 );
 initializeDOM();
+installDialogDismiss(document);
 function notify(message, error = false, action) {
   const el = document.createElement("div");
   el.className = `toast${error ? " error" : ""}`;
@@ -63,6 +66,7 @@ async function bootstrap() {
   const provided = await api.getDefaults();
   const defaults = { ...provided, excludes: [...provided.excludes] };
   let workspace, setup, trees, chrome, cleanup, statistics, restore;
+  const sidebar = createSidebarController({ document, api, notify });
   const preferences = createPreferencesController({
     document,
     api,
@@ -102,6 +106,7 @@ async function bootstrap() {
       trees.reset(true);
       setup.reset();
       preferences.reset(result.preferences, result.state);
+      sidebar.restore(result.preferences);
       statistics.invalidate();
       $("#toast-region").replaceChildren();
     },
@@ -213,6 +218,7 @@ async function bootstrap() {
     ["Delete or Backspace", "Delete what is ticked, or the row the keyboard is on. It asks first"],
     ["← →", "Close or open the folder the keyboard is on"],
     [`/ or ${mod}F`, "Filter the list. ↓ goes to the first result"],
+    [`${mod}B`, "Show or hide the sidebar"],
     [`${mod}R`, "Refresh"],
     [`${mod},`, "Settings"],
   ];
@@ -247,6 +253,7 @@ async function bootstrap() {
   let menuState = "";
   function syncMenu() {
     const commands = {
+      "toggle-sidebar": usable("#sidebar-toggle"),
       refresh: usable("#refresh-button"),
       "add-host": usable("#add-host"),
       statistics: usable("#statistics-button"),
@@ -286,6 +293,7 @@ async function bootstrap() {
       }
       return;
     }
+    if (action === "toggle-sidebar") sidebar.toggle();
     if (action === "shortcuts") showShortcuts();
     if (action === "refresh") workspace.refresh();
     if (action === "settings") preferences.openSettings();
@@ -315,6 +323,8 @@ async function bootstrap() {
   window.addEventListener(
     "pagehide",
     () => {
+      sidebar.dispose();
+      chrome.dispose();
       workspace.dispose();
       statistics.invalidate();
       unsubscribe();
@@ -324,7 +334,9 @@ async function bootstrap() {
   // Drawing the list draws the chrome around it.
   trees.render();
   await preferences.load();
-  trees.restoreSort(await api.getPreferences());
+  const savedView = await api.getPreferences();
+  trees.restoreSort(savedView);
+  sidebar.restore(savedView);
   await workspace.initialize();
 }
 bootstrap().catch((error) => {

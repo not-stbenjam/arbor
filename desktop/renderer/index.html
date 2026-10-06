@@ -26,15 +26,16 @@
         <div class="machine-area">
           <!-- Disabled until the first state arrives: a control that looks
                ready and ignores its click is worse than one that waits. -->
-          <button id="machine-button" class="machine-button" disabled>
+          <button id="machine-button" class="machine-button" aria-haspopup="menu" aria-controls="host-menu" aria-expanded="false" disabled>
             <span id="machine-icon" aria-hidden="true"
               ><span data-icon="monitor"></span></span
             ><span id="machine-label">This computer</span
             ><span data-icon="chevrons"></span>
           </button>
+          <div id="host-menu" popover="auto" role="menu" aria-label="Hosts"></div>
         </div>
         <nav class="views" aria-label="Worktree views">
-          <button data-view="all" class="nav-item active">
+          <button data-view="all" class="nav-item active" title="All worktrees">
             <span data-icon="trees"></span><span>All worktrees</span
             ><span id="all-count" class="count">0</span></button
           ><button
@@ -55,7 +56,7 @@
             <span data-icon="plus"></span><span>Add SSH host</span></button
           ><button class="nav-item" id="statistics-button">
             <span data-icon="chart"></span><span>Statistics</span></button
-          ><button class="nav-item" id="recently-deleted-button">
+          ><button class="nav-item" id="recently-deleted-button" title="Recently deleted">
             <span data-icon="undo"></span><span>Recently deleted</span></button
           ><button class="nav-item" id="settings-button">
             <span data-icon="settings"></span><span>Settings</span
@@ -74,9 +75,11 @@
           </div>
         </div>
       </aside>
+      <div id="sidebar-resizer" role="separator" tabindex="0" aria-label="Sidebar width" aria-orientation="vertical" aria-controls="workspace-sidebar" title="Drag to resize; double-click to reset"></div>
       <main>
         <header class="toolbar">
           <div class="view-title">
+            <button id="sidebar-toggle" class="icon-button" aria-controls="workspace-sidebar" aria-expanded="true" aria-label="Hide sidebar"><span data-icon="panel-left-close"></span></button>
             <h1 id="view-title">All worktrees</h1>
             <span id="visible-count" class="count">0</span>
           </div>
@@ -97,7 +100,7 @@
           </div>
         </header>
         <div class="pathbar">
-          <div class="path-location">
+          <div class="path-location" id="path-location">
             <span data-icon="folder"></span
             ><button id="path-button" title="Change scan folder…" disabled>
               <span id="root-label">Home folder</span
@@ -166,7 +169,7 @@
           ><button
             id="stale-dismiss"
             class="icon-button"
-            aria-label="Keep showing the saved list"
+            aria-label="Dismiss refresh notice"
           >
             <span data-icon="close"></span>
           </button>

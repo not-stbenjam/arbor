@@ -152,7 +152,7 @@ setTimeout(()=>process.stdout.write(JSON.stringify({root,worktrees,warnings:[],s
         );
         await js("document.querySelector('#machine-button').click()");
         await until(
-          () => js("document.querySelector('#machine-dialog').open"),
+          () => js("document.querySelector('#host-menu').matches(':popover-open')"),
           "machine picker",
         );
         await js(

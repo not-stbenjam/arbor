@@ -5,11 +5,11 @@ scenario({ name: "theme and cached restart", timeout: 20,
   setup(f) { const tree = f.repository("projects/repo").worktree("cached").path; f.preferences(); return { tree }; },
   launches: [async (t) => {
     await t.settled();
-    for (const theme of ["dark", "system", "light"]) {
+    for (const theme of ["dark", "light"]) {
       await t.click("#theme-button");
       assert.equal(await t.attribute("html", "data-theme"), theme);
       await t.until(() => saved(t).theme === theme, "appearance saved");
-      assert.match(await t.attribute("#theme-button", "title"), new RegExp(theme));
+      assert.match(await t.attribute("#theme-button", "title"), new RegExp(theme === "dark" ? "light" : "dark"));
       if (theme !== "system")
         assert.equal(await t.js("getComputedStyle(document.body).backgroundColor"),
           theme === "dark" ? "rgb(32, 33, 36)" : "rgb(255, 255, 255)");

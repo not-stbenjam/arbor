@@ -240,3 +240,13 @@ test("deletion progress carries a file and coherent counts, and drops what is ma
   ])
     assert.deepEqual(progressEvent({ ...base, ...bad }), base, JSON.stringify(bad).slice(0, 60));
 });
+
+test('sidebar preferences validate finite widths and explicit hidden state', () => {
+  for (const value of [undefined, null, '250', Infinity, NaN])
+    assert.equal(validatePreferences({ sidebarWidth: value }).sidebarWidth, null);
+  assert.equal(validatePreferences({ sidebarWidth: 12 }).sidebarWidth, 160);
+  assert.equal(validatePreferences({ sidebarWidth: 900 }).sidebarWidth, 320);
+  assert.equal(validatePreferences({ sidebarWidth: 240.6 }).sidebarWidth, 241);
+  assert.equal(validatePreferences({ sidebarHidden: true }).sidebarHidden, true);
+  assert.equal(validatePreferences({ sidebarHidden: 'true' }).sidebarHidden, false);
+});

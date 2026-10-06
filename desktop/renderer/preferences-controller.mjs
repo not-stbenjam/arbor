@@ -1,3 +1,4 @@
+import { createHostMenu } from "./host-menu.mjs";
 import { icon, esc, viewHost } from "./presentation.mjs";
 import {
   isValidSSHHost,
@@ -77,13 +78,18 @@ export function createPreferencesController({
       safeIgnored: [...(value.safeIgnored ?? defaults.safeIgnored ?? [])],
     };
   };
+  const systemTheme = document.defaultView?.matchMedia("(prefers-color-scheme: dark)");
+  const nextTheme = () => (prefs.theme === "dark" ||
+    (prefs.theme === "system" && systemTheme?.matches)) ? "light" : "dark";
+  systemTheme?.addEventListener("change", () => applyTheme());
   function applyTheme() {
     document.documentElement.dataset.theme = prefs.theme;
     $("#theme-select").value = prefs.theme;
     $("#theme-button").innerHTML = icon(
-      prefs.theme === "dark" ? "moon" : "sun",
+      nextTheme() === "dark" ? "moon" : "sun",
     );
-    $("#theme-button").title = `Appearance: ${prefs.theme}. Click to change.`;
+    $("#theme-button").title = `Switch to ${nextTheme()} mode`;
+    $("#theme-button").ariaLabel = $("#theme-button").title;
   }
   function setTheme(theme) {
     prefs.theme = theme;
@@ -121,24 +127,25 @@ export function createPreferencesController({
     const root = context.root || (selected === "" ? local?.report?.root || local?.root : "");
     const path =
       selected === null
-        ? "Folders on all hosts"
+        ? ""
         : `${selected ? `${selected}:` : ""}${root || "Home folder"}`;
     $("#machine-label").textContent = machine;
     $("#machine-label").title = machine;
     const kind = selected === "" ? "monitor" : "server";
     $("#machine-icon").innerHTML = icon(kind);
     $("#machine-icon").dataset.kind = kind;
+    $("#path-location").hidden = selected === null;
     $("#root-label").textContent = path;
     $("#root-label").dataset.kind = selected === null ? "scope" : "path";
     // The local folder opens a picker; a remote one is edited in Settings.
     // All hosts is a scope with no single folder behind it.
     $("#path-button").title =
       selected === null
-        ? "Each host has its own scan folder. Open Settings…"
+        ? ""
         : selected === ""
           ? `Scanning ${path}. Choose another folder…`
           : `Scanning ${path}. Change in Settings…`;
-    $("#machine-button").disabled = context.blocked;
+    $("#machine-button").disabled = context.blocked || machines().length < 2;
     $("#path-button").disabled = context.blocked;
     const editingState = context.hosts.find(
       (source) => source.host === editingHost,
@@ -267,7 +274,7 @@ export function createPreferencesController({
     ]
       .map((h) => {
         const current = h.host === hostFilter();
-        return `<div class="machine-row"><button class="machine-option${current ? " active" : ""}" ${h.host === null ? "data-all-hosts" : `data-host="${esc(h.host)}"`}${current ? ' aria-current="true"' : ""}>${icon(h.host !== "" ? "server" : "monitor")}<span>${esc(h.name || h.host)}</span>${failed.has(h.host) ? `<span class="machine-status" title="Its last scan failed. Select it to see why.">Unavailable</span>` : ""}${current ? icon("check") : ""}</button>${h.host && !h.sessionOnly ? `<button class="icon-button" data-forget-host="${esc(h.host)}" title="Forget this host. Its worktrees are not touched." aria-label="Forget ${esc(h.host)}; its worktrees are not touched">${icon("minus")}</button>` : ""}</div>`;
+        return `<div class="machine-row"><button class="machine-option${current ? " active" : ""}" ${h.host === null ? "data-all-hosts" : `data-host="${esc(h.host)}"`}${current ? ' aria-current="true"' : ""}>${icon(h.host !== "" ? "server" : "monitor")}<span>${esc(h.name || h.host)}</span>${failed.has(h.host) ? `<span class="machine-status" title="Its last scan failed. Select it to see why.">Unavailable</span>` : ""}${current ? icon("check") : ""}</button>${h.host && !h.sessionOnly ? `<input class="host-name text-input" data-host-name="${esc(h.host)}" value="${esc(h.name || h.host)}" maxlength="${MAX_HOST_LABEL_LENGTH}" aria-label="Name for ${esc(h.host)}" title="Host name"><button class="icon-button" data-forget-host="${esc(h.host)}" title="Forget this host. Its worktrees are not touched." aria-label="Forget ${esc(h.host)}; its worktrees are not touched">${icon("minus")}</button>` : ""}</div>`;
       })
       .join("");
     fieldError("#host-error");
@@ -303,7 +310,16 @@ export function createPreferencesController({
     editHost(next);
   };
   $("#scan-options-button").onclick = openSettings;
-  $("#machine-button").onclick = openMachines;
+  createHostMenu({
+    document,
+    choices: () => [
+      ...(machines().length > 1 ? [{ host: null, name: "All hosts" }] : []),
+      ...machines(),
+    ],
+    selected: hostFilter,
+    choose: switchHost,
+    manage: openMachines,
+  });
   $("#add-host").onclick = () => {
     openMachines();
     $("#host-input").focus();
@@ -334,10 +350,7 @@ export function createPreferencesController({
     if (!$("#reset-preferences").disabled) onReset();
   };
   $("#theme-button").onclick = () => {
-    setTheme(
-      { system: "light", light: "dark", dark: "system" }[prefs.theme] ||
-        "system",
-    );
+    setTheme(nextTheme());
     save();
   };
   $("#choose-folder").onclick = async () => {
@@ -350,6 +363,7 @@ export function createPreferencesController({
     }
   };
   $("#path-button").onclick = async () => {
+    if (hostFilter() === null) return;
     if (hostFilter() !== "") {
       openSettings();
       return;
@@ -465,6 +479,22 @@ export function createPreferencesController({
     $("#host-root").value = "~";
     return switchHost(host);
   };
+  $("#machine-list").addEventListener("change", async (event) => {
+    const host = event.target.dataset.hostName;
+    if (!host) return;
+    const entry = prefs.hosts.find((h) => h.host === host);
+    if (!entry) return;
+    const before = entry.name;
+    entry.name = event.target.value.trim().slice(0, MAX_HOST_LABEL_LENGTH) || host.slice(0, MAX_HOST_LABEL_LENGTH);
+    try {
+      await save(true);
+      renderStatus(context);
+      fieldError("#host-error");
+    } catch (error) {
+      entry.name = before;
+      fieldError("#host-error", `Could not rename host: ${error.message}`);
+    }
+  });
   $("#machine-list").addEventListener("click", async (event) => {
     const button = event.target.closest("button");
     if (!button || button.disabled) return;
@@ -482,7 +512,10 @@ export function createPreferencesController({
     if (event.target.closest("[data-open-settings]")) openSettings();
     // Offer the same thing the path bar does: a picker for this computer,
     // Settings for anywhere a picker cannot reach.
-    if (event.target.closest("[data-choose-folder]")) $("#path-button").onclick();
+    if (event.target.closest("[data-choose-folder]")) {
+      if (hostFilter() === null) openSettings();
+      else $("#path-button").onclick();
+    }
   });
   return {
     initialize,

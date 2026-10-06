@@ -50,6 +50,11 @@ scenario({
           await t.zoom(zoom);
           await t.step(`${theme} ${width}x${height} zoom ${zoom}`, async () => {
             assert.deepEqual(await layout(t), [], "filter bar geometry");
+            assert.equal(await t.js(`[...document.querySelectorAll('#tree-sort, #state-filter, #age-filter')].every(e => {
+              const s = getComputedStyle(e);
+              // Chromium rounds a border to device pixels at fractional zoom.
+              return s.borderStyle === 'solid' && parseFloat(s.borderWidth) > 0 && s.borderColor !== 'rgba(0, 0, 0, 0)';
+            })`), true, "each menu has a visible box in both themes and at every zoom");
             if (zoom <= 1.5) {
               const file = await t.screenshot(
                 `filters-${theme}-${width}-${zoom}`,

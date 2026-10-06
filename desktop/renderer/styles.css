@@ -274,10 +274,12 @@ body {
 }
 .views {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   flex-shrink: 0;
 }
 .nav-item {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1955,9 +1957,9 @@ details + .settings-group,
   font-size: 11px;
 }
 .tree-sort-label select {
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: transparent;
+  background: var(--surface);
   font-size: 11px;
   color: var(--secondary);
   padding: 4px;
@@ -1973,12 +1975,21 @@ details + .settings-group,
 .tree-filter-label select {
   min-width: 0;
   max-width: 155px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: transparent;
+  background: var(--surface);
   color: var(--secondary);
   font-size: 11px;
   padding: 4px;
+}
+.tree-sort-label select:hover,
+.tree-filter-label select:hover {
+  border-color: var(--secondary);
+}
+.tree-sort-label select:focus-visible,
+.tree-filter-label select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .tree-filter-label select.active {
   color: var(--accent);
@@ -2467,3 +2478,51 @@ th.sorted > button > .icon {
 @media (prefers-reduced-motion: reduce) {
   #files-progress:indeterminate { animation: none; }
 }
+
+/* The host picker lives in the top layer, clear of the scrolling sidebar. */
+#host-menu {
+  margin: 0;
+  padding: 4px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 6px 20px #0003;
+}
+#host-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+#host-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#host-menu [aria-checked="true"] { color: var(--accent); background: var(--selected); }
+#host-menu [data-manage] { margin-top: 4px; border-top: 1px solid var(--line); }
+
+.workspace { position: relative; }
+.workspace > main { grid-column: 2; }
+.sidebar[hidden], #sidebar-resizer[hidden] { display: none; }
+#sidebar-resizer {
+  position: absolute;
+  z-index: 4;
+  left: calc(var(--sidebar-width) - 3px);
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+#sidebar-resizer:hover, #sidebar-resizer:focus-visible { background: var(--accent); }
+#sidebar-resizer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.toolbar, .toolbar-actions { flex-wrap: wrap; }
+.toolbar-actions { margin-left: auto; }
+
+.machine-row .host-name { width: 130px; min-width: 0; font-size: 12px; }

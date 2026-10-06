@@ -15,9 +15,10 @@ async function select(t, selector, index) {
 }
 async function machine(t, host) {
   await t.click("#machine-button");
-  await open(t, "machine-dialog");
-  await t.click(host === null ? "[data-all-hosts]" : `#machine-list .machine-option[data-host=${JSON.stringify(host)}]`);
-  await closed(t, "machine-dialog");
+  await t.until(() => t.visible("#host-menu"), "host dropdown opens");
+  const names = await t.texts('#host-menu [role="menuitemradio"]');
+  const index = host === null ? 0 : host === "" ? 1 : names.findIndex(name => name.includes(host));
+  await t.click(`#host-menu [data-choice="${index}"]`);
   await t.until(async () => (await t.state()).hostFilter === host, "machine changes");
 }
 async function noScan(t) {

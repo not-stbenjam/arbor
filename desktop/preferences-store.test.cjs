@@ -216,3 +216,14 @@ test("view choices survive restart and stale settings without saving search or s
   assert.equal(saved.descending, false);
   assert.equal(saved.hostFilter, null);
 });
+
+test('sidebar view survives restart and stale appearance edits, and reset restores defaults', async (t) => {
+  const filename = fixture(t), store = await PreferencesStore.open(filename);
+  const stale = store.get();
+  await store.saveView({ sidebarWidth: 272, sidebarHidden: true });
+  await store.saveEditable({ ...stale, theme: 'dark' });
+  const saved = (await PreferencesStore.open(filename)).get();
+  assert.equal(saved.sidebarWidth, 272); assert.equal(saved.sidebarHidden, true);
+  await store.saveView({ sidebarWidth: null, sidebarHidden: false });
+  assert.equal(store.get().sidebarWidth, null); assert.equal(store.get().sidebarHidden, false);
+});

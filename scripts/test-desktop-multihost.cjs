@@ -129,14 +129,14 @@ const timer=setInterval(()=>{
         // settles. A real user cannot activate a still-disabled machine picker.
         await until(() => js("typeof document.querySelector('#machine-button').onclick === 'function' && !document.querySelector('#machine-button').disabled"), "enabled machine picker after prior operation");
         await js("document.querySelector('#machine-button').click()");
-        await until(() => js("document.querySelector('#machine-dialog').open"), "machine picker");
+        await until(() => js("document.querySelector('#host-menu').matches(':popover-open')"), "machine picker");
         const selector = host === null ? "[data-all-hosts]" : `.machine-option[data-host=${JSON.stringify(host)}]`;
         await js(`document.querySelector(${JSON.stringify(selector)}).click()`);
         await until(async () => (await state()).hostFilter === host, `filter ${host ?? "all"}`);
         // All hosts and every remote share the server icon. Wait for the exact
         // rendered scope, not only the earlier backend filter change.
         const label = host === null ? "All hosts" : host || "This computer";
-        await until(() => js(`!document.querySelector('#machine-dialog').open && document.querySelector('#machine-label').textContent === ${JSON.stringify(label)}`), `rendered scope ${label}`);
+        await until(() => js(`!document.querySelector('#host-menu').matches(':popover-open') && document.querySelector('#machine-label').textContent === ${JSON.stringify(label)}`), `rendered scope ${label}`);
         await until(() => js(`document.querySelector('#machine-icon')?.dataset.kind === ${JSON.stringify(host === "" ? "monitor" : "server")}`), "host icon matches selected scope");
       };
       try {
@@ -221,7 +221,7 @@ const timer=setInterval(()=>{
             renderer: await js(`(() => ({
               machine: document.querySelector('#machine-label').textContent,
               machineDisabled: document.querySelector('#machine-button').disabled,
-              machineDialogOpen: document.querySelector('#machine-dialog').open,
+              machineDialogOpen: document.querySelector('#host-menu').matches(':popover-open'),
               statisticsOpen: document.querySelector('#statistics-dialog').open,
               statisticsContent: document.querySelector('#statistics-content').textContent.slice(0, 1000)
             }))()`),

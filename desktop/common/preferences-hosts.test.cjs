@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-async function fixture() {
+async function fixture(dark = false) {
   const { createPreferencesController } = await import(
     "../renderer/preferences-controller.mjs"
   );
@@ -32,13 +32,14 @@ async function fixture() {
           this.open = false;
         },
         focus() {},
+        setAttribute() {},
         reset() {},
         querySelector: () => null,
       });
     return elements.get(selector);
   };
   const controller = createPreferencesController({
-    document: { querySelector: element, documentElement: { dataset: {} } },
+    document: { querySelector: element, documentElement: { dataset: {} }, defaultView: { matchMedia: () => ({ matches: dark, addEventListener() {} }) } },
     defaults: { excludes: ["default-cache"] },
     api: {
       async savePreferences(value) {
@@ -110,7 +111,8 @@ test("host picker distinguishes All/null, local/empty and SSH aliases without st
     "background scanning must not lock navigation",
   );
   assert.equal(f.element("#machine-label").textContent, "All hosts");
-  assert.equal(f.element("#root-label").textContent, "Folders on all hosts");
+  assert.equal(f.element("#root-label").textContent, "");
+  assert.equal(f.element("#path-location").hidden, true);
   assert.equal(f.element("#machine-icon").dataset.kind, "server");
   f.controller.openMachines();
   const markup = f.element("#machine-list").innerHTML;
@@ -243,10 +245,10 @@ test("All-host settings edit a specific machine independently and gate only its 
   );
 });
 
-test("All-host path control opens settings; adding a host saves before selecting without scanning", async () => {
+test("All-host path control is hidden; adding a host saves before selecting without scanning", async () => {
   const f = await fixture();
   await f.element("#path-button").onclick();
-  assert.equal(f.element("#settings-dialog").open, true);
+  assert.equal(f.element("#settings-dialog").open, false);
   assert.deepEqual(
     f.calls,
     [],
@@ -534,4 +536,26 @@ test("safe ignored settings persist edits per host and reset to defaults", async
  assert.deepEqual(f.calls.find(([name])=>name==="scan")[1].safeIgnored,["custom-cache","*.generated"]);
  f.element("#scan-reset-safe-ignored").onclick();
  assert.equal(f.element("#scan-safe-ignored").value,"");
+});
+
+test('the appearance button offers and saves the opposite light/dark theme', async () => {
+  const f = await fixture();
+  for (const [from, to] of [['system', 'dark'], ['light', 'dark'], ['dark', 'light']]) {
+    f.controller.setTheme(from);
+    assert.equal(f.element('#theme-button').title, `Switch to ${to} mode`);
+    f.element('#theme-button').onclick();
+    assert.equal(f.controller.theme, to);
+    assert.equal(f.calls.at(-1)[1].theme, to);
+  }
+});
+
+
+test('System on a dark desktop offers light, and host names save without scanning', async () => {
+  const f = await fixture(true);
+  assert.equal(f.element('#theme-button').title, 'Switch to light mode');
+  f.element('#theme-button').onclick();
+  assert.equal(f.controller.theme, 'light');
+  await f.element('#machine-list').listeners.change({ target: { dataset: { hostName: 'vps' }, value: 'Builder' } });
+  assert.equal(f.calls.at(-1)[1].hosts[0].name, 'Builder');
+  assert.ok(f.calls.every(([name]) => name === 'save'));
 });
