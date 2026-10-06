@@ -526,7 +526,7 @@ func TestStatusNamesWhatForceIsNeededFor(t *testing.T) {
 		want  string
 		entry worktree.Worktree
 	}{
-		{"clean", worktree.Worktree{CanRemove: true, CanDiscard: true}},
+		{"not merged", worktree.Worktree{CanRemove: true, CanDiscard: true}},
 		{"merged", worktree.Worktree{CanRemove: true, CanDiscard: true, Recommended: true}},
 		{"ignored files", worktree.Worktree{CanDiscard: true, Ignored: true, Losses: []string{"ignored"}, Blockers: []string{"Ignored files on disk (may include local secrets or build output)"}}},
 		{"unchecked files", worktree.Worktree{CanDiscard: true, Losses: []string{"unchecked"}, Blockers: []string{"Unchecked files: Git was told not to look at some files"}}},

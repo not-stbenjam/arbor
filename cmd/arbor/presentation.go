@@ -13,6 +13,7 @@ import (
 )
 
 func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
+	total := len(report.Worktrees)
 	if r.recommended || !r.notActiveSince.IsZero() {
 		filtered := []worktree.Worktree{}
 		for _, w := range report.Worktrees {
@@ -34,7 +35,10 @@ func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
 		_, err := fmt.Fprintf(out, "No %sworktrees found under %s.\n", qualifier, printable(report.Root))
 		return err
 	}
-	return printTable(out, report.Root, report.Worktrees)
+	if err := printTable(out, report.Root, report.Worktrees); err != nil {
+		return err
+	}
+	return writeListSummary(out, r, report, total)
 }
 
 func writePreview(out io.Writer, r worktreeRequest, report worktree.Report, selection targetSelection) error {
@@ -226,6 +230,9 @@ func status(entry worktree.Worktree) string {
 	case entry.Recommended:
 		return "merged"
 	}
+	if !entry.Merged {
+		return "not merged"
+	}
 	return "clean"
 }
 
@@ -299,4 +306,51 @@ func tableRoot(root string, width int) string {
 		return shorten(root, max(1, width-7))
 	}
 	return root
+}
+
+func writeListSummary(out io.Writer, r worktreeRequest, report worktree.Report, total int) error {
+	shown := count(len(report.Worktrees), "worktree")
+	if r.recommended || !r.notActiveSince.IsZero() {
+		shown = fmt.Sprintf("%d of %s shown", len(report.Worktrees), count(total, "worktree"))
+	}
+	line := fmt.Sprintf("%s, %s.", shown, byteSize(totalSize(report.Worktrees)))
+	var recommended []worktree.Worktree
+	for _, w := range report.Worktrees {
+		if w.Recommended {
+			recommended = append(recommended, w)
+		}
+	}
+	if len(recommended) > 0 {
+		command := "arbor clean --path " + shellArgument(report.Root)
+		if r.host != "" {
+			command += " --host " + shellArgument(r.host)
+		}
+		if r.olderThan > 0 {
+			command += " --older-than " + r.olderThan.String()
+		}
+		if r.scan.Excludes != nil {
+			command += " --no-default-excludes"
+			for _, exclude := range r.scan.Excludes {
+				command += " --exclude " + shellArgument(exclude)
+			}
+		}
+		if r.scan.Fetch {
+			command += " --fetch"
+		}
+		if r.scan.GitHub {
+			command += " --github"
+		}
+		line += fmt.Sprintf(" %d can be deleted now (%s): %s", len(recommended), byteSize(totalSize(recommended)), command)
+	}
+	_, err := fmt.Fprintln(out, line)
+	return err
+}
+
+func shellArgument(value string) string {
+	if value != "" && strings.IndexFunc(value, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/_-.@:", r))
+	}) < 0 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(printable(value), "'", "'\"'\"'") + "'"
 }
