@@ -773,6 +773,11 @@ func TestRefsOfItsOwnAreFoundHoweverTheyAreKept(t *testing.T) {
 			testGit(t, repo, "add", ".")
 			testGit(t, repo, "commit", "-m", "Initial tree")
 			linked := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+			// Its path as scans give it, found while the folder is there to
+			// be found. (The temporary folder is reached through a link on macOS.)
+			if resolved, err := filepath.EvalSymlinks(linked); err == nil {
+				linked = resolved
+			}
 			testWrite(t, filepath.Join(linked, "tracked.txt"), "set aside\n")
 			testGit(t, linked, "commit", "-am", "Set aside")
 			testGit(t, linked, "update-ref", "refs/worktree/aside", "HEAD")

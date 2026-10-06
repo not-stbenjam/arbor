@@ -69,9 +69,13 @@ function registerDesktopIPC({
     handle("arbor:get-defaults", () => DEFAULTS);
     handle("arbor:get-state", () => backend.getState());
     handle("arbor:get-stats", (host) => backend.readStats(host));
-    handle("arbor:set-host-filter", async (host) => {
+    handle("arbor:set-host-filter", (host) => {
       const state = backend.setHostFilter(host);
-      await preferences.saveView({ hostFilter: host });
+      // Which machine is showing is remembered, but writing that down does
+      // not hold up showing it.
+      Promise.resolve()
+        .then(() => preferences.saveView({ hostFilter: host }))
+        .catch(() => {});
       return state;
     });
     // How the list is sorted is remembered whatever else is going on: it
