@@ -8,6 +8,7 @@ import {
   fullDate,
   parsedDate,
   repoID,
+  viewHost,
 } from "./presentation.mjs";
 import { LOSSES, lossesOf, graveLosses } from "../common/losses.mjs";
 
@@ -116,6 +117,7 @@ export function worktreeState(w) {
   return null;
 }
 export function projectRepositories(list, { hostFilter, hosts }) {
+  hostFilter = viewHost({ hostFilter, hosts });
   const repositories = new Map();
   for (const worktree of list) {
     const id = repoID(worktree);
@@ -169,6 +171,11 @@ export function projectTree(
   },
   tree,
 ) {
+  hostFilter = viewHost({ hostFilter, hosts });
+  if (hostFilter === "" && !root) {
+    const local = hosts.find((source) => source.host === "");
+    root = local?.report?.root || local?.root;
+  }
   const query = search.trim().toLowerCase();
   const filtered = tree.filter(list, {
     repo,

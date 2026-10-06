@@ -6,6 +6,7 @@ import {
   fullDate,
   repoID,
   sentenceCase,
+  viewHost,
 } from "./presentation.mjs";
 import { hostProgress } from "./host-progress.mjs";
 import { recommendedShown, cleanupScope } from "./cleanup-controller.mjs";
@@ -146,7 +147,7 @@ export function createWorkspaceView({
     // bar shows the document title.
     // The name carries the stage the app is at, wherever the name is shown.
     const context =
-      state.hostFilter === null
+      viewHost(state) === null
         ? `All hosts — ${APP_TITLE}`
         : state.host
           ? `${state.host} — ${APP_TITLE}`

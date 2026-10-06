@@ -530,3 +530,21 @@ test("size and activity rank folders and machines by extreme descendants", async
   assert.deepEqual(filtered.visible.map((w) => w.sourceID), ["a"]);
   assert.deepEqual(values.map((w) => w.sourceID), ["a", "b", "c", "d", "e"]);
 });
+
+
+test("All with no SSH hosts shows local folders and repository names directly", async () => {
+  const { projectTree, projectRepositories } = await import("../renderer/worktree-presentation.mjs");
+  const { viewHost } = await import("../renderer/presentation.mjs");
+  const { cleanupScope } = await import("../renderer/cleanup-controller.mjs");
+  const state = { ...projection, hosts: [hosts[0]] };
+  const values = [row("", "a", { path: "/work/folder/one" }), row("", "b", { path: "/work/folder/two" })];
+  const result = projectTree(values, state, tree);
+  assert.equal(viewHost(state), "");
+  assert.equal(result.directoryRows.some((entry) => entry.kind === "host"), false);
+  assert.equal(result.directoryRows[0].label, "work");
+  assert.equal(result.directoryRows[0].depth, 0);
+  assert.equal(projectRepositories(values, state)[0].name, "repo");
+  assert.equal(cleanupScope({ snapshot: state }, () => ({ filtering: false })), "on this computer");
+  assert.equal(viewHost({ ...state, hosts }), null);
+  assert.equal(projectTree(values, { ...state, hosts }, tree).directoryRows[0].kind, "host");
+});

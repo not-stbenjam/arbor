@@ -5,7 +5,7 @@ import {
   renderRepositoryList,
   rowElementID,
 } from "./worktree-presentation.mjs";
-import { icon, esc, ago, sentenceCase } from "./presentation.mjs";
+import { icon, esc, ago, sentenceCase, viewHost } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
 import { lossesOf } from "../common/losses.mjs";
 
@@ -273,6 +273,7 @@ export function createWorktreeView({
       workspace.snapshot.cancelled,
       workspace.snapshot.revision,
       workspace.snapshot.hostFilter,
+      viewHost(workspace.snapshot),
       workspace.snapshot.setupRequired,
       workspace.snapshot.error,
       workspace.error,

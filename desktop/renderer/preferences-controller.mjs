@@ -1,4 +1,4 @@
-import { icon, esc } from "./presentation.mjs";
+import { icon, esc, viewHost } from "./presentation.mjs";
 import {
   isValidSSHHost,
   MAX_HOST_LENGTH,
@@ -45,7 +45,8 @@ export function createPreferencesController({
   // Unsaved edits, kept per host while Settings is open, so looking at
   // another host's options does not throw away the ones being changed.
   const drafts = new Map();
-  const hostFilter = () => context.hostFilter;
+  const hostFilter = () =>
+    viewHost({ hostFilter: context.hostFilter, hosts: machines() });
   const machines = () => [
     { host: "", name: "This computer" },
     ...prefs.hosts,
@@ -115,10 +116,12 @@ export function createPreferencesController({
     context = next;
     const selected = hostFilter();
     const machine = hostName(selected);
+    const local = context.hosts.find((source) => source.host === "");
+    const root = context.root || (selected === "" ? local?.report?.root || local?.root : "");
     const path =
       selected === null
         ? "Folders on all hosts"
-        : `${selected ? `${selected}:` : ""}${context.root || "Home folder"}`;
+        : `${selected ? `${selected}:` : ""}${root || "Home folder"}`;
     $("#machine-label").textContent = machine;
     $("#machine-label").title = machine;
     const kind = selected === "" ? "monitor" : "server";
@@ -255,7 +258,7 @@ export function createPreferencesController({
         .map((source) => source.host),
     );
     $("#machine-list").innerHTML = [
-      { host: null, name: "All hosts" },
+      ...(machines().length > 1 ? [{ host: null, name: "All hosts" }] : []),
       ...machines(),
     ]
       .map((h) => {

@@ -214,3 +214,10 @@ export const sentenceCase = (message) =>
     /(^|\n)(\p{Ll})(?=\p{L}*\s)/gu,
     (_, start, letter) => start + letter.toUpperCase(),
   );
+
+// With only this computer configured, All has the same scope as local.
+// Keep that distinction out of the wording and directory hierarchy.
+export const viewHost = ({ hostFilter, hosts = [] }) =>
+  hostFilter === null && !hosts.some((source) => source.host)
+    ? ""
+    : hostFilter;
