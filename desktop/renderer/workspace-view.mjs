@@ -92,6 +92,8 @@ export function createWorkspaceView({
       : workspace.removing
         ? "Deleting worktrees…"
         : `${plural(list.length, "worktree")} · ${detail}${state.hostFilter === null && unavailable ? ` · ${unavailable}` : ""}`;
+    // In a narrow window it is cut short, and can still be read in full.
+    $("#status-message").title = $("#status-message").textContent;
   }
   // The saved list the notice is about, and the one it was dismissed for.
   let staleShown = "",

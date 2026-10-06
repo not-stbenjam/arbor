@@ -48,6 +48,9 @@ if (!scenarios.length) {
 }
 
 const electron = path.join(root, "node_modules", ".bin", "electron");
+// Electron fetches its program the first time it is run. Run alone first,
+// so that no scenario starts it while another is still writing it.
+spawnSync(electron, ["--version"], { stdio: "ignore", timeout: 300000 });
 // On Linux each run gets a virtual display of its own, so no window appears
 // on the desktop of whoever is running the tests and no scenario's window
 // takes the keyboard from another's; --show uses the real display.

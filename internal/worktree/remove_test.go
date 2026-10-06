@@ -734,6 +734,10 @@ func TestNamedTargetThatIsASymbolicLinkIsRefused(t *testing.T) {
 	if err := os.Symlink(sibling, target); err != nil {
 		t.Fatal(err)
 	}
+	// (The temporary folder is itself reached through a link on macOS.)
+	if resolved, err := filepath.EvalSymlinks(sibling); err == nil {
+		sibling = resolved
+	}
 	_, err := Scan(context.Background(), Options{Root: target, TargetOnly: true})
 	if err == nil || !strings.Contains(err.Error(), "is a symbolic link to "+sibling) {
 		t.Fatalf("a symbolic link was taken for the worktree it leads to: %v", err)
