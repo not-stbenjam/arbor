@@ -54,8 +54,6 @@ jobs:
   e2e:
     name: End to end
     runs-on: ubuntu-22.04
-    env:
-      TMPDIR: ${{ runner.temp }}/arbor
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -69,7 +67,12 @@ jobs:
       - run: npm ci
       - name: Install virtual display
         run: sudo apt-get update && sudo apt-get install -y xvfb
-      - run: mkdir -p "$TMPDIR"
+      # Everything a scenario makes goes in one folder, so that what a
+      # failed one leaves can be kept.
+      - name: Choose where scenarios work
+        run: |
+          mkdir -p "$RUNNER_TEMP/arbor"
+          echo "TMPDIR=$RUNNER_TEMP/arbor" >> "$GITHUB_ENV"
       - name: Drive the application through every feature
         run: npm run test:e2e -- --jobs 2
       - name: Stress the command-line program
