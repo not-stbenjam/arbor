@@ -2249,9 +2249,11 @@ th.sorted > button > .icon {
     min-width: 0;
     overflow: hidden;
   }
+  /* What the row says about itself is the last thing to be cut short: a
+     word such as Merged is kept whole, and only a long reason gives way. */
   .worktree-details > .worktree-state {
-    flex: 0 1 auto;
-    min-width: 0;
+    flex: 0 0 auto;
+    max-width: 62%;
     overflow: hidden;
     text-overflow: ellipsis;
   }
