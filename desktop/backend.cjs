@@ -1,5 +1,16 @@
 "use strict";
 
+const { RecentDeletions } = require("./recent-deletions.cjs");
+const { lossesOf } = require("./common/losses.mjs");
+function restoreFailure(error, requestedPath) {
+  try {
+    if (typeof error.stdout === "string" && error.stdout.length <= 65536) {
+      const result = JSON.parse(error.stdout);
+      if (result.path === requestedPath && result.restored === false && typeof result.error === "string") return result.error;
+    }
+  } catch { /* Keep the runner's diagnostic for unknown output. */ }
+  return error.message || "Could not restore";
+}
 const { randomUUID } = require("node:crypto");
 const os = require("node:os");
 const { WorkspaceCache, cacheKey } = require("./workspace-cache.cjs");
@@ -16,6 +27,7 @@ const { LiveWorktrees } = require("./live-worktrees.cjs");
 
 class Backend {
   #cache;
+  #deletions;
   #run;
   #live = new LiveWorktrees(MAX_WORKTREES);
   #scanController;
@@ -44,8 +56,10 @@ class Backend {
     host = "",
     options,
     cache = new WorkspaceCache(),
+    deletions = new RecentDeletions(),
   }) {
     this.#cache = cache;
+    this.#deletions = deletions;
     this.#operation = null;
     this.#options = scanOptions(options || { root, host });
     this.#state = {
@@ -372,7 +386,7 @@ class Backend {
     return this.getState();
   }
 
-  async #refreshTarget(row) {
+  async #refreshTarget(row, restored = false) {
     const args = [
       "list",
       "--target-only",
@@ -391,6 +405,14 @@ class Backend {
         await this.#run(args, { timeout: 30000, signal: controller.signal }),
       );
       if (this.#disposed) throw new Error("Inspection skipped while closing");
+      if (restored) {
+        const current = report.worktrees.find(entry => entry.path === row.path && entry.commonDir === row.commonDir);
+        if (!current) throw new Error("Restored checkout was not found by inspection");
+        if (!this.#state.report) this.#state.report = { ...report, root: this.#options.root, worktrees: [] };
+        this.#state.report.worktrees = this.#state.report.worktrees.filter(entry => entry.id !== current.id);
+        this.#state.report.worktrees.push(current);
+        return;
+      }
       const current = report.worktrees.find((entry) => entry.id === row.id);
       const index = this.#state.report.worktrees.findIndex(
         (entry) => entry.id === row.id,
@@ -486,6 +508,19 @@ class Backend {
         (entry) => entry.path === row.path,
       ))
         await this.#inspectAfterCleanup(sibling);
+      if (!outcome.missing && row.commonDir && row.head && (row.branch || row.detached)) {
+        try {
+          const entry = await this.#deletions.add({
+            host: this.#options.host, path: row.path, repo: row.repo,
+            commonDir: row.commonDir, branch: row.branch, head: row.head,
+            detached: row.detached === true, retainedBranch: outcome.retainedBranch || "",
+            sizeBytes: Math.max(0, row.sizeBytes || 0), clean: lossesOf(row).length === 0,
+          });
+          return { restoreID: entry.id, clean: entry.clean };
+        } catch (error) {
+          return { historyError: `Could not remember deletion: ${error.message}` };
+        }
+      }
       return;
     }
     const entry = this.#state.report.worktrees.find(
@@ -495,6 +530,43 @@ class Backend {
     entry.lastRemovalError = outcome.error;
     const inspectionError = await this.#inspectAfterCleanup(entry);
     return inspectionError ? { inspectionError } : undefined;
+  }
+
+  restore(entry) {
+    this.assertInteractive();
+    if (this.#state.busy) throw new Error("An operation is already running on this host");
+    this.#state.busy = true;
+    this.#operation = "restore";
+    this.#pending = (async () => {
+      let result, confirmed = false;
+      try {
+        const args = ["restore", "--json", "--repo", entry.commonDir, "--head", entry.head];
+        args.push(entry.detached ? "--detach" : "--branch", entry.detached ? entry.head : entry.branch);
+        if (entry.host) args.push("--host", entry.host);
+        args.push("--", entry.path);
+        result = JSON.parse(await this.#run(args));
+        if (result?.path !== entry.path || result.restored !== true ||
+            result.branch !== (entry.detached ? "" : entry.branch) ||
+            typeof result.head !== "string" || !/^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$/.test(result.head))
+          throw new Error(result?.error || "Arbor did not confirm restore");
+        confirmed = true;
+        try { await this.#deletions.remove(entry.id); }
+        catch (error) { result.warning = `Put back, but could not save history: ${error.message}`; }
+        try { await this.#refreshTarget(entry, true); }
+        catch (error) { result.warning = `Put back, but could not inspect it: ${error.message}`; }
+      } catch (error) {
+        if (!confirmed) result = { restored: false, error: restoreFailure(error, entry.path) };
+        else result.warning = `Put back, but could not update history: ${error.message}`;
+      } finally {
+        if (this.#state.report) this.#cache.put(this.#options, this.#state.report);
+        await this.#cache.pending;
+        this.#state.busy = false;
+        this.#operation = null;
+        this.#state.revision = randomUUID();
+      }
+      return { ...result, id: entry.id, path: entry.path, host: entry.host, clean: entry.clean };
+    })();
+    return this.#pending;
   }
 
   async #inspectAfterCleanup(row) {

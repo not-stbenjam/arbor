@@ -55,6 +55,7 @@
             <span data-icon="plus"></span><span>Add SSH host</span></button
           ><button class="nav-item" id="statistics-button">
             <span data-icon="chart"></span><span>Statistics</span></button
+          ><button class="nav-item" id="recently-deleted-button"><span data-icon="refresh"></span><span>Recently deleted…</span></button
           ><button class="nav-item" id="settings-button">
             <span data-icon="settings"></span><span>Settings</span
             ><span class="shortcut" id="settings-shortcut">⌘,</span>
@@ -624,6 +625,13 @@
         </button>
       </div>
       <div class="dialog-body" id="notes-content" tabindex="-1" autofocus></div>
+    </dialog>
+    <dialog id="restore-dialog" aria-labelledby="restore-title">
+      <div class="dialog-header"><h2 id="restore-title">Recently deleted</h2>
+        <button class="icon-button" data-close="restore-dialog" aria-label="Close recently deleted"><span data-icon="close"></span></button>
+      </div>
+      <div id="restore-content" class="dialog-body" tabindex="-1" autofocus aria-live="polite"></div>
+      <div class="statistics-footer">Up to 200 deletions from this app · Kept for 30 days · Restores committed files</div>
     </dialog>
     <dialog id="statistics-dialog" aria-labelledby="statistics-title">
       <div class="dialog-header">

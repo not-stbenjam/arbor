@@ -2276,3 +2276,15 @@ th.sorted > button > .icon {
     visibility: hidden;
   }
 }
+
+/* Long paths wrap so Restore stays reachable in small, zoomed windows. */
+#restore-dialog { width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+#restore-content { overflow: auto; min-height: 0; }
+.restore-entry { display: flex; gap: 16px; align-items: start; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.restore-entry > div { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.restore-entry h3 { margin: 0 0 6px; }
+.restore-entry p { margin: 4px 0; }
+.restore-entry .button { flex-shrink: 0; }
+.restore-loss, .restore-error { font-weight: 600; }
+.restore-path { font-size: 12px; }
+.toast-undo { flex-shrink: 0; }

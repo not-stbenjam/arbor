@@ -47,6 +47,11 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
           label: "Statistics…",
           click: () => sendAction("statistics"),
         },
+        {
+          id: "recently-deleted",
+          label: "Recently deleted…",
+          click: () => sendAction("recently-deleted"),
+        },
         ...(!mac
           ? [
               {
@@ -130,6 +135,7 @@ const COMMANDS = [
   "refresh",
   "add-host",
   "statistics",
+  "recently-deleted",
   "settings",
   "focus-search",
   "shortcuts",

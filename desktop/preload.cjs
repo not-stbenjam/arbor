@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld(
     platform: process.platform,
     getDefaults: () => ipcRenderer.invoke("arbor:get-defaults"),
     getState: () => ipcRenderer.invoke("arbor:get-state"),
+    listDeletions: () => ipcRenderer.invoke("arbor:list-deletions"),
+    restore: (ids) => ipcRenderer.invoke("arbor:restore", ids),
     getStats: (host) => ipcRenderer.invoke("arbor:get-stats", host),
     setHostFilter: (host) => ipcRenderer.invoke("arbor:set-host-filter", host),
     refreshHosts: (host) => ipcRenderer.invoke("arbor:refresh-hosts", host),

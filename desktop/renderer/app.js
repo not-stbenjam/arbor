@@ -1,8 +1,9 @@
 import * as tree from "../common/worktree-tree.mjs";
-import { icon, esc, initializeDOM, viewHost } from "./presentation.mjs";
+import { icon, esc, shown, initializeDOM, viewHost } from "./presentation.mjs";
 import { createCleanupController } from "./cleanup-controller.mjs";
 import { createPreferencesController } from "./preferences-controller.mjs";
 import { createSetupController } from "./setup-controller.mjs";
+import { createRestoreController } from "./restore-controller.mjs";
 import { createStatisticsController } from "./statistics-controller.mjs";
 import { createWorkspaceController } from "./workspace-controller.mjs";
 import { createWorkspaceView } from "./workspace-view.mjs";
@@ -16,11 +17,21 @@ document.body.classList.toggle(
   window.arbor?.platform === "darwin",
 );
 initializeDOM();
-function notify(message, error = false) {
+function notify(message, error = false, action) {
   const el = document.createElement("div");
   el.className = `toast${error ? " error" : ""}`;
-  el.innerHTML = `${icon(error ? "warning" : "check-circle")}<span>${esc(message)}</span><button class="icon-button" aria-label="Dismiss notification">${icon("close")}</button>`;
+  el.innerHTML = `${icon(error ? "warning" : "check-circle")}<span>${shown(message)}</span><button class="icon-button" aria-label="Dismiss notification">${icon("close")}</button>`;
   el.querySelector("button").onclick = () => el.remove();
+  if (action) {
+    const undo = document.createElement("button");
+    undo.className = "button toast-undo";
+    undo.textContent = action.label;
+    undo.onclick = async () => {
+      undo.disabled = true;
+      try { await action.run(); } finally { el.remove(); }
+    };
+    el.insertBefore(undo, el.querySelector("button"));
+  }
   $("#toast-region").append(el);
   // It leaves on its own, but not while someone is reading or reaching for
   // it: the pointer and the keyboard each hold it, and one letting go does
@@ -32,7 +43,7 @@ function notify(message, error = false) {
     queueMicrotask(() => {
       if (el.matches(":hover") || el.contains(document.activeElement)) return;
       clearTimeout(timer);
-      timer = setTimeout(() => el.remove(), error ? 12000 : 5500);
+      timer = setTimeout(() => el.remove(), error || action ? 12000 : 5500);
     });
   };
   for (const type of ["mouseenter", "focusin"])
@@ -50,7 +61,7 @@ async function bootstrap() {
     );
   const provided = await api.getDefaults();
   const defaults = { ...provided, excludes: [...provided.excludes] };
-  let workspace, setup, trees, chrome, cleanup, statistics;
+  let workspace, setup, trees, chrome, cleanup, statistics, restore;
   const preferences = createPreferencesController({
     document,
     api,
@@ -65,6 +76,7 @@ async function bootstrap() {
   workspace = createWorkspaceController({
     api,
     linked: tree.linked,
+    onUndo: (ids) => restore.restore(ids),
     notify,
     onChange: () => {
       try {
@@ -117,6 +129,7 @@ async function bootstrap() {
       removing: workspace.removing,
       blocked: workspace.blocked,
     });
+    $("#recently-deleted-button").disabled = workspace.blocked;
     setup?.setContext({
       required: state.setupRequired,
       root: state.root || preferences.savedRoot,
@@ -135,6 +148,9 @@ async function bootstrap() {
     onSubmit: (options) => workspace.completeSetup(options),
     onComplete: () => trees.focusGrid(),
     onThemeChange: (theme) => preferences.setTheme(theme),
+  });
+  restore = createRestoreController({
+    document, api, notify, reload: () => workspace.reload(),
   });
   statistics = createStatisticsController({
     document,
@@ -179,6 +195,7 @@ async function bootstrap() {
     onCleanup: cleanup.open,
   });
   $("#statistics-button").onclick = statistics.open;
+  $("#recently-deleted-button").onclick = restore.open;
   // What the keyboard does in the list, which nothing on screen says.
   const mod = api.platform === "darwin" ? "⌘" : "Ctrl+";
   const SHORTCUTS = [
@@ -228,6 +245,7 @@ async function bootstrap() {
       refresh: usable("#refresh-button"),
       "add-host": usable("#add-host"),
       statistics: usable("#statistics-button"),
+      "recently-deleted": usable("#recently-deleted-button"),
       settings: usable("#settings-button"),
       "focus-search": usable("#search"),
       shortcuts: !document.querySelector("dialog[open]"),
@@ -263,6 +281,7 @@ async function bootstrap() {
     if (action === "refresh") workspace.refresh();
     if (action === "settings") preferences.openSettings();
     if (action === "statistics") statistics.open();
+    if (action === "recently-deleted") restore.open();
     if (action === "focus-search") trees.focusSearch();
     if (action === "add-host") {
       preferences.openMachines();
