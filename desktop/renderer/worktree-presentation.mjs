@@ -328,11 +328,28 @@ export function renderTreeRows(
           ? "Scan incomplete"
           : "Checking…"
         : `${state ? `${state.label} · ` : ""}${branch}${w.repo ? ` · ${w.repo}` : ""}`;
-      const metrics = ` · ${ago(w.activityAt)} · ${w.pending || w.missing ? "—" : size(w.sizeBytes)}`;
+      const age = ago(w.activityAt),
+        bytes = w.pending || w.missing ? "—" : size(w.sizeBytes);
+      const metrics = ` · ${age} · ${bytes}`;
+      // The grid keeps focus and points at this row. Give that one stop a
+      // readable summary, with its full path kept separately as a description.
+      const spokenAge = age.replace(
+        /^(\d+)(m|h|d|mo|y) ago$/,
+        (_, count, unit) => `${count} ${{ m: "minute", h: "hour", d: "day", mo: "month", y: "year" }[unit]}${count === "1" ? "" : "s"} ago`,
+      );
+      const rowName = [
+        leaf,
+        w.pending ? context : state?.label,
+        w.pending && !w.branch
+          ? w.repo && `repository ${w.repo}`
+          : `${w.branch ? `branch ${branch}` : branch}${w.repo ? ` in ${w.repo}` : ""}`,
+        spokenAge === "Unknown" ? "Last active unknown" : spokenAge,
+        w.missing ? "No folder on disk" : bytes === "—" ? "Size unknown" : bytes,
+      ].filter(Boolean).join(", ");
       const contextMarkup = w.pending
         ? `<span>${esc(context)}</span>`
         : `${state ? `<span class="worktree-state" data-tone="${state.tone}" title="${shown(state.detail)}">${shown(state.label)}</span><span> · </span>` : ""}<span class="worktree-branch">${shown(branch)}</span>${w.repo ? `<span> · </span><span class="worktree-repository">${shown(w.repo)}</span>` : ""}`;
-      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-selected="${selected.has(w.id)}"><td class="check-cell"><input type="checkbox" class="row-check" tabindex="-1" data-select="${esc(w.id)}" aria-label="Select ${shown(w.path)}"${selected.has(w.id) ? " checked" : ""} /></td><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${shown(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${shown(context + metrics)}"><span class="worktree-details">${contextMarkup}</span><span class="worktree-metrics">${esc(metrics)}</span></span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${ago(w.activityAt)}</td><td class="size-cell">${w.pending || w.missing ? "—" : size(w.sizeBytes)}</td><td class="action-cell"><div class="row-actions"><button class="row-action" tabindex="-1" data-delete="${esc(w.id)}" aria-label="Delete ${shown(w.path)}${lost.length ? ", which is not a clean delete" : ""}"${deleteTitle} ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" tabindex="-1" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${shown(w.path)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
+      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-label="${shown(rowName)}" aria-description="${shown(w.path)}" aria-selected="${selected.has(w.id)}"><td class="check-cell"><input type="checkbox" class="row-check" tabindex="-1" data-select="${esc(w.id)}" aria-label="Select ${shown(leaf)}"${selected.has(w.id) ? " checked" : ""} /></td><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${shown(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${shown(context + metrics)}"><span class="worktree-details">${contextMarkup}</span><span class="worktree-metrics">${esc(metrics)}</span></span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${age}</td><td class="size-cell">${bytes}</td><td class="action-cell"><div class="row-actions"><button class="row-action" tabindex="-1" data-delete="${esc(w.id)}" aria-label="Delete ${shown(leaf)}${lost.length ? ", which is not a clean delete" : ""}"${deleteTitle} ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" tabindex="-1" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${shown(leaf)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
     })
     .join("");
 }

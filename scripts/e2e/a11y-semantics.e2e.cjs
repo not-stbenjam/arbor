@@ -13,8 +13,37 @@ scenario({
     for (const theme of ["light", "dark"]) {
       if (theme === "dark") await t.click("#theme-button");
       await t.step(`${theme}: names, selection, expanded state, dialogs and focus rings`, async () => {
-        await accessible(t);
-        await tabTo(t, "#worktree-grid"); await ring(t);
+        const nodes = await accessible(t);
+        const rows = (await t.state()).report.worktrees;
+        for (const row of rows) {
+          const name = row.path.split("/").pop();
+          const matching = nodes.filter((node) => !node.ignored && node.role?.value === "row" && node.description?.value === row.path);
+          assert.equal(matching.length, 1, "the full path describes one row");
+          const ax = matching[0];
+          assert.ok(ax.name.value.startsWith(`${name}, `));
+          assert.ok(ax.name.value.includes(`branch ${row.branch} in ${row.repo}`));
+          assert.doesNotMatch(ax.name.value, /Select |Delete |Actions for |\/projects\//);
+          for (const [role, action] of [["checkbox", "Select"], ["button", "Delete"], ["button", "Actions for"]]) {
+            const control = nodes.find((node) => !node.ignored && node.role?.value === role && (node.name?.value === `${action} ${name}` || node.name?.value === `${action} ${name}, which is not a clean delete`));
+            assert.ok(control, `${action} ${name} has its own name`);
+            assert.ok(!control.name.value.includes(row.path));
+          }
+          if (name === "merged")
+            assert.equal(ax.name.value, "merged, Merged, branch merged in repo, 3 days ago, 27 B");
+        }
+        await tabTo(t, "#worktree-grid"); await t.press("End"); await ring(t);
+        const activeID = await t.attribute("#worktree-grid", "aria-activedescendant");
+        const active = await t.evaluate((id) => {
+          const row = document.getElementById(id);
+          return { name: row.getAttribute("aria-label"), path: row.getAttribute("aria-description") };
+        }, activeID);
+        const focusedTree = await accessible(t);
+        const grid = focusedTree.find((node) => node.role?.value === "treegrid");
+        const referenced = grid.properties.find((property) => property.name === "activedescendant").value.relatedNodes[0];
+        const focusedRow = focusedTree.find((node) => node.backendDOMNodeId === referenced.backendDOMNodeId);
+        assert.equal(focusedRow.name.value, active.name);
+        assert.equal(focusedRow.description.value, active.path);
+        if (theme === "light") await t.screenshot("5-accessible-row");
         await t.press("Space"); await focus(t, "#worktree-grid");
         assert.equal(await t.js("document.querySelector('.is-current').getAttribute('aria-selected')"), "true");
         assert.equal(await t.js("document.querySelector('.is-current input').checked"), true);
