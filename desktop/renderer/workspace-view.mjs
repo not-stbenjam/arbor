@@ -1,3 +1,4 @@
+import { createStaleNotice } from "./stale-notice.mjs";
 import {
   icon,
   size,
@@ -98,9 +99,7 @@ export function createWorkspaceView({
     // In a narrow window it is cut short, and can still be read in full.
     $("#status-message").title = $("#status-message").textContent;
   }
-  // The saved list the notice is about, and the one it was dismissed for.
-  let staleShown = "",
-    staleDismissed = "";
+  const staleNotice = createStaleNotice({ document, workspace });
   let progressMarkup = "",
     progressSummary = "";
   function renderProgress() {
@@ -202,25 +201,7 @@ export function createWorkspaceView({
       ? `${state.cached ? "Shown from the last scan without rescanning. Refresh to update. " : ""}${fullDate(state.report.scannedAt)}`
       : "";
 
-    // A saved list from an earlier day is still the list that Delete acts
-    // on, so that it is old is said where the list is, not only in the
-    // footer. Each deletion checks its worktree afresh whatever the list says.
-    const scanned = Date.parse(state.report?.scannedAt || ""),
-      stale =
-        !!state.cached &&
-        !state.busy &&
-        !state.setupRequired &&
-        Number.isFinite(scanned) &&
-        Date.now() - scanned > 24 * 3600 * 1000 &&
-        staleDismissed !== state.report.scannedAt;
-    const held = $("#stale-note").contains?.(document.activeElement);
-    $("#stale-note").hidden = !stale;
-    if (stale)
-      $("#stale-text").textContent =
-        `This list was saved ${ago(state.report.scannedAt).toLowerCase()} and may be out of date.`;
-    // Its buttons go with it; the keyboard goes to the list.
-    else if (held) $("#worktree-grid").focus({ preventScroll: true });
-    staleShown = stale ? state.report.scannedAt : "";
+    staleNotice.render();
 
     const error = workspace.error,
       message = error || workspace.warning || "",
@@ -237,11 +218,6 @@ export function createWorkspaceView({
     renderProgress();
     renderControls();
   }
-  $("#stale-refresh").onclick = workspace.refresh;
-  $("#stale-dismiss").onclick = () => {
-    staleDismissed = staleShown;
-    render();
-  };
   $("#stop-scan").onclick = () => workspace.cancel(null);
   $("#host-progress-list").addEventListener("click", (event) => {
     const button = event.target.closest("[data-stop-host]");
@@ -257,5 +233,5 @@ export function createWorkspaceView({
     if (event.repeat && event.key === "Enter") event.preventDefault();
   });
   $("#dismiss-error").onclick = workspace.dismissError;
-  return { render, renderControls };
+  return { render, renderControls, dispose: staleNotice.dispose };
 }

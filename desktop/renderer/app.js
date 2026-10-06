@@ -315,6 +315,7 @@ async function bootstrap() {
   window.addEventListener(
     "pagehide",
     () => {
+      chrome.dispose();
       workspace.dispose();
       statistics.invalidate();
       unsubscribe();
