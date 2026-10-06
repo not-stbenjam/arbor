@@ -9,10 +9,11 @@ func TestRemovalPolicyEveryReasonHasExplicitBehavior(t *testing.T) {
 		reasonDefaultBranch: true, reasonProtectedBranch: true,
 		reasonUnchecked: true, reasonSubmodules: true,
 		reasonOperation: true, reasonNested: true,
+		reasonPrivateRefs: true,
 	}
 	protected := []reasonCode{reasonPrimary, reasonBare, reasonOutside, reasonUnverifiedPath,
 		reasonNoCommit, reasonStatus, reasonIndex, reasonSubmoduleInspection,
-		reasonMetadata, reasonFiles}
+		reasonMetadata, reasonFiles, reasonPathText}
 	if len(allowed)+len(protected) != int(reasonCount) || len(reasonDescriptions) != int(reasonCount) {
 		t.Fatal("a new policy reason needs an explicit behavior test")
 	}

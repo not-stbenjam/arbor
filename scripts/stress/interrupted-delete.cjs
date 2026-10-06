@@ -1,5 +1,5 @@
 "use strict";
-const { main, scenario, assert, fs, start, ok } = require("../helpers.cjs");
+const { main, scenario, assert, fs, start, ok } = require("./helpers.cjs");
 main(() => scenario("bug-interrupted-delete", async (f) => {
   const repo = f.repository("projects/repo", { remote: false }), w = repo.worktree("target");
   const barrier = f.path("directory-removed"), library = f.path("pause.so");

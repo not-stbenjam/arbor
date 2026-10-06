@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 func inspect(ctx context.Context, w *Worktree, options Options) inspectionDetails {
@@ -107,6 +108,10 @@ const (
 // Git's prunable marker can also describe an existing empty directory, so only
 // the actual filesystem state selects the missing/empty registration path.
 func inspectLocation(ctx context.Context, w *Worktree, block func(reasonCode)) inspectionLocation {
+	if !utf8.ValidString(w.Path) {
+		block(reasonPathText)
+		return inspectionUnverified
+	}
 	if w.Main {
 		block(reasonPrimary)
 	}

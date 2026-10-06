@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const topics = ["commands", "output", "confirmation", "consistency", "interruption", "concurrency", "layouts", "readonly", "scale", "ssh"];
+const topics = ["commands", "output", "confirmation", "consistency", "safety", "interruption", "interrupted-removal", "interrupted-delete", "concurrency", "layouts", "readonly", "scale", "ssh"];
 const names = process.argv.slice(2);
 let failed = false;
 for (const name of names.length ? names : topics) {

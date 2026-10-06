@@ -125,7 +125,7 @@ func unfinished(markers []string) bool {
 // size. It returns where this worktree's operation markers would be, and
 // where Git keeps the repositories of its submodules.
 func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), submodules []string) (markers []string, modules string) {
-	names := append(slices.Clone(operationMarkers), "HEAD", "index", "logs/HEAD", "modules")
+	names := append(slices.Clone(operationMarkers), "HEAD", "index", "logs/HEAD", "modules", "refs/worktree")
 	metadata, err := gitPaths(ctx, w.Path, names)
 	if err != nil || len(metadata) != len(names) {
 		block(reasonMetadata)
@@ -135,7 +135,10 @@ func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), s
 		measure(ctx, w, block, submodules)
 		return nil, ""
 	}
-	markers, modules = metadata[:len(operationMarkers)], metadata[len(names)-1]
+	markers, modules = metadata[:len(operationMarkers)], metadata[len(names)-2]
+	if holdsRefs(metadata[len(names)-1]) {
+		block(reasonPrivateRefs)
+	}
 	if unfinished(markers) {
 		block(reasonOperation)
 	}
@@ -143,12 +146,26 @@ func inspectActivity(ctx context.Context, w *Worktree, block func(reasonCode), s
 		block(reasonSubmodules)
 	}
 	measure(ctx, w, block, submodules)
-	for _, path := range metadata[len(operationMarkers) : len(names)-1] {
+	for _, path := range metadata[len(operationMarkers) : len(names)-2] {
 		if st, err := os.Stat(path); err == nil && st.ModTime().After(w.ActivityAt) {
 			w.ActivityAt = st.ModTime()
 		}
 	}
 	return markers, modules
+}
+
+// holdsRefs reports whether a worktree has refs of its own. Git keeps them
+// as files beside the worktree's other metadata, and removes them with it.
+func holdsRefs(folder string) bool {
+	found := false
+	_ = filepath.WalkDir(folder, func(_ string, entry os.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // holdsSubmodules reports whether Git is keeping submodule repositories for a

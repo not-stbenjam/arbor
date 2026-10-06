@@ -7,6 +7,16 @@ import (
 )
 
 func ResolveRoot(root string) (string, error) {
+	abs, err := expandRoot(root)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
+}
+
+// expandRoot is the folder as it was named, made absolute, before any
+// symbolic link in it is followed.
+func expandRoot(root string) (string, error) {
 	if root == "" || root == "~" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -21,11 +31,7 @@ func ResolveRoot(root string) (string, error) {
 		}
 		root = filepath.Join(home, root[2:])
 	}
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	return filepath.EvalSymlinks(abs)
+	return filepath.Abs(root)
 }
 
 func within(root, path string) bool {

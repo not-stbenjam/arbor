@@ -3,6 +3,7 @@ package worktree
 import (
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 type excludeComponent struct {
@@ -11,9 +12,57 @@ type excludeComponent struct {
 	recursive bool
 }
 
+// wellFormed reports whether a pattern is one filepath.Match accepts.
+// Match itself only notices a malformed pattern when a name takes it as far
+// as the mistake, so a pattern is read through here once, by Match's rules.
+func wellFormed(pattern string) bool {
+	// One character of a class, which may be escaped and may not be a bare
+	// "-" or "]".
+	member := func(i int) (next int, ok bool) {
+		if i >= len(pattern) || pattern[i] == '-' || pattern[i] == ']' {
+			return i, false
+		}
+		if pattern[i] == '\\' {
+			if i++; i >= len(pattern) {
+				return i, false
+			}
+		}
+		_, size := utf8.DecodeRuneInString(pattern[i:])
+		return i + size, true
+	}
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			if i++; i >= len(pattern) {
+				return false
+			}
+		case '[':
+			i++
+			if i < len(pattern) && pattern[i] == '^' {
+				i++
+			}
+			for members := 0; ; members++ {
+				if i < len(pattern) && pattern[i] == ']' && members > 0 {
+					break
+				}
+				var ok bool
+				if i, ok = member(i); !ok {
+					return false
+				}
+				if i < len(pattern) && pattern[i] == '-' {
+					if i, ok = member(i + 1); !ok {
+						return false
+					}
+				}
+			}
+		}
+	}
+	return true
+}
+
 func compileExcludeComponent(pattern string) (excludeComponent, error) {
-	if _, err := filepath.Match(pattern, ""); err != nil {
-		return excludeComponent{}, err
+	if !wellFormed(pattern) {
+		return excludeComponent{}, filepath.ErrBadPattern
 	}
 	if pattern == "**" {
 		return excludeComponent{recursive: true}, nil

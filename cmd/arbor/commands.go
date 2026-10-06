@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -97,6 +98,10 @@ func worktreeCommand(use, short, long, example string, flags *commandOptions) *c
 		Args: checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Name() == "remove" {
+				// Given and left empty, it would require nothing at all.
+				if cmd.Flags().Changed("head") && flags.head == "" {
+					return errors.New("--head needs the commit to require; leave the flag out to require none")
+				}
 				flags.common.root = args[0]
 				// An empty branch is itself an expectation: the checkout was detached.
 				flags.expectBranch = cmd.Flags().Changed("branch")

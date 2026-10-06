@@ -1,12 +1,15 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // RemovalOptions binds a requested cleanup to the confirmed commit and policy.
@@ -34,7 +37,7 @@ func RemoveWorktree(ctx context.Context, snapshot Worktree, options RemovalOptio
 	return result, err
 }
 
-func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, result *RemovalResult) error {
+func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, result *RemovalResult) (failure error) {
 	expectedHead, recommendedOnly, discardLocal := options.ExpectedHead, options.RecommendedOnly, options.DiscardLocal
 	if recommendedOnly && discardLocal {
 		return errors.New("discarding local files cannot be used for recommended cleanup")
@@ -147,6 +150,14 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 			return err
 		}
 		missing = true
+		// Git is still to remove its record. Should it not, the folder Arbor
+		// took away is put back, so that a refusal changes nothing.
+		emptied := pathInfo.Mode().Perm()
+		defer func() {
+			if failure != nil {
+				_ = os.Mkdir(current.Path, emptied)
+			}
+		}()
 	}
 	// A missing registration must stay missing. Never reinterpret an entry that
 	// was replaced by a directory or symlink as consent to delete its contents.
@@ -226,9 +237,33 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		}
 	}
 	args = append(args, "--", current.Path)
+	// Asked to stop before the deletion began, it does not begin.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	defer watchRemoval(current.Path, files, options.Progress)()
-	_, err = gitCommon(ctx, common, args...)
+	err = deleteWithGit(common, args...)
 	// With no folder there, nothing on disk was deleted: only what Git kept.
 	result.Missing = err == nil && missing
 	return err
+}
+
+// deleteWithGit runs the one command that deletes. Git removes a worktree's
+// files and then its own record of it, and stopped between the two it
+// leaves a worktree that is neither there nor gone. So this command is given
+// all the time it takes, however large the folder, and is not stopped when
+// Arbor is asked to stop: Arbor finishes the worktree it is on and starts no
+// other. It runs apart from Arbor's terminal for the same reason, so that
+// Ctrl-C reaches Arbor and not Git.
+func deleteWithGit(common string, args ...string) error {
+	prefix := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false", "-C", common, "--git-dir=" + common}
+	cmd := exec.Command("git", append(prefix, args...)...)
+	cmd.Env = commandEnv()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git: %s", strings.TrimSpace(stderr.String()))
+	}
+	return nil
 }

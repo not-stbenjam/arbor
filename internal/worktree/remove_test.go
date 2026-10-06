@@ -663,3 +663,88 @@ func TestWorktreeWithAReadOnlyFolderIsRefusedWhole(t *testing.T) {
 		t.Fatalf("removal once writable: %+v, %v", result, err)
 	}
 }
+
+// Refs under refs/worktree are one worktree's own, and go with it. A commit
+// only they point to has nothing else to keep it.
+func TestWorktreeWithRefsOfItsOwnIsNotACleanDelete(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	linked := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(linked, "tracked.txt"), "set aside\n")
+	testGit(t, linked, "commit", "-am", "Set aside")
+	kept := testGit(t, linked, "rev-parse", "HEAD")
+	testGit(t, linked, "update-ref", "refs/worktree/aside", kept)
+	testGit(t, linked, "reset", "--hard", "main")
+	w := testTree(t, testScan(t, root), linked)
+	if w.Recommended || w.CanRemove || !w.CanDiscard {
+		t.Fatalf("a worktree with refs of its own: %+v", w)
+	}
+	assertProtected(t, w, "Refs of its own")
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head}); err == nil {
+		t.Fatal("removed without being told to discard them")
+	}
+	if got := testGit(t, linked, "rev-parse", "refs/worktree/aside"); got != kept {
+		t.Fatalf("the ref moved: %s", got)
+	}
+	if result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err != nil || !result.Removed {
+		t.Fatalf("removal once agreed to: %+v, %v", result, err)
+	}
+}
+
+// A path Arbor cannot write down and read back as the same path is one it
+// cannot safely name to Git, so it offers nothing for it.
+func TestWorktreeWhosePathIsNotTextIsLeftAlone(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	path := filepath.Join(root, "bad-\xff")
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Skip("this filesystem does not take names that are not text")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	testLinked(t, repo, path, "topic")
+	report, err := Scan(context.Background(), Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range report.Worktrees {
+		if w.Path != path {
+			continue
+		}
+		if w.Recommended || w.CanRemove || w.CanDiscard {
+			t.Fatalf("offered for deletion: %+v", w)
+		}
+		assertProtected(t, w, "Path is not valid text")
+		return
+	}
+	t.Fatalf("not listed: %+v", report.Worktrees)
+}
+
+// One worktree named to be removed is the folder at that path, not whatever
+// a symbolic link put there leads to.
+func TestNamedTargetThatIsASymbolicLinkIsRefused(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	target := testLinked(t, repo, filepath.Join(root, "target"), "target")
+	sibling := testLinked(t, repo, filepath.Join(root, "sibling"), "sibling")
+	if err := os.Rename(target, target+"-saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sibling, target); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Scan(context.Background(), Options{Root: target, TargetOnly: true})
+	if err == nil || !strings.Contains(err.Error(), "is a symbolic link to "+sibling) {
+		t.Fatalf("a symbolic link was taken for the worktree it leads to: %v", err)
+	}
+	// A link on the way to the worktree is only how its folder is reached.
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Scan(context.Background(), Options{Root: filepath.Join(alias, "sibling"), TargetOnly: true})
+	if err != nil || len(report.Worktrees) != 1 || report.Worktrees[0].Path != sibling {
+		t.Fatalf("a worktree reached through a linked folder: %+v, %v", report.Worktrees, err)
+	}
+}

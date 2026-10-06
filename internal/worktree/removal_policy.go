@@ -34,6 +34,8 @@ const (
 	reasonProtectedBranch
 	reasonNested
 	reasonFiles
+	reasonPathText
+	reasonPrivateRefs
 	reasonCount
 )
 
@@ -60,7 +62,7 @@ var reasonDescriptions = [...]reasonDescription{
 	reasonOutside:             {message: "Outside the scan folder"},
 	reasonLocked:              {message: "Locked worktree", manual: true, warning: "The Git worktree lock will be overridden."},
 	reasonDetached:            {message: "Detached HEAD; create a branch to retain its commits", manual: true, warning: "The detached commit will be retained; a recovery branch is created only if needed."},
-	reasonMissing:             {message: "Worktree directory is missing", manual: true, warning: "Only this missing worktree's Git registration will be removed; branches and commits are retained."},
+	reasonMissing:             {message: "Worktree directory is missing", manual: true, warning: "The folder is already gone. Only what Git still keeps for this worktree will be removed; its branches are retained."},
 	reasonUnverifiedPath:      {message: "Worktree path could not be verified"},
 	reasonNoCommit:            {message: "No commit to preserve"},
 	reasonEmpty:               {message: "Empty checkout directory; only its stale registration remains", manual: true, warning: "Only the empty directory and its stale Git registration will be removed; branches and commits are retained."},
@@ -77,6 +79,12 @@ var reasonDescriptions = [...]reasonDescription{
 	reasonProtectedBranch:     {message: "Protected branch name", manual: true},
 	reasonNested:              {message: "Nested repository: another Git repository or worktree is inside this folder", manual: true, warning: "The separate Git repository or worktree inside this folder will be deleted with it, including any history kept nowhere else.", loss: "nested", lossText: "the separate Git repository or worktree inside the folder, with any history kept nowhere else", grave: true},
 	reasonFiles:               {message: "Cannot inspect every file"},
+	// Arbor names a worktree by its path, as text. Bytes that are not text
+	// cannot be written down and read back as the same path.
+	reasonPathText: {message: "Path is not valid text (UTF-8), so Arbor cannot name it reliably; use git worktree remove"},
+	// Refs under refs/worktree belong to one worktree and are deleted with
+	// it. Nothing else may hold the commits they point to.
+	reasonPrivateRefs: {message: "Refs of its own: refs/worktree refs are deleted with this worktree", manual: true, warning: "This worktree's own refs (refs/worktree) will be deleted, and nothing else may keep the commits they point to."},
 }
 
 type removalFacts struct {

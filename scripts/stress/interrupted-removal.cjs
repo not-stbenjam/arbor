@@ -1,5 +1,5 @@
 "use strict";
-const { main, scenario, assert, fs, ok, json, random, start, integrity } = require("../helpers.cjs");
+const { main, scenario, assert, fs, ok, json, random, start, integrity } = require("./helpers.cjs");
 main(async () => {
   const rand = random();
   const rounds = Number(process.env.STRESS_INTERRUPTS || 240);

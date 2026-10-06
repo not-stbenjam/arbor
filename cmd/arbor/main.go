@@ -23,6 +23,13 @@ func main() {
 	engine.Version = version
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
+	// The first request to stop is honoured in good order: a worktree being
+	// deleted is finished, and no other is begun. A second one is not made
+	// to wait for that.
+	go func() {
+		<-ctx.Done()
+		cancel()
+	}()
 	if err := execute(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			fmt.Fprintln(os.Stderr, "arbor: interrupted")

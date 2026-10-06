@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -68,6 +69,17 @@ type scanLocation struct {
 // prepareScan resolves an explicitly targeted missing registration without
 // widening discovery, validates exclusions, and checks the supported Git version.
 func prepareScan(ctx context.Context, options Options) (scanLocation, error) {
+	// One worktree named to be removed is the folder at that path. A
+	// symbolic link there leads to some other folder, which is not the one
+	// that was named, however alike the two look in a listing.
+	if options.TargetOnly {
+		if named, err := expandRoot(options.Root); err == nil {
+			if info, err := os.Lstat(named); err == nil && info.Mode()&os.ModeSymlink != 0 {
+				target, _ := filepath.EvalSymlinks(named)
+				return scanLocation{}, fmt.Errorf("%s is a symbolic link to %s; name the worktree itself", named, target)
+			}
+		}
+	}
 	root, err := ResolveRoot(options.Root)
 	if err != nil && options.TargetOnly && os.IsNotExist(err) {
 		root, err = resolveMissingRoot(options.Root)
