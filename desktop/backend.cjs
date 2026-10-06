@@ -1,16 +1,5 @@
 "use strict";
 
-const { RecentDeletions } = require("./recent-deletions.cjs");
-const { lossesOf } = require("./common/losses.mjs");
-function restoreFailure(error, requestedPath) {
-  try {
-    if (typeof error.stdout === "string" && error.stdout.length <= 65536) {
-      const result = JSON.parse(error.stdout);
-      if (result.path === requestedPath && result.restored === false && typeof result.error === "string") return result.error;
-    }
-  } catch { /* Keep the runner's diagnostic for unknown output. */ }
-  return error.message || "Could not restore";
-}
 const { randomUUID } = require("node:crypto");
 const os = require("node:os");
 const { WorkspaceCache, cacheKey } = require("./workspace-cache.cjs");
@@ -24,6 +13,27 @@ const {
 } = require("./protocol.cjs");
 const { execute, childEnvironment } = require("./process-runner.cjs");
 const { LiveWorktrees } = require("./live-worktrees.cjs");
+const { RecentDeletions } = require("./recent-deletions.cjs");
+const { lossesOf } = require("./common/losses.mjs");
+
+// Why the command line would not put a worktree back, in its own words where
+// it gave them for this path; otherwise what running it reported.
+function restoreFailure(error, requestedPath) {
+  try {
+    if (typeof error.stdout === "string" && error.stdout.length <= 65536) {
+      const result = JSON.parse(error.stdout);
+      if (
+        result.path === requestedPath &&
+        result.restored === false &&
+        typeof result.error === "string"
+      )
+        return result.error;
+    }
+  } catch {
+    // Keep the runner's diagnostic for unknown output.
+  }
+  return error.message || "Could not restore";
+}
 
 class Backend {
   #cache;

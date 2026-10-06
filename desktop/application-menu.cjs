@@ -49,7 +49,7 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
         },
         {
           id: "recently-deleted",
-          label: "Recently deleted…",
+          label: "Recently Deleted…",
           click: () => sendAction("recently-deleted"),
         },
         ...(!mac

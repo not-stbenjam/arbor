@@ -48,7 +48,7 @@ scenario({
  },async t=>{
   await t.settled();
   await t.step("Recently deleted survives restart and refuses an occupied destination",async()=>{
-   await t.menu("File","Recently deleted…");
+   await t.menu("File","Recently Deleted…");
    await t.until(()=>t.exists("[data-restore]"),"saved deletion");
    assert.equal(await t.text("#restore-title"),"Recently deleted");
    assert.match(await t.text("#restore-content"),/one · repo · This computer/);

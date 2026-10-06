@@ -14,10 +14,19 @@ func newRestoreCommand() *cobra.Command {
 	var host string
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "restore PATH --repo COMMON_DIR (--branch BRANCH | --detach COMMIT)",
+		Use:   "restore PATH --repo REPOSITORY (--branch BRANCH | --detach COMMIT)",
 		Short: "Put a deleted worktree back",
-		Long:  "Put a deleted worktree back on its branch, or at a detached commit.\nThe destination must not exist and its parent folder must exist. Branches\nare restored as they are now; --head reports whether a branch has moved.\nHooks are switched off. Repository filter programs are refused; standard\nGit LFS is allowed. Discarded uncommitted files cannot be restored.",
-		Args:  checkedArgs(cobra.ExactArgs(1)),
+		Long: "Put a deleted worktree back where it was: on its branch, or at a commit\n" +
+			"with --detach. Deleting a worktree keeps its branch, so its commits are\n" +
+			"all still there. Files that were never committed are not, and do not come\n" +
+			"back.\n\n" +
+			"Nothing is overwritten: PATH must not exist, and the folder it is in must.\n" +
+			"The branch is checked out as it is now; with --head, the result says\n" +
+			"whether it has moved since. Git hooks are not run. A repository that names\n" +
+			"its own filter programs is not restored, and the Git command to run\n" +
+			"yourself is given instead; standard Git LFS is allowed.\n\n" +
+			"remove and clean print the command that puts back what they deleted.",
+		Args: checkedArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.Path = args[0]
 			if err := worktree.ValidateRestore(options); err != nil {
@@ -38,17 +47,17 @@ func newRestoreCommand() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Put back %s (%s).\n", printable(result.Path), printable(label))
 				if result.Moved {
-					fmt.Fprintln(cmd.OutOrStdout(), "The branch has moved since deletion; restored its current commit.")
+					fmt.Fprintln(cmd.OutOrStdout(), "Its branch has moved since it was deleted; it is at the branch's current commit.")
 				}
 			}
 			return err
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&options.CommonDir, "repo", "", "Owning Git common directory")
-	f.StringVar(&options.Branch, "branch", "", "Existing branch to check out")
-	f.StringVar(&options.Detach, "detach", "", "Full commit ID to check out detached")
-	f.StringVar(&options.Head, "head", "", "Previous commit ID, to report a moved branch")
+	f.StringVar(&options.CommonDir, "repo", "", "The repository it belonged to: its folder, or its .git folder")
+	f.StringVar(&options.Branch, "branch", "", "The branch it was on")
+	f.StringVar(&options.Detach, "detach", "", "The full commit ID a detached worktree was at")
+	f.StringVar(&options.Head, "head", "", "The full commit ID it was at when deleted, to be told if the branch has moved")
 	f.StringVar(&host, "host", "", "SSH host alias or user@hostname")
 	f.BoolVar(&asJSON, "json", false, "Print the result as JSON")
 	return cmd

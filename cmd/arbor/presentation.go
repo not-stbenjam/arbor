@@ -112,24 +112,47 @@ func writeOutcome(out io.Writer, r worktreeRequest, outcome batchOutcome) error 
 			return err
 		}
 	}
-	if !r.json && len(outcome.removed) > 0 {
-		if len(outcome.results) == 1 {
-			w := outcome.removed[0]
-			command := "arbor restore " + shellArgument(w.Path) + " --repo " + shellArgument(w.CommonDir)
-			if w.Detached {
-				command += " --detach " + shellArgument(w.Head)
-			} else {
-				command += " --branch " + shellArgument(w.Branch)
+	// What was removed can be put back, since its branch is kept: say how,
+	// here where it happened. A long batch names the command instead.
+	if !r.json {
+		var back []string
+		for _, w := range outcome.removed {
+			if !w.Missing && w.CommonDir != "" && w.Head != "" && (w.Detached || w.Branch != "") {
+				back = append(back, restoreCommand(w, r.host))
 			}
-			if r.host != "" {
-				command += " --host " + shellArgument(r.host)
+		}
+		switch {
+		case len(back) == 1:
+			fmt.Fprintln(out, "Put it back with:", back[0])
+		case len(back) > restoreHints:
+			fmt.Fprintln(out, "Put any of them back with: arbor restore PATH --repo REPOSITORY --branch BRANCH (see arbor restore --help)")
+		case len(back) > 1:
+			fmt.Fprintln(out, "Put any of them back with:")
+			for _, command := range back {
+				fmt.Fprintln(out, "  "+command)
 			}
-			fmt.Fprintln(out, "Put it back with:", command)
-		} else {
-			fmt.Fprintln(out, "To put deleted worktrees back, see: arbor restore --help")
 		}
 	}
 	return outcome.err
+}
+
+// restoreHints is how many removals are each given their own command to put
+// them back.
+const restoreHints = 10
+
+// restoreCommand is the command that puts a removed worktree back, written
+// so that it can be pasted into a shell.
+func restoreCommand(w worktree.Worktree, host string) string {
+	command := "arbor restore " + shellArgument(w.Path) + " --repo " + shellArgument(w.CommonDir)
+	if w.Detached {
+		command += " --detach " + shellArgument(w.Head)
+	} else {
+		command += " --branch " + shellArgument(w.Branch)
+	}
+	if host != "" {
+		command += " --host " + shellArgument(host)
+	}
+	return command
 }
 
 // printTable lists worktrees for reading. Every path under the scanned folder

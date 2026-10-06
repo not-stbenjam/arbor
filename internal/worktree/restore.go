@@ -1,16 +1,26 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
+// RestoreOptions says which deleted worktree to put back: where it was, the
+// repository it belonged to, and either the branch it was on or the commit a
+// detached one was at. Head is the commit it was at when it was deleted, and
+// is only compared with where the branch is now.
 type RestoreOptions struct{ Path, CommonDir, Branch, Detach, Head string }
+
+// RestoreResult is what came of it. Moved says the branch is not where it
+// was when the worktree was deleted; it is put back as the branch is now.
 type RestoreResult struct {
 	Path     string `json:"path"`
 	Branch   string `json:"branch"`
@@ -22,6 +32,8 @@ type RestoreResult struct {
 
 var commitID = regexp.MustCompile(`^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$`)
 
+// ValidateRestore reports what is wrong with the request itself, before
+// anything is looked at on disk.
 func ValidateRestore(o RestoreOptions) error {
 	if o.Path == "" || o.CommonDir == "" {
 		return errors.New("PATH and --repo are required")
@@ -38,6 +50,11 @@ func ValidateRestore(o RestoreOptions) error {
 	return nil
 }
 
+// Restore puts a deleted worktree back with `git worktree add`. It creates
+// and never deletes or overwrites: anything at all at the path is a refusal,
+// and a checkout that fails part-way is left as far as it got, and said to
+// be. Hooks are off, and a repository whose own filter programs would write
+// the files out is refused with the command to run by hand.
 func Restore(ctx context.Context, o RestoreOptions) (result RestoreResult, err error) {
 	result.Path, result.Branch = o.Path, o.Branch
 	defer func() {
@@ -103,10 +120,9 @@ func Restore(ctx context.Context, o RestoreOptions) (result RestoreResult, err e
 	// Separate registration from writing files: Git otherwise removes a partly
 	// written checkout when a checkout fails. checkout-index refuses overwrites.
 	args = append(args, "--no-checkout", "--", target, o.Branch+o.Detach)
-	if _, err = git(ctx, o.CommonDir, args...); err == nil {
-		_, err = git(ctx, target, "read-tree", "HEAD")
-		if err == nil {
-			_, err = git(ctx, target, "checkout-index", "--all")
+	if err = gitWriting(ctx, o.CommonDir, args...); err == nil {
+		if err = gitWriting(ctx, target, "read-tree", "HEAD"); err == nil {
+			err = gitWriting(ctx, target, "checkout-index", "--all")
 		}
 	}
 	if err != nil {
@@ -120,6 +136,31 @@ func Restore(ctx context.Context, o RestoreOptions) (result RestoreResult, err e
 	result.Moved = o.Branch != "" && o.Head != "" && !strings.EqualFold(o.Head, result.Head)
 	return result, nil
 }
+
+// gitWriting runs a Git command that writes a worktree out. That takes as
+// long as there are files, so nothing ends it but the caller giving up:
+// ended early, it would leave some of the files and not the rest. Hooks are
+// off as they are for inspection.
+func gitWriting(ctx context.Context, path string, args ...string) error {
+	prefix := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-C", path}
+	cmd := exec.CommandContext(ctx, "git", append(prefix, args...)...)
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Env = commandEnv()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if message := strings.TrimSpace(stderr.String()); message != "" {
+			return fmt.Errorf("git: %s", message)
+		}
+		return fmt.Errorf("git: %w", err)
+	}
+	return nil
+}
+
+// shellQuote writes one argument as a POSIX shell reads it back unchanged.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 
 func restorePathKind(info os.FileInfo) string {

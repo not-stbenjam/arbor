@@ -92,7 +92,9 @@ export function createWorkspaceView({
       ? "Choose a folder to scan to get started"
       : workspace.removing
         ? "Deleting worktrees…"
-        : `${plural(list.length, "worktree")} · ${detail}${state.hostFilter === null && unavailable ? ` · ${unavailable}` : ""}`;
+        : state.hosts.some((source) => source.operation === "restore")
+          ? "Putting worktrees back…"
+          : `${plural(list.length, "worktree")} · ${detail}${state.hostFilter === null && unavailable ? ` · ${unavailable}` : ""}`;
     // In a narrow window it is cut short, and can still be read in full.
     $("#status-message").title = $("#status-message").textContent;
   }
