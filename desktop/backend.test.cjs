@@ -67,10 +67,10 @@ test("cached manual cleanup binds consent and missing/empty expectations without
       selection(backend, { recommendedOnly: false, discardLocal: true }),
       (rows, { discardLocal }) => {
         const dialog = removalConfirmationOptions(rows, discardLocal);
-        // Forced, with nothing seen in it to lose: it says it is deleted
-        // whatever it holds, and is not called discarding work.
+        // Forced, with nothing seen in it to lose: nothing is said to be
+        // discarded, because nothing that was not named will be.
         if (kind === "locked" || kind === "detached") {
-          assert.match(dialog.detail, /Any uncommitted files are discarded/);
+          assert.doesNotMatch(dialog.detail, /discard/i);
           assert.equal(
             dialog.buttons[1],
             kind === "locked" ? "Delete" : "Delete",

@@ -25,7 +25,10 @@ type worktreeRequest struct {
 	preview, all, recommended, discardLocal bool
 	// acknowledged names the grave losses that have been agreed to: all of
 	// them with --force, otherwise the ones an integration showed its user.
+	// With onlyAcknowledged it names every loss agreed to, files in the folder
+	// included, and nothing else is discarded.
 	acknowledged                              []string
+	onlyAcknowledged                          bool
 	expectMissing, expectEmpty, expectBranch  bool
 	head, id, branch, sessionID               string
 	watchStdin, json, progress, humanProgress bool
@@ -79,15 +82,19 @@ func normalizeRequest(command string, flags *commandOptions) (r worktreeRequest,
 	if flags.force {
 		r.acknowledged = worktree.GraveLosses()
 	} else {
+		accepted := worktree.GraveLosses()
+		if flags.onlyAcknowledged {
+			accepted = worktree.LossNames()
+		}
 		for _, loss := range flags.acknowledge {
-			if !slices.Contains(worktree.GraveLosses(), loss) {
-				return r, fmt.Errorf("--acknowledge accepts %s, not %q", strings.Join(worktree.GraveLosses(), ", "), loss)
+			if !slices.Contains(accepted, loss) {
+				return r, fmt.Errorf("--acknowledge accepts %s, not %q", strings.Join(accepted, ", "), loss)
 			}
 		}
-		if len(flags.acknowledge) > 0 && !r.discardLocal {
-			return r, errors.New("--acknowledge applies to --discard-local")
+		if (len(flags.acknowledge) > 0 || flags.onlyAcknowledged) && !r.discardLocal {
+			return r, errors.New("--acknowledge and --only-acknowledged apply to --discard-local")
 		}
-		r.acknowledged = flags.acknowledge
+		r.acknowledged, r.onlyAcknowledged = flags.acknowledge, flags.onlyAcknowledged
 	}
 	if r.expectMissing && r.expectEmpty {
 		return r, errors.New("--expect-missing and --expect-empty are mutually exclusive")

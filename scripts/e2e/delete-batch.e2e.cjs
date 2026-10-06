@@ -25,8 +25,7 @@ scenario({
       assert.deepEqual(await t.texts(".cleanup-name"), ["a-safe", "b-dirty", "c-stale"]);
       assert.deepEqual(await t.js("[...document.querySelectorAll('.cleanup-item')].map((item) => item.dataset.tone)"), ["safe", "risk", "safe"]);
       assert.match((await t.texts(".cleanup-reason"))[1], /^Uncommitted changes · Show files$/);
-      assert.match(await t.text("#cleanup-lead"), /Branches and commits are kept; uncommitted files are discarded\./);
-      assert.match(await t.text("#cleanup-lead"), /uncommitted files are discarded/);
+      assert.match(await t.text("#cleanup-lead"), /Branches and commits are kept; what each would lose is listed\./);
       assert.equal(await t.text("#cleanup-confirm"), "Delete 3 worktrees…");
       assert.equal(t.messages.length, 0, "nothing is asked until the review is agreed to");
       // Agreeing asks once more, by name, because one of them would lose work.

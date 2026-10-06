@@ -49,7 +49,7 @@ scenario({
           assert.equal(question.title, "Delete worktree?");
           assert.equal(question.message, `Delete “${tree.name}”?`);
           assert.deepEqual(question.buttons, ["Cancel", "Delete"]);
-          assert.match(question.detail, /^Any uncommitted files are discarded/);
+          assert.doesNotMatch(question.detail, /discard/i);
         }
         if (tree.name === "detached") {
           assert.equal(question.title, "Delete worktree?");

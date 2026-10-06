@@ -1674,7 +1674,7 @@ test("deleting several worktrees chosen by hand shows every one, and what deleti
   );
   assert.match(list.innerHTML, /class="cleanup-item refused" data-review="broken"/);
   const lead = element("#cleanup-lead").innerHTML;
-  assert.equal(lead, "<p>Branches and commits are kept; uncommitted files are discarded.</p>");
+  assert.equal(lead, "<p>Branches and commits are kept; what each would lose is listed.</p>");
   assert.equal(
     element("#cleanup-total").textContent,
     "About 5 KB to recover · 3 not shown in the list",

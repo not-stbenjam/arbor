@@ -834,3 +834,60 @@ func TestWorktreeInAReadOnlyFolderIsRefusedWhole(t *testing.T) {
 		t.Fatal("Git no longer knows the worktree that was refused")
 	}
 }
+
+func TestOnlyWhatWasNamedIsDiscarded(t *testing.T) {
+	root := testRoot(t)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	testWrite(t, filepath.Join(repo, ".git/info/exclude"), "*.log\n")
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "private.log"), "ignored")
+	// The safe rules are off, so that the ignored file is a loss to be named.
+	options := Options{Root: root, SafeIgnored: []string{}}
+	scan := func() Worktree {
+		t.Helper()
+		report, err := Scan(context.Background(), options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return testTree(t, report, wt)
+	}
+	w := scan()
+	if !slices.Equal(w.Losses, []string{"ignored"}) {
+		t.Fatalf("losses = %v", w.Losses)
+	}
+	// A file is made after the list was read. Someone asked about ignored
+	// files has not agreed to lose it.
+	testWrite(t, filepath.Join(wt, "notes.txt"), "written since")
+	named := RemovalOptions{SafeIgnored: []string{}, ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: w.Losses, OnlyAcknowledged: true}
+	if _, err := RemoveWorktree(context.Background(), w, named); err == nil || !strings.Contains(err.Error(), "would also discard uncommitted changes and untracked files") {
+		t.Fatalf("a file nobody was asked about was not what stopped it: %v", err)
+	}
+	for _, name := range []string{"notes.txt", "private.log"} {
+		if _, err := os.Stat(filepath.Join(wt, name)); err != nil {
+			t.Fatalf("%s was deleted by a deletion that was refused", name)
+		}
+	}
+	// Nothing named at all, as for a worktree that is only locked, is the
+	// same: what is there now was not agreed to.
+	if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{SafeIgnored: []string{}, ExpectedHead: w.Head, DiscardLocal: true, OnlyAcknowledged: true}); err == nil {
+		t.Fatal("deleted with nothing named")
+	}
+	// Looked at again and asked about both, it goes.
+	w = scan()
+	if !slices.Equal(w.Losses, []string{"changes", "ignored"}) {
+		t.Fatalf("losses after the new file = %v", w.Losses)
+	}
+	named.Acknowledged = w.Losses
+	if result, err := RemoveWorktree(context.Background(), w, named); err != nil || !result.Removed {
+		t.Fatalf("%+v %v", result, err)
+	}
+	// Without it, agreeing to discard is agreeing to whatever files are
+	// there, which is what --force means to a person at a terminal.
+	other := testLinked(t, repo, filepath.Join(root, "other"), "other")
+	wt = other
+	w = scan()
+	testWrite(t, filepath.Join(other, "notes.txt"), "written since")
+	if result, err := RemoveWorktree(context.Background(), w, RemovalOptions{SafeIgnored: []string{}, ExpectedHead: w.Head, DiscardLocal: true}); err != nil || !result.Removed {
+		t.Fatalf("%+v %v", result, err)
+	}
+}

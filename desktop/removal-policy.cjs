@@ -1,7 +1,7 @@
 "use strict";
 
 const { MAX_WORKTREES } = require("./protocol.cjs");
-const { graveLosses } = require("./common/losses.mjs");
+const { lossesOf } = require("./common/losses.mjs");
 
 // Pure consent and CLI contract. This module neither starts operations nor
 // changes reports; the backend owns those lifetimes and mutations.
@@ -102,11 +102,12 @@ function removalArguments(
   if (host) args.push("--host", host);
   if (row.pr?.merged) args.push("--github");
   if (usesDiscardLocal(row, discardLocal)) {
-    args.push("--discard-local");
-    // Agreeing to discard local files is not agreeing to lose commits or a
-    // repository. Those are passed on by name, as the confirmation showed
-    // them, and the command refuses any it finds that were not.
-    for (const loss of graveLosses(row)) args.push("--acknowledge", loss);
+    // What is agreed to is what the confirmation named, kind by kind: files
+    // in the folder as much as commits or a repository. Each is passed on by
+    // name, and the command refuses a worktree it finds holding a kind that
+    // was not, such as a file made since the list was read.
+    args.push("--discard-local", "--only-acknowledged");
+    for (const loss of lossesOf(row)) args.push("--acknowledge", loss);
   } else args.push("--keep-local");
   if (recommendedOnly) args.push("--recommended-only");
   args.push("--", row.path);
@@ -119,8 +120,13 @@ function removalArguments(
 function inWindowTerms(message) {
   const refused =
     /^not removed: (.+?)\. Add --force to remove it anyway\b[^]*$/.exec(message);
-  return refused
-    ? `Not deleted. It has changed since the list was read: ${refused[1]}. Nothing in it was touched; its row now shows what it holds.`
+  if (refused)
+    return `Not deleted. It has changed since the list was read: ${refused[1]}. Nothing in it was touched; its row now shows what it holds.`;
+  // Found holding something the question did not name.
+  const more =
+    /^not deleted: it would also discard (.+?)\. Look at it again and confirm that$/.exec(message);
+  return more
+    ? `Not deleted. It now also holds ${more[1]}, which you were not asked about. Nothing in it was touched; its row now shows what it holds.`
     : message;
 }
 

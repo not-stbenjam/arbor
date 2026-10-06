@@ -42,8 +42,6 @@ function removalConfirmationOptions(trees, discardLocal) {
   if (grave.length) notes.push("Permanently loses:", ...grave.map((name) => `• ${LOSSES[name].text}`));
   if (trees.length > 1 && ordinary.length)
     notes.push(`Discards ${ordinary.map((name) => LOSSES[name].brief).join(" and ")}.`);
-  // Forced removal also accepts ordinary files that appeared after inspection.
-  if (discardsFiles && !lost.length) notes.push("Any uncommitted files are discarded.");
   if (registrationsOnly) notes.push(trees.length === 1
     ? "Folder already gone; only registration removed."
     : "Folders already gone; registrations only.");
@@ -51,7 +49,7 @@ function removalConfirmationOptions(trees, discardLocal) {
     // One on no branch has no branch to keep; its commits are kept all the same.
     trees.length === 1
       ? trees[0].detached ? "Its commits are kept." : "Its branch and commits are kept."
-      : "Their branches and commits are kept.");
+      : trees.some((row) => row.detached && !row.missing) ? "Their commits are kept." : "Their branches and commits are kept.");
   const hosts = new Map();
   for (const row of trees) {
     const host = row.host || "";

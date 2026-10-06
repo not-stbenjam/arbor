@@ -659,6 +659,25 @@ func TestCLIGraveLossesMustBeNamedOrForced(t *testing.T) {
 	if _, stderr, err := run("remove", "--yes", "--discard-local", "--acknowledge", "nested", "--", first); err != nil {
 		t.Fatalf("named loss refused: %v\n%s", err, stderr)
 	}
+	// An integration can also say that what it names is all that may be
+	// discarded, files in the folder included. The folder holding the other
+	// repository is itself untracked, which nobody was asked about here.
+	third := nest("third")
+	if _, stderr, err := run("remove", "--yes", "--discard-local", "--only-acknowledged", "--acknowledge", "nested", "--", third); err == nil || !strings.Contains(stderr, "would also discard uncommitted changes") {
+		t.Fatalf("files nobody named were not what stopped it: %v\n%s", err, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(third, "experiment", ".git")); err != nil {
+		t.Fatal("the worktree was deleted with files nobody named")
+	}
+	if _, _, err := run("remove", "--yes", "--discard-local", "--acknowledge", "changes", "--", third); err == nil || !strings.Contains(err.Error(), "--acknowledge accepts") {
+		t.Fatalf("a loss of files was named without --only-acknowledged: %v", err)
+	}
+	if _, _, err := run("remove", "--yes", "--only-acknowledged", "--", third); err == nil || !strings.Contains(err.Error(), "--discard-local") {
+		t.Fatalf("--only-acknowledged without --discard-local: %v", err)
+	}
+	if _, stderr, err := run("remove", "--yes", "--discard-local", "--only-acknowledged", "--acknowledge", "changes", "--acknowledge", "nested", "--", third); err != nil {
+		t.Fatalf("every loss named, and refused: %v\n%s", err, stderr)
+	}
 	second := nest("second")
 	if _, stderr, err := run("remove", "--yes", "--force", "--", second); err != nil {
 		t.Fatalf("--force refused: %v\n%s", err, stderr)

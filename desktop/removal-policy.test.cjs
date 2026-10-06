@@ -161,6 +161,7 @@ test("removal argv binds repository, identity, consent and stats session without
       "vps",
       "--github",
       "--discard-local",
+      "--only-acknowledged",
       "--",
       row.path,
     ],
@@ -462,11 +463,12 @@ test("losses graver than files are passed on by name, and only with consent to d
       recommendedOnly: false,
     });
   const discard = args(true);
-  // Files in the folder are covered by --discard-local itself. What is named
-  // is what the confirmation named, and nothing this app does not know.
+  // What is named is what the confirmation named, files in the folder as
+  // much as anything graver, and nothing this app does not know. Only what
+  // is named may be discarded.
   assert.deepEqual(
     discard.slice(discard.indexOf("--discard-local"), discard.indexOf("--")),
-    ["--discard-local", "--acknowledge", "submodules", "--acknowledge", "nested"],
+    ["--discard-local", "--only-acknowledged", "--acknowledge", "changes", "--acknowledge", "submodules", "--acknowledge", "nested"],
   );
   assert.equal(args(false).includes("--acknowledge"), false);
   assert.ok(args(false).includes("--keep-local"));

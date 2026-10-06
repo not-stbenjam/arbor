@@ -50,7 +50,7 @@ scenario({
       await t.click(`${await t.row(nested.path)} [data-delete]`);
       await t.until(() => t.visible("#error-banner"), "new repository refusal");
       await t.settled();
-      assert.match(await t.text("#error-message"), /would also discard.*repository/);
+      assert.match(await t.text("#error-message"), /now also holds.*repository.*which you were not asked about/);
       assert.equal(t.fixture.git(inner.path, "rev-parse", "HEAD"), inner.head());
       assert.equal(t.fixture.read(`${nested.path}/notes.txt`), "not added\n");
       assert.equal(await t.text(`${await t.row(nested.path)} .worktree-state`), "Nested repository");

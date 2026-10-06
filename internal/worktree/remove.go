@@ -24,6 +24,12 @@ type RemovalOptions struct {
 	// deleting was shown and accepted. DiscardLocal alone agrees to losing
 	// files in the folder, not to these.
 	Acknowledged []string
+	// OnlyAcknowledged makes that list the whole of what may be discarded:
+	// files in the folder too are lost only by the kind that was shown
+	// (changes, ignored, unchecked). A worktree found holding a kind that
+	// was not is left alone, to be looked at again. Without it, DiscardLocal
+	// agrees to whatever files are there when the deletion is made.
+	OnlyAcknowledged bool
 	// Progress is optional. It is told how far the deletion of the folder
 	// has got, from a goroutine of its own.
 	Progress func(Progress)
@@ -137,7 +143,7 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	}
 	// Consent is for what was shown. Something graver found since, or never
 	// shown, stops the deletion so that it can be seen and agreed to.
-	if missing := unacknowledged(current.Losses, options.Acknowledged); missing != "" {
+	if missing := unacknowledged(current.Losses, options.Acknowledged, options.OnlyAcknowledged); missing != "" {
 		return fmt.Errorf("not deleted: it would also discard %s. Look at it again and confirm that", missing)
 	}
 	// Retaining the named branch is part of Arbor's removal contract.
@@ -213,7 +219,7 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	if holdsSubmodules(details.modules) {
 		late = append(late, "submodules")
 	}
-	if missing := unacknowledged(late, options.Acknowledged); missing != "" {
+	if missing := unacknowledged(late, options.Acknowledged, options.OnlyAcknowledged); missing != "" {
 		return fmt.Errorf("not deleted: it would also discard %s. Look at it again and confirm that", missing)
 	}
 	if !missing {

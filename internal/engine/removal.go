@@ -67,6 +67,9 @@ func RemoveWorktree(ctx context.Context, request RemovalRequest) (result worktre
 	for _, loss := range request.Options.Acknowledged {
 		args = append(args, "--acknowledge", loss)
 	}
+	if request.Options.OnlyAcknowledged {
+		args = append(args, "--only-acknowledged")
+	}
 	if request.Options.Progress != nil {
 		args = append(args, "--progress")
 	}

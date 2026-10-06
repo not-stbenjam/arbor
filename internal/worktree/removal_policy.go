@@ -154,13 +154,32 @@ func GraveLosses() []string {
 	return names
 }
 
-// unacknowledged describes the grave losses in a worktree that the person
-// deleting it has not been shown and accepted, or is empty when there are
-// none. What they agreed to was what they saw.
-func unacknowledged(losses, acknowledged []string) string {
-	var missing []string
+// LossNames lists every loss a worktree can have, the ordinary ones (files
+// in its folder) and the grave ones alike, by the names passed between the
+// app and the command line.
+func LossNames() []string {
+	var names []string
 	for _, description := range reasonDescriptions {
-		if description.grave && slices.Contains(losses, description.loss) && !slices.Contains(acknowledged, description.loss) {
+		if description.loss != "" && !slices.Contains(names, description.loss) {
+			names = append(names, description.loss)
+		}
+	}
+	return names
+}
+
+// unacknowledged describes the losses in a worktree that the person deleting
+// it has not been shown and accepted, or is empty when there are none. What
+// they agreed to was what they saw. The grave ones always have to have been
+// accepted by name; with every, so do the ordinary ones.
+func unacknowledged(losses, acknowledged []string, every bool) string {
+	var missing []string
+	seen := map[string]bool{}
+	for _, description := range reasonDescriptions {
+		if description.loss == "" || seen[description.loss] || !(description.grave || every) {
+			continue
+		}
+		if slices.Contains(losses, description.loss) && !slices.Contains(acknowledged, description.loss) {
+			seen[description.loss] = true
 			missing = append(missing, description.lossText)
 		}
 	}

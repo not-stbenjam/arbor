@@ -61,7 +61,11 @@ export function deletionMeaning(row) {
     return { tone: "risk", text: words ? words.replace(/^./, (c) => c.toUpperCase()) : "",
       grave: graveLosses(row).map((name) => `Permanently loses ${LOSSES[name].text}`), notes: [...notes, ...safeNotes] };
   }
-  return { tone: notes.length ? "note" : "safe", ...(safeNotes.length ? { notes: safeNotes } : {}), text: notes.join(" · ") || (row.fresh ? "New; branch kept" : row.merged ? "Branch and commits kept" : "Not merged; branch kept") };
+  return { tone: notes.length ? "note" : "safe", ...(safeNotes.length ? { notes: safeNotes } : {}), text: notes.join(" · ") ||
+      // One on no branch has no branch to be told is kept.
+      (row.detached
+        ? "On no branch; commits kept"
+        : row.fresh ? "New; branch kept" : row.merged ? "Branch and commits kept" : "Not merged; branch kept") };
 
 }
 
@@ -237,7 +241,7 @@ export function createCleanupController({
     // Where history is among what would be lost, it is not also said to
     // be kept: what is kept is the repository each worktree belongs to.
     const grave = going.some((row) => graveLosses(row).length);
-    $("#cleanup-lead").innerHTML = `<p>${grave ? "Parent repository branches are kept; permanent losses are listed below." : going.some((row) => !row.canRemove && !row.missing && !row.empty) ? "Branches and commits are kept; uncommitted files are discarded." : "Branches and commits are kept."}</p>`;
+    $("#cleanup-lead").innerHTML = `<p>${grave ? "Parent repository branches are kept; permanent losses are listed below." : `${going.some((row) => row.detached && !row.missing) ? "Commits are kept" : "Branches and commits are kept"}${going.some((row) => lossesOf(row).length) ? "; what each would lose is listed" : ""}.`}</p>`;
     if (going.some((row) => row.allIgnoredSafe)) $("#cleanup-lead").innerHTML += "<p>Safe ignored files are deleted permanently.</p>";
     $("#cleanup-list").setAttribute(
       "aria-label",

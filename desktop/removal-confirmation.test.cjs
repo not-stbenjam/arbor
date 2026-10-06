@@ -19,11 +19,13 @@ test("ordinary single confirmations name losses once within 25 words and retain 
   }
 });
 
-test("forced deletion names the lock and covers new ordinary files even with no cached losses", () => {
+test("forced deletion with nothing seen to lose names the lock and promises no discarding", () => {
   for (const facts of [{ locked: true }, { detached: true }, { branch: "develop" }]) {
     const answer = options([{ ...row, ...facts, losses: [] }], true);
     assert.equal(answer.message, "Delete “topic”?");
-    assert.match(answer.detail, /Any uncommitted files are discarded\./);
+    // Nothing is named, so nothing may be discarded: a file made since the
+    // list was read stops the deletion (see removal-policy.test.cjs).
+    assert.doesNotMatch(answer.detail, /discard/i);
     // One on no branch has none to keep.
     assert.match(answer.detail, facts.detached ? /Its commits are kept\./ : /Its branch and commits are kept\./);
     assert.equal(answer.detail.includes("Lock overridden."), !!facts.locked);

@@ -294,10 +294,10 @@ if (args[0] === 'remove') {
             assert.ok(
               confirmations.every(
                 (options) =>
-                  options.detail.includes("Any uncommitted files are discarded") &&
+                  !/discard/i.test(options.detail) &&
                   options.buttons[1] === "Delete",
               ),
-              "force-removal consent must cover files added since the cached scan",
+              "nothing was seen to lose, so nothing is said to be discarded: a file added since the scan stops the deletion",
             );
           } else if (phase === "cleanup") {
             const selection = {
