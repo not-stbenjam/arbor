@@ -30,9 +30,44 @@ The desktop supports **macOS 13+** and modern Linux desktops (Ubuntu 22.04 or ne
 
 The machine being scanned needs **Git 2.36+**, for [NUL-separated worktree metadata](https://github.com/git/git/blob/master/Documentation/RelNotes/2.36.0.adoc). Optional GitHub PR status requires the [GitHub CLI](https://cli.github.com/) and `gh auth login` on that machine.
 
+### Homebrew
+
+Install the standalone CLI or the macOS app:
+
+```sh
+brew install stbenjam/arbor/arbor
+brew install --cask stbenjam/arbor/arbor
+```
+
+Arbor is ad-hoc signed, but not yet signed with an Apple Developer ID or
+notarized. macOS will refuse to open it the first time. After trying to open
+it, go to **System Settings → Privacy & Security → Open Anyway**.
+Only approve a download you trust.
+
+Upgrade the installations you use:
+
+```sh
+brew update
+brew upgrade --formula stbenjam/arbor/arbor
+brew upgrade --cask stbenjam/arbor/arbor
+```
+
+Uninstall either installation:
+
+```sh
+brew uninstall --formula stbenjam/arbor/arbor
+brew uninstall --cask stbenjam/arbor/arbor
+```
+
+These commands keep your preferences and statistics. To remove those too,
+back up your statistics first and use
+`brew uninstall --cask --zap stbenjam/arbor/arbor`; this also removes local
+statistics shared with the CLI. Repositories, worktrees and remote files
+are left alone.
+
 ### macOS
 
-Unzip the desktop download, drag **Arbor.app** into Applications, and open it. On first launch, a setup wizard lets you choose this computer or an SSH host, the folder to scan, folders to skip, and optional network checks before any scan starts. The app is ad-hoc signed but not Apple-notarized; macOS may require first-launch approval in **System Settings → Privacy & Security → Open Anyway** after attempting to open it. Only approve a download you trust.
+Unzip the desktop download, drag **Arbor.app** into Applications, and open it. On first launch, a setup wizard lets you choose this computer or an SSH host, the folder to scan, folders to skip, and optional network checks before any scan starts. Arbor is ad-hoc signed, but not yet signed with an Apple Developer ID or notarized. macOS will refuse to open it the first time. After trying to open it, go to **System Settings → Privacy & Security → Open Anyway**. Only approve a download you trust.
 
 The included backend is also usable from Terminal:
 
