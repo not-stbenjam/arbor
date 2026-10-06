@@ -49,7 +49,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.SetErr(stderr)
 	root.SetVersionTemplate("arbor {{.Version}}\n")
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error { return usageError(cmd, friendlyFlagError(err)) })
-	root.AddCommand(newListCommand(), newCleanCommand(), newRemoveCommand(), newGUICommand(), newStatsCommand())
+	root.AddCommand(newRestoreCommand(), newListCommand(), newCleanCommand(), newRemoveCommand(), newGUICommand(), newStatsCommand())
 	root.AddCommand(&cobra.Command{
 		Use: "version", Short: "Print the Arbor version", Args: checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {

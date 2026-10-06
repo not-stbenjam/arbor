@@ -68,6 +68,8 @@ function registerDesktopIPC({
   function registerIPC() {
     handle("arbor:get-defaults", () => DEFAULTS);
     handle("arbor:get-state", () => backend.getState());
+    handle("arbor:list-deletions", () => backend.listDeletions());
+    handle("arbor:restore", (ids) => backend.restore(ids));
     handle("arbor:get-stats", (host) => backend.readStats(host));
     handle("arbor:set-host-filter", (host) => {
       const state = backend.setHostFilter(host);

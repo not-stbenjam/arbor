@@ -638,7 +638,7 @@ test("a later host-level cleanup failure preserves earlier verified successes", 
     items: state.report.worktrees.map(({ id, head }) => ({ id, head })),
   });
   assert.deepEqual(result.results, [
-    { host: "", path: row.path, removed: true },
+    { host: "", path: row.path, removed: true, clean: true, restoreID: coordinator.listDeletions()[0].id },
     {
       host: "remote",
       path: row.path,

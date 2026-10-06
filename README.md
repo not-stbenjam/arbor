@@ -217,6 +217,11 @@ arbor clean --path ~/code --older-than 30d --yes
 arbor remove -- /absolute/path/to/worktree  # preview, including what --force would discard
 arbor remove /absolute/path/to/worktree --yes
 
+# Put a deleted checkout back; its parent must exist and PATH must not.
+arbor restore /absolute/path/to/worktree --repo /path/to/repository/.git --branch topic
+arbor restore /absolute/path/to/worktree --repo /path/to/repository/.git --detach COMMIT
+arbor restore /absolute/path/to/worktree --repo /path/to/repository/.git --branch topic --head COMMIT --host my-vps --json
+
 # Like git worktree remove, --yes alone refuses a worktree with local files or
 # a lock. --force discards them, and removes detached, missing or empty ones.
 arbor remove /path/to/worktree --force --yes
@@ -252,6 +257,7 @@ not a saved deletion plan, and newly recommended worktrees can join a later
 | `clean` or `remove PATH`, without `--yes` | Object: `dryRun: true`, `worktrees`, `warnings`, `requiresForce` |
 | `clean --yes` | Array of removal results, including failures; empty when nothing matches |
 | `remove PATH --yes` | One removal result object |
+| `restore PATH` | Object: `path`, `branch`, `head`, `restored`, `moved`, `error` |
 | `stats` | Statistics object with `version`, lifetime counters, `daily` entries and optional timestamps/`warning` |
 
 A removal result has `path` and `removed`, with `error` on failure and optional
@@ -380,7 +386,9 @@ While worktrees are deleted, the progress row says which one it is on, with a ba
 
 A worktree with a read-only folder in it, such as a Go module cache, or inside a folder that is itself read-only, is refused whole before anything is touched, with what to do about it: Git would otherwise delete what it could, forget the worktree, and leave a folder nothing lists any more.
 
-Deleted checkouts are not moved to Trash. Committed work can be checked out again with `git worktree add PATH BRANCH`; discarded uncommitted, untracked, and ignored files cannot be recovered through Git.
+Deleted checkouts are not moved to Trash. After deleting in the desktop app, **Undo** puts the committed checkout back on its branch at its original path. The notice stays for 12 seconds when Undo is available. **Recently deleted…**, beside Statistics and in the File menu, remembers up to 200 deletions from this app for 30 days, including SSH hosts, across restarts. Missing checkout registrations are not recorded. This path history is stored in `recent-deletions.json` beside the desktop scan cache; statistics remain aggregates only. Discarded uncommitted, untracked, and ignored files are not brought back, and the app says so after restoring a deletion that discarded work.
+
+From the terminal, use `arbor restore PATH --repo COMMON_DIR --branch BRANCH`, or `--detach COMMIT` for a detached checkout. Restoration requires an absent destination, an existing parent folder, and an existing branch that is not checked out elsewhere. It uses the branch's current commit; add `--head COMMIT` to report whether the branch has moved since deletion. Hooks are disabled. Repositories that name their own filter programs are refused with a `git worktree add` command to run yourself; standard Git LFS is allowed. Restore does not overwrite files or remove a partial checkout if writing files fails. Restore rebuilds committed files, not discarded work, worktree-specific configuration, or the old checkout's lock.
 
 Looking at a worktree runs nothing that its repository names. Hooks and the file-system monitor are switched off for Arbor's Git commands, and so is every filter program named in the configuration of a repository or of one of its worktrees, which Git would otherwise run to compare a changed file with what is committed. Git LFS, named as `git lfs install` names it, and filters from your own Git configuration outside the repository still run. With a filter off, Git compares a file it would have rewritten as it lies, and a changed file can look unchanged as easily as the other way about. So a worktree whose configuration names such a filter is shown as **Unchecked files** and is never a clean delete, and the scan says which filters it left off. A submodule's own filters are beyond this: Git runs them itself when it looks inside a submodule.
 

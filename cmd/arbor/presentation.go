@@ -112,6 +112,23 @@ func writeOutcome(out io.Writer, r worktreeRequest, outcome batchOutcome) error 
 			return err
 		}
 	}
+	if !r.json && len(outcome.removed) > 0 {
+		if len(outcome.results) == 1 {
+			w := outcome.removed[0]
+			command := "arbor restore " + shellArgument(w.Path) + " --repo " + shellArgument(w.CommonDir)
+			if w.Detached {
+				command += " --detach " + shellArgument(w.Head)
+			} else {
+				command += " --branch " + shellArgument(w.Branch)
+			}
+			if r.host != "" {
+				command += " --host " + shellArgument(r.host)
+			}
+			fmt.Fprintln(out, "Put it back with:", command)
+		} else {
+			fmt.Fprintln(out, "To put deleted worktrees back, see: arbor restore --help")
+		}
+	}
 	return outcome.err
 }
 

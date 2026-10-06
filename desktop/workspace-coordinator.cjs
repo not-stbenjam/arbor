@@ -1,5 +1,7 @@
 "use strict";
 
+const { RecentDeletions } = require("./recent-deletions.cjs");
+const { restoreSelection } = require("./protocol.cjs");
 const { Backend } = require("./backend.cjs");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
 const {
@@ -25,6 +27,8 @@ class WorkspaceCoordinator {
   #factory;
   #configuration;
   #cache;
+  #deletions;
+  #restoring = false;
   #entries = new Map();
   #filter = null;
   #revisions = new SnapshotRevisions();
@@ -48,12 +52,14 @@ class WorkspaceCoordinator {
     backendFactory = (options) => new Backend(options),
     concurrency = 3,
     cache = new WorkspaceCache(),
+    deletions = new RecentDeletions(),
     hostFilter = null,
     sessionHost,
     ...configuration
   } = {}) {
     this.#factory = backendFactory;
     this.#cache = cache;
+    this.#deletions = deletions;
     this.#configuration = configuration;
     this.#setupRequired = configuration.setupRequired === true;
     this.#scheduler = new HostScheduler(concurrency);
@@ -84,6 +90,7 @@ class WorkspaceCoordinator {
         backend: this.#factory({
           ...this.#configuration,
           cache: this.#cache,
+          deletions: this.#deletions,
           options,
           setupRequired: false,
         }),
@@ -401,7 +408,7 @@ class WorkspaceCoordinator {
   }
   async remove(value, confirm) {
     this.assertInteractive();
-    if (this.#removing) throw new Error("Cleanup is already running");
+    if (this.#removing || this.#restoring) throw new Error("An operation is already running");
     if (!Array.isArray(value?.items) || !value.items.length)
       throw new Error("Choose at least one worktree");
     // Each host's share is bounded like its scan when it is planned below.
@@ -486,6 +493,11 @@ class WorkspaceCoordinator {
             );
           }
         }
+        // A batch can exceed the history bound. Undo is offered only while
+        // every successful deletion still has its own saved entry.
+        const remembered = new Set(this.#deletions.list().map(entry => entry.id));
+        for (const result of results)
+          if (!remembered.has(result.restoreID)) delete result.restoreID;
         return {
           results,
           stopped: this.#closed || this.#removalStopped,
@@ -501,6 +513,37 @@ class WorkspaceCoordinator {
   #resultState() {
     const { report, revision } = this.getState();
     return { report, revision };
+  }
+  listDeletions() {
+    this.assertInteractive();
+    return this.#deletions.list([...this.#entries.keys()]);
+  }
+  async restore(value) {
+    this.assertInteractive();
+    const ids = restoreSelection(value);
+    if (this.#restoring || this.#removing) throw new Error("An operation is already running");
+    const entries = this.listDeletions();
+    const selected = ids.map(id => {
+      const item = entries.find(e => e.id === id);
+      if (!item) throw new Error("This deletion is no longer in the recent list");
+      const host = this.#requireHost(item.host);
+      if (this.#configuring.has(item.host) || this.#scheduler.queued(item.host) || host.backend.getState().busy)
+        throw new Error("An operation is already running on this host");
+      return item;
+    });
+    this.#restoring = true;
+    this.#cleanupHosts = new Set(selected.map(e => e.host));
+    this.#cleanupPending = (async () => {
+      const results = [];
+      try {
+        for (const item of selected) {
+          if (this.#closed) break;
+          results.push(await this.#requireHost(item.host).backend.restore(item));
+        }
+        return { results, ...this.#resultState() };
+      } finally { this.#restoring = false; this.#cleanupHosts.clear(); }
+    })();
+    return this.#cleanupPending;
   }
   async readStats(host = this.#filter) {
     this.assertInteractive();
@@ -585,7 +628,7 @@ class WorkspaceCoordinator {
   }
   resetPreferences(confirm, persist) {
     this.assertInteractive();
-    if (this.#removing)
+    if (this.#removing || this.#restoring)
       throw new Error("Wait for cleanup to finish before resetting Arbor");
     this.#transition = "reset";
     const controller = new AbortController();

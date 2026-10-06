@@ -1407,7 +1407,7 @@ test("a cleanup reports what it freed, counting only folders that existed", asyn
   });
   await fixture.workspace.deleteWorktrees(rows);
   assert.deepEqual(fixture.notifications, [
-    ["Deleted 3 worktrees · About 3 KB recovered."],
+    ["Deleted 3 worktrees · About 3 KB recovered.", false, undefined],
   ]);
   assert.match(fixture.workspace.error, /\/work\/kept: locked/);
   fixture.notifications.length = 0;
@@ -1417,7 +1417,7 @@ test("a cleanup reports what it freed, counting only folders that existed", asyn
   await fixture.workspace.deleteWorktrees([rows[2]]);
   // A missing folder was never deleted; only its registration was removed.
   assert.deepEqual(fixture.notifications, [
-    ["Removed 1 missing worktree registration · No folder was there to delete."],
+    ["Removed 1 missing worktree registration · No folder was there to delete.", false, undefined],
   ]);
   // A folder that vanished after the scan was not deleted either, and the
   // deletion itself says so: the size the scan measured is not claimed.
@@ -1431,7 +1431,7 @@ test("a cleanup reports what it freed, counting only folders that existed", asyn
   await fixture.workspace.deleteWorktrees(rows.slice(0, 2));
   assert.deepEqual(fixture.notifications, [
     [
-      "Deleted 2 worktrees · About 1 KB recovered · Its commits are kept on the branch arbor/retained/b-1a2b3c.",
+      "Deleted 2 worktrees · About 1 KB recovered · Its commits are kept on the branch arbor/retained/b-1a2b3c.", false, undefined,
     ],
   ]);
   // Stopped part-way, what was not reached is said, and is not an error.
@@ -1442,7 +1442,7 @@ test("a cleanup reports what it freed, counting only folders that existed", asyn
   });
   await fixture.workspace.deleteWorktrees([rows[0], rows[1], rows[3]]);
   assert.deepEqual(fixture.notifications, [
-    ["Deleted 1 worktree · About 2 KB recovered · Stopped with 2 left alone."],
+    ["Deleted 1 worktree · About 2 KB recovered · Stopped with 2 left alone.", false, undefined],
   ]);
   fixture.notifications.length = 0;
   fixture.api.remove = async () => ({ stopped: true, results: [] });

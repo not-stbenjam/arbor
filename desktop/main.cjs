@@ -13,6 +13,7 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { RecentDeletions } = require("./recent-deletions.cjs");
 const { WorkspaceCache } = require("./workspace-cache.cjs");
 const { registerSmokeTest } = require("./smoke-runner.cjs");
 const { createWindowLifecycle } = require("./window-lifecycle.cjs");
@@ -166,6 +167,9 @@ app
     backend = new WorkspaceCoordinator({
       binary,
       cache: workspaceCache,
+      deletions: await RecentDeletions.open(
+        path.join(app.getPath("userData"), "recent-deletions.json"),
+      ),
       version: `v${app.getVersion()}`,
       options,
       sessionHost: explicitLaunch ? options.host : undefined,

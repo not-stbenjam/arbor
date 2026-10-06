@@ -3,7 +3,7 @@ const { main, scenario, assert, fs, path, realCLI, ok, json, list } = require(".
 main(() => scenario("commands", async (f) => {
   const repo = f.repository("projects/repo");
   const a = repo.worktree("a"), b = repo.worktree("b", { modified: true });
-  for (const command of [[], ["--help"], ...["list", "clean", "remove", "stats", "version", "completion", "gui", "help"].map((x) => [x, "--help"])]) {
+  for (const command of [[], ["--help"], ...["list", "clean", "remove", "restore", "stats", "version", "completion", "gui", "help"].map((x) => [x, "--help"])]) {
     assert.match(ok(f.cli(...command)).stdout, /Usage:/);
   }
   assert.equal(ok(f.cli("version")).stdout, ok(f.cli("--version")).stdout);
@@ -49,6 +49,7 @@ main(() => scenario("commands", async (f) => {
   } else console.log("SKIP gui launch: macOS has a fixed /Applications lookup");
   assert.equal(json(f.cli("stats", "--json")).removedWorktrees, 0);
   await scriptingExamples(f);
+  restoreCommands(f);
   repo.git("remote", "add", "upstream", f.path("unfetched.git"));
   for (const command of ["list", "clean"]) {
     const args = [command, "--path", f.root, "--older-than=100w", "--json"];
@@ -80,4 +81,31 @@ async function scriptingExamples(f) {
     assert.ok(f.exists(recent.path));
     assert.ok(f.exists(repo.path));
   }
+}
+
+function restoreCommands(f) {
+  const repo = f.repository("restore/repo");
+  const tree = repo.worktree("topic");
+  const args = ["restore", tree.path, "--repo", repo.path, "--branch", "topic", "--json"];
+  let result = f.cli(...args);
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).restored, false);
+  assert.match(JSON.parse(result.stdout).error, /already exists/);
+  ok(f.cli("remove", tree.path, "--yes"));
+  const head = repo.head("topic");
+  assert.deepEqual(json(f.cli(...args, "--head", head)), { path: tree.path, branch: "topic", head, restored: true, moved: false, error: "" });
+  assert.equal(f.cli("restore", tree.path).status, 2);
+  assert.equal(f.cli(...args, "--detach", head).status, 2);
+  assert.equal(f.cli(...args, "--head", "HEAD").status, 2);
+  for (const flags of [["--branch", "absent"], ["--branch", "topic"], ["--detach", "0".repeat(40)]]) {
+    result = f.cli("restore", f.path("restore", "new"), "--repo", repo.path, ...flags, "--json");
+    assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).restored, false);
+  }
+  for (const [target, repository] of [[f.path("absent-parent", "new"),repo.path],[f.path("restore", "new"),f.path("restore")]]) {
+    result=f.cli("restore",target,"--repo",repository,"--detach",head,"--json");
+    assert.equal(result.status,1);assert.ok(JSON.parse(result.stdout).error);
+  }
+  const detached=f.path("restore", "detached");
+  assert.equal(json(f.cli("restore",detached,"--repo",repo.path,"--detach",head,"--json")).restored,true);
+  assert.equal(f.git(detached,"rev-parse","HEAD"),head);
 }

@@ -1,3 +1,4 @@
+import { undoAction } from "./restore-controller.mjs";
 import { size } from "./presentation.mjs";
 
 // Relative times such as "5m ago" go stale without any change in state.
@@ -19,6 +20,7 @@ export function createWorkspaceController({
   linked,
   notify,
   onChange,
+  onUndo,
   onSetup,
   onHostChange,
   onReset,
@@ -86,7 +88,7 @@ export function createWorkspaceController({
   const canDelete = (row) => {
     if (blocked() || !state.revision || row.pending) return false;
     const source = state.hosts.find((entry) => entry.host === (row.host || ""));
-    return !source || !["remove", "inspect"].includes(source.operation);
+    return !source || !["remove", "inspect", "restore"].includes(source.operation);
   };
   function showError(message) {
     clientError = message;
@@ -279,8 +281,12 @@ export function createWorkspaceController({
           ]
             .filter(Boolean)
             .join(" · ") + ".",
+          false,
+          onUndo ? undoAction(removed, onUndo) : undefined,
         );
       } else if (left) notify(`Stopped. ${count(left, "worktree")} left alone.`);
+      for (const result of removed)
+        if (result.historyError) notify(result.historyError, true);
       if (failed.length)
         showError(
           failed
@@ -429,6 +435,11 @@ export function createWorkspaceController({
   }
   return {
     initialize,
+    async reload() {
+      pollGeneration++;
+      clearTimeout(pollTimer);
+      try { updateState(await api.getState()); } finally { schedule(700); }
+    },
     scan,
     refresh,
     refreshHosts,
