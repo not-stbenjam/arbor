@@ -177,8 +177,50 @@ function scaleFixture(f, count) {
   f.preferences();
   return { count, paths };
 }
+// About three times the serial medians in scripts/perf/results.json. These
+// catch regressions in the rendered list; Git operation deadlines stay separate.
+const scaleBudgets = {
+  100: {
+    scanEndToInteractiveMS: 2600,
+    selectAllMS: 100,
+    searchMS: 350,
+    sortMS: 225,
+    reviewMS: 300,
+    wheelP95MS: 55,
+    wheelMaxMS: 55,
+    searchInputMaxMS: 30,
+    searchLongestTaskMS: 275
+  },
+  1000: {
+    scanEndToInteractiveMS: 3350,
+    selectAllMS: 375,
+    searchMS: 1100,
+    sortMS: 1475,
+    reviewMS: 1675,
+    wheelP95MS: 105,
+    wheelMaxMS: 150,
+    searchInputMaxMS: 175,
+    searchLongestTaskMS: 900,
+    maxResponseMS: 1250
+  },
+  3000: {
+    scanEndToInteractiveMS: 9450,
+    selectAllMS: 1025,
+    searchMS: 2800,
+    sortMS: 5050,
+    reviewMS: 5450,
+    wheelP95MS: 250,
+    wheelMaxMS: 375,
+    searchInputMaxMS: 1100,
+    searchLongestTaskMS: 1750
+  }
+};
+
 async function scaleRun(t, { deletion = false } = {}) {
   const numbers = { count: t.world.count };
+  const budgets = scaleBudgets[t.world.count <= 100 ? 100 : t.world.count <= 1000 ? 1000 : 3000];
+  const within = name => assert.ok(numbers[name] < budgets[name],
+    `${name} ${numbers[name]}ms exceeds ${budgets[name]}ms`);
   const initial = await t.state();
   const began = initial.hosts[0]?.progress?.startedAt || Date.parse(initial.report?.scannedAt) || Date.now();
   await t.until(() => t.count(".worktree-row"), "first painted rows", 300000);
@@ -192,9 +234,10 @@ async function scaleRun(t, { deletion = false } = {}) {
   await t.press("/"); await focus(t,"#search");
   numbers.scanEndToInteractiveMS = Date.now() - (Date.parse(state.report.scannedAt) + state.report.durationMs);
   assert.ok(numbers.scanMS < 300000, JSON.stringify(numbers));
-  async function timed(name, work, budget = 15000) {
+  within("scanEndToInteractiveMS");
+  async function timed(name, work) {
     const start = Date.now(); await work(); numbers[name] = Date.now()-start;
-    assert.ok(numbers[name] < budget, `${name} ${numbers[name]}ms exceeds ${budget}ms`);
+    within(name);
   }
   await tabTo(t,"#worktree-grid");
   await timed("selectAllMS", async () => {
@@ -208,12 +251,41 @@ async function scaleRun(t, { deletion = false } = {}) {
   const samples = (await frames).sort((a,b)=>a-b);
   numbers.wheelP95MS = +samples[Math.floor(samples.length*.95)].toFixed(1);
   numbers.wheelMaxMS = +samples.at(-1).toFixed(1);
-  assert.ok(numbers.wheelMaxMS < 5000, "scroll never freezes for five seconds");
+  within("wheelP95MS");
+  within("wheelMaxMS");
   await t.press("/");
+  // Time the application's input handler separately from the whole phrase,
+  // and observe long tasks so a quick final result cannot hide blocked keys.
+  await t.evaluate(() => {
+    const field = document.querySelector("#search"), inputs = [], tasks = [];
+    let began;
+    const start = () => { began = performance.now(); };
+    const end = () => inputs.push(performance.now() - began);
+    field.addEventListener("input", start, true);
+    field.addEventListener("input", end);
+    const observer = new PerformanceObserver(list => {
+      tasks.push(...list.getEntries().map(entry => entry.duration));
+    });
+    observer.observe({ type: "longtask" });
+    window.finishScaleInputTiming = () => {
+      field.removeEventListener("input", start, true);
+      field.removeEventListener("input", end);
+      tasks.push(...observer.takeRecords().map(entry => entry.duration));
+      observer.disconnect();
+      delete window.finishScaleInputTiming;
+      return {
+        searchInputMaxMS: +Math.max(0, ...inputs).toFixed(1),
+        searchLongestTaskMS: +Math.max(0, ...tasks).toFixed(1),
+      };
+    };
+  });
   await timed("searchMS", async () => {
     await t.type("delete-0000");
     await t.until(async () => await t.count('.worktree-row') === 1, 'one matching row');
   });
+  Object.assign(numbers, await t.js("finishScaleInputTiming()"));
+  within("searchInputMaxMS");
+  within("searchLongestTaskMS");
   await t.press("Escape");
   await t.until(async () => await t.count('.worktree-row') === t.world.count, 'search cleared');
   await timed("sortMS", () => t.click("#sort-direction"));
@@ -247,7 +319,7 @@ async function scaleRun(t, { deletion = false } = {}) {
     numbers.progressUpdates=progress.size;
     numbers.maxResponseMS=Math.max(...responsive);
     assert.ok(progress.size > 2, 'visible progress advances');
-    assert.ok(numbers.maxResponseMS < 15000, 'window keeps responding');
+    within("maxResponseMS");
     for (const [i,p] of t.world.paths.entries()) assert.equal(t.fixture.exists(p), i>=500, p);
     assert.equal(t.fixture.read('projects/sentinel'), 'keep outside checkout\n');
     assert.equal(t.fixture.statistics().removedWorktrees, 500);

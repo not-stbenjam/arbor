@@ -370,8 +370,12 @@ export function createWorktreeView({
           cached = { ...row, element };
           rowElements.set(row.key, cached);
         }
-        // Reordering an existing row preserves its layout and its controls.
-        // Rows that stay in place need no DOM mutation at all.
+        // A fresh immutable snapshot can describe the same content. Keep
+        // its identity too, so the next keystroke can reuse the markup.
+        cached.source = row.source;
+        cached.context = row.context;
+        // Reordering keeps the same controls and content. Rows that stay in
+        // place need no DOM mutation at all.
         if (cached.element !== before) {
           if (cached.element.parentNode === list)
             list.moveBefore(cached.element, before);
