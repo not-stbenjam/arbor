@@ -103,7 +103,7 @@ export function createWorktreeView({
     const inList = new Set(visible.map((row) => row.id)),
       unseen = rows.filter((row) => !inList.has(row.id)).length;
     $("#selection-label").textContent =
-      `${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"} selected${unseen ? ` · ${unseen} not shown` : ""}${unclean ? ` · ${unclean} with data to discard` : ""}${kept ? ` · ${kept} cannot be deleted` : ""}`;
+      `${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"} selected${unseen ? ` · ${unseen} not shown` : ""}${unclean ? ` · ${unclean} would lose files` : ""}${kept ? ` · ${kept} cannot be deleted` : ""}`;
     $("#remove-selected").disabled =
       blocked() ||
       !workspace.snapshot.revision ||

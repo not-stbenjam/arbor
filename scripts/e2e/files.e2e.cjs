@@ -37,7 +37,7 @@ scenario({
           async () => / items?$/.test(await t.text("#files-total")),
           "the inventory to load",
         );
-        assert.equal(await t.text("#files-title"), `Show Files — ${tree.name}`);
+        assert.equal(await t.text("#files-title"), `Files discarded with ${tree.name}`);
         const cli = t.fixture.cli(
           "files",
           tree.path,

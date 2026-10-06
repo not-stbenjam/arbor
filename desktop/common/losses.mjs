@@ -24,7 +24,7 @@ export const LOSSES = {
     grave: true,
   },
   operation: {
-    text: "unfinished rebase, merge or cherry-pick",
+    text: "unfinished rebase, merge or other Git operation",
     brief: "unfinished Git operation",
     grave: true,
   },

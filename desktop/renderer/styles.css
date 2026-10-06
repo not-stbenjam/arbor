@@ -2398,11 +2398,9 @@ th.sorted > button > .icon {
 #files-total {
   margin-right: auto;
 }
+/* Beside what a worktree would lose, in the review as on its row. */
 .cleanup-files {
-  grid-column: 2 / -1;
-  justify-self: start;
-  font-size: 12px;
-  padding: 3px 8px;
+  color: inherit;
 }
 
 @media (max-height: 360px) {

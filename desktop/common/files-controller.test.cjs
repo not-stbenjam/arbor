@@ -113,7 +113,7 @@ test("Show Files opened from consent offers Delete and reuses the current row; o
   const workspace = { snapshot: { revision: "current" }, items: [current], deleteWorktrees: (rows) => calls.push(rows) };
   const controller = createFilesController({ document, workspace, api: { worktreeFiles: async () => report() } });
   await controller.open(row, "current", { deleting: true });
-  assert.equal($("#files-title").textContent, "Show Files — one");
+  assert.equal($("#files-title").textContent, "Files discarded with one");
   assert.equal($("#files-delete").hidden, false);
   $("#files-delete").onclick();
   assert.equal($("#files-dialog").open, false);

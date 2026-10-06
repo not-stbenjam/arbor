@@ -16,7 +16,7 @@ scenario({
     await t.settled();
     await t.step("mixed selection explains counts and Cancel keeps every file", async () => {
       await t.click("#select-all");
-      assert.equal(await t.text("#selection-label"), "3 worktrees selected · 1 with data to discard");
+      assert.equal(await t.text("#selection-label"), "3 worktrees selected · 1 would lose files");
       // Several at once are first shown in full: every one, with what
       // deleting it means.
       await t.click("#remove-selected");
@@ -24,7 +24,7 @@ scenario({
       assert.equal(await t.text("#cleanup-title"), "Delete these 3 worktrees?");
       assert.deepEqual(await t.texts(".cleanup-name"), ["a-safe", "b-dirty", "c-stale"]);
       assert.deepEqual(await t.js("[...document.querySelectorAll('.cleanup-item')].map((item) => item.dataset.tone)"), ["safe", "risk", "safe"]);
-      assert.match((await t.texts(".cleanup-reason"))[1], /^Uncommitted changes$/);
+      assert.match((await t.texts(".cleanup-reason"))[1], /^Uncommitted changes · Show files$/);
       assert.match(await t.text("#cleanup-lead"), /Branches and commits are kept; uncommitted files are discarded\./);
       assert.match(await t.text("#cleanup-lead"), /uncommitted files are discarded/);
       assert.equal(await t.text("#cleanup-confirm"), "Delete 3 worktrees…");
@@ -58,7 +58,7 @@ scenario({
       assert.equal(await t.text(`${await t.row(stale.path)} .worktree-state`), "1 changed file");
       assert.match(await t.text("#toast-region"), /Deleted 2 worktrees/);
       await selected(t, ["c-stale"]);
-      assert.equal(await t.text("#selection-label"), "1 worktree selected · 1 with data to discard");
+      assert.equal(await t.text("#selection-label"), "1 worktree selected · 1 would lose files");
       assert.equal(await t.text("#all-count"), "1");
       assert.equal(t.fixture.statistics().cleanupSessions, 1);
       await statistics(t, 2);

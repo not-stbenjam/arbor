@@ -34,25 +34,25 @@ scenario({
         await t.settled();
         const question = t.messages.at(-1);
         assert.match(question.message, new RegExp(tree.name));
-        assert.match(question.detail, /branch and commits are kept/i);
+        // One on no branch has no branch to be told is kept.
+        assert.match(question.detail, tree.name === "detached" ? /Its commits are kept/ : /branch and commits are kept/i);
         if (index < 3) {
-          assert.equal(question.title, "Delete worktrees?");
+          assert.equal(question.title, "Delete worktree?");
           assert.match(question.message, index === 2 ? /ignored files/ : /uncommitted changes/);
           assert.match(await t.attribute(`${row} [data-delete]`, "title"), /Discards/);
         }
         if (["locked", "reason", "missing"].includes(tree.name)) assert.match(question.detail, /Lock overridden/);
         if (tree.name === "missing") assert.match(question.detail, /Folder already gone; only registration removed/);
-        if (tree.name === "detached") assert.match(question.detail, /Its branch and commits are kept/);
         // A clean worktree that is only locked or detached is not said to
         // hold work: it is asked about by what it is, and still as forced.
         if (["locked", "reason"].includes(tree.name)) {
-          assert.equal(question.title, "Delete worktrees?");
+          assert.equal(question.title, "Delete worktree?");
           assert.equal(question.message, `Delete “${tree.name}”?`);
           assert.deepEqual(question.buttons, ["Cancel", "Delete"]);
           assert.match(question.detail, /^Any uncommitted files are discarded/);
         }
         if (tree.name === "detached") {
-          assert.equal(question.title, "Delete worktrees?");
+          assert.equal(question.title, "Delete worktree?");
           assert.deepEqual(question.buttons, ["Cancel", "Delete"]);
         }
         assert.equal(t.fixture.exists(tree.path), tree.name !== "missing");

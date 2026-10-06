@@ -1638,7 +1638,7 @@ test("deleting several worktrees chosen by hand shows every one, and what deleti
   ];
   assert.deepEqual(rows.map(deletionMeaning), [
     { tone: "safe", text: "All commits are in origin/main" },
-    { tone: "safe", text: "Branch and commits kept" },
+    { tone: "safe", text: "Not merged; branch kept" },
     { tone: "safe", text: "New; branch kept" },
     { tone: "risk", text: "Uncommitted changes and ignored files", grave: [], notes: [] },
     { tone: "note", text: "Lock overridden" },
@@ -3001,7 +3001,7 @@ test("a row and a selection say when deleting is not a clean delete, before the 
   tick({});
   assert.equal(
     element("#selection-label").textContent,
-    "4 worktrees selected · 3 with data to discard",
+    "4 worktrees selected · 3 would lose files",
   );
   fixture.workspace.dispose();
 });

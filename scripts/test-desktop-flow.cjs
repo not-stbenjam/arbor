@@ -348,7 +348,7 @@ app.once("browser-window-created", (_event, win) => {
         assert.deepEqual(await ticked(), {
           boxes: 1,
           rows: 1,
-          bar: "1 worktree selected · 1 with data to discard",
+          bar: "1 worktree selected · 1 would lose files",
           all: [false, 0],
         });
         assert.equal(await status(), summary, "the totals stay where they are");
@@ -421,7 +421,7 @@ app.once("browser-window-created", (_event, win) => {
         );
         const folder = await ticked();
         assert.deepEqual(
-          { ...folder, bar: folder.bar.replace(/ · \d+ with data to discard$/, "") },
+          { ...folder, bar: folder.bar.replace(/ · \d+ would lose files$/, "") },
           {
             boxes: 20,
             rows: 20,
@@ -429,7 +429,7 @@ app.once("browser-window-created", (_event, win) => {
             all: [false, 0],
           },
         );
-        assert.match(folder.bar, / · \d+ with data to discard$/);
+        assert.match(folder.bar, / · \d+ would lose files$/);
         // The folder's own box is ticked now that everything under it is.
         assert.equal(
           await js(

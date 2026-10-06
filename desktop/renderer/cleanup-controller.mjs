@@ -56,7 +56,7 @@ export function deletionMeaning(row) {
     return { tone: "risk", text: words ? words.replace(/^./, (c) => c.toUpperCase()) : "",
       grave: graveLosses(row).map((name) => `Permanently loses ${LOSSES[name].text}`), notes };
   }
-  return { tone: notes.length ? "note" : "safe", text: notes.join(" · ") || (row.fresh ? "New; branch kept" : "Branch and commits kept") };
+  return { tone: notes.length ? "note" : "safe", text: notes.join(" · ") || (row.fresh ? "New; branch kept" : row.merged ? "Branch and commits kept" : "Not merged; branch kept") };
 
 }
 
@@ -137,7 +137,7 @@ export function createCleanupController({
           .map(named)
           .join(" · ");
         const meaning = deletionMeaning(row);
-        return `<li class="cleanup-item${refused.has(row.id) ? " refused" : ""}" data-review="${esc(row.id)}" data-tone="${meaning.tone}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${row.missing ? "—" : size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(meaning.text)}${(meaning.grave || []).map((text) => `<strong class="cleanup-grave">${named(text)}</strong>`).join("")}${(meaning.notes || []).map((text) => `<span class="cleanup-note">${named(text)}</span>`).join("")}</span><span class="cleanup-changed">Changed; kept.</span><span class="cleanup-path">${pathed(row.path)}</span>${!row.canRemove ? `<button type="button" class="button cleanup-files" data-files="${esc(row.id)}">Show Files…</button>` : ""}</li>`;
+        return `<li class="cleanup-item${refused.has(row.id) ? " refused" : ""}" data-review="${esc(row.id)}" data-tone="${meaning.tone}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${row.missing ? "—" : size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(meaning.text)}${lossesOf(row).length ? `${meaning.text ? " · " : ""}<button type="button" class="state-files cleanup-files" data-files="${esc(row.id)}">Show files</button>` : ""}${(meaning.grave || []).map((text) => `<strong class="cleanup-grave">${named(text)}</strong>`).join("")}${(meaning.notes || []).map((text) => `<span class="cleanup-note">${named(text)}</span>`).join("")}</span><span class="cleanup-changed">Changed just now, so it is kept.</span><span class="cleanup-path">${pathed(row.path)}</span></li>`;
       })
       .join("");
   }

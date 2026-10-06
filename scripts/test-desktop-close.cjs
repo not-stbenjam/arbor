@@ -285,10 +285,10 @@ if (args[0] === 'remove') {
             // Deleted only by being told to, with nothing seen in it to
             // lose: asked about plainly, and still said to be forced.
             assert.equal(confirmations[0].message, "Delete “tree-1”?");
-            assert.equal(confirmations[0].title, "Delete worktrees?");
+            assert.equal(confirmations[0].title, "Delete worktree?");
             assert.match(
               confirmations[0].detail,
-              /branch and commits are kept/,
+              /Its commits are kept\./,
             );
             assert.equal(confirmations[1].message, "Delete “tree-2”?");
             assert.ok(

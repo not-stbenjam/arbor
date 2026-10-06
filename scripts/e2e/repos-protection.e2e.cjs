@@ -53,7 +53,7 @@ scenario({
           const w=await t.worktree(p); assert.ok(w, name); assert.equal(w.recommended,false,name); assert.ok(w.losses.includes('operation'),name);
           assert.match(await t.text(await t.row(p)), /Git operation|changed file/);
           t.answer("Cancel"); await t.click(`${await t.row(p)} [data-delete]`);
-          await t.until(()=>t.messages.length>0 && t.messages.at(-1).detail.includes('unfinished rebase, merge or cherry-pick'),name);
+          await t.until(()=>t.messages.length>0 && t.messages.at(-1).detail.includes('unfinished rebase, merge or other Git operation'),name);
           await t.settled(); assert.ok(t.fixture.exists(p));
         }
       });
@@ -61,7 +61,7 @@ scenario({
         for (const [p,loss] of [[t.world.modules,'submodules'],[t.world.nested,'nested']]) {
           const w=await t.worktree(p); assert.equal(w.recommended,false); assert.ok(w.losses.includes(loss));
           t.answer("Cancel"); await t.click(`${await t.row(p)} [data-delete]`); await t.settled();
-          assert.equal(t.messages.at(-1).title,'Delete worktrees?');
+          assert.equal(t.messages.at(-1).title,'Delete worktree?');
           assert.match(t.messages.at(-1).detail, loss==='nested' ? /nested repository/ : /submodules and their unpushed commits/);
           assert.ok(t.fixture.exists(p));
         }

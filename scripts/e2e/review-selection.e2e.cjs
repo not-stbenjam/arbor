@@ -36,9 +36,9 @@ scenario({
         await search(t, "spike");
         assert.equal(await t.text("#selection-label"), "2 worktrees selected · 2 not shown");
         await t.click("#select-all");
-        assert.equal(await t.text("#selection-label"), "4 worktrees selected · 2 not shown · 1 with data to discard");
+        assert.equal(await t.text("#selection-label"), "4 worktrees selected · 2 not shown · 1 would lose files");
         await search(t, "keep");
-        assert.equal(await t.text("#selection-label"), "4 worktrees selected · 4 not shown · 1 with data to discard");
+        assert.equal(await t.text("#selection-label"), "4 worktrees selected · 4 not shown · 1 would lose files");
         assert.equal(await t.count(".worktree-row.selected"), 0);
       });
       await t.step("deleting them shows all four, though the list shows none of them", async () => {
@@ -50,15 +50,15 @@ scenario({
         assert.deepEqual(await t.texts(".cleanup-reason"), [
           "All commits are in origin/main",
           "All commits are in origin/main",
-          "Branch and commits kept",
-          "Uncommitted changes",
+          "Not merged; branch kept",
+          "Uncommitted changes · Show files",
         ]);
         assert.match(await t.text("#cleanup-total"), /4 not shown in the list/);
         assert.deepEqual(t.messages, []);
         // Cancelling leaves the selection, and everything on disk, as it was.
         await t.press("Escape");
         assert.equal(await reviewOpen(), false);
-        assert.equal(await t.text("#selection-label"), "4 worktrees selected · 4 not shown · 1 with data to discard");
+        assert.equal(await t.text("#selection-label"), "4 worktrees selected · 4 not shown · 1 would lose files");
         for (const tree of Object.values(t.world)) assert.equal(t.fixture.exists(tree.path), true);
       });
       await t.step("agreeing deletes exactly those, asking once more about the one with changes", async () => {
@@ -90,7 +90,7 @@ scenario({
         await shown(t, ["keep-c1", "keep-c2"]);
         await t.click(`${await t.row(c2.path)} .branch-cell`);
         await search(t, "keep-c1");
-        assert.equal(await t.text("#selection-label"), "1 worktree selected · 1 not shown · 1 with data to discard");
+        assert.equal(await t.text("#selection-label"), "1 worktree selected · 1 not shown · 1 would lose files");
         // Delete on the row in view still means what is ticked.
         await t.click(`${await t.row(c1.path)} .activity-cell`, { button: "right" });
         await t.press("Delete");

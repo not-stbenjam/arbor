@@ -10,7 +10,7 @@ test("ordinary single confirmations name losses once within 25 words and retain 
   for (const losses of [["ignored"], ["changes"], ["changes", "ignored"], ["unchecked"], ["changes", "ignored", "unchecked"]]) {
     const answer = options([{ ...row, losses }], true);
     assert.deepEqual(answer, {
-      title: "Delete worktrees?",
+      title: "Delete worktree?",
       message: `Delete “topic” and its ${losses.map((name) => LOSSES[name].brief).join(" and ")}?`,
       detail: "Its branch and commits are kept.\n\n/work/topic",
       buttons: ["Cancel", "Delete", "Show Files…"],
@@ -24,7 +24,8 @@ test("forced deletion names the lock and covers new ordinary files even with no 
     const answer = options([{ ...row, ...facts, losses: [] }], true);
     assert.equal(answer.message, "Delete “topic”?");
     assert.match(answer.detail, /Any uncommitted files are discarded\./);
-    assert.match(answer.detail, /Its branch and commits are kept\./);
+    // One on no branch has none to keep.
+    assert.match(answer.detail, facts.detached ? /Its commits are kept\./ : /Its branch and commits are kept\./);
     assert.equal(answer.detail.includes("Lock overridden."), !!facts.locked);
     assert.deepEqual(answer.buttons, ["Cancel", "Delete"]);
     assert.ok(words(answer.message + " " + answer.detail.replace(row.path, "")) <= 25);

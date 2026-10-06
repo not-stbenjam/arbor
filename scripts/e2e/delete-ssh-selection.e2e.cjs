@@ -19,7 +19,7 @@ scenario({
     await t.step("cross-host selection describes hosts and risks before deleting", async () => {
       assert.equal(await t.text("#all-count"), "3");
       await t.click("#select-all");
-      assert.equal(await t.text("#selection-label"), "3 worktrees selected · 1 with data to discard");
+      assert.equal(await t.text("#selection-label"), "3 worktrees selected · 1 would lose files");
       // The review names each one's host, and what deleting each means.
       await t.click("#remove-selected");
       await t.until(() => t.js("document.querySelector('#cleanup-dialog').open"), "the review of the selection");

@@ -48,7 +48,10 @@ function removalConfirmationOptions(trees, discardLocal) {
     ? "Folder already gone; only registration removed."
     : "Folders already gone; registrations only.");
   notes.push(grave.length ? "Parent repository branches are kept." :
-    trees.length === 1 ? "Its branch and commits are kept." : "Their branches and commits are kept.");
+    // One on no branch has no branch to keep; its commits are kept all the same.
+    trees.length === 1
+      ? trees[0].detached ? "Its commits are kept." : "Its branch and commits are kept."
+      : "Their branches and commits are kept.");
   const hosts = new Map();
   for (const row of trees) {
     const host = row.host || "";
@@ -129,7 +132,9 @@ function removalConfirmationOptions(trees, discardLocal) {
   const single = trees.length === 1;
   const losses = ordinary.map((name) => LOSSES[name].brief).join(" and ");
   return {
-    title: registrationsOnly ? "Remove registration?" : "Delete worktrees?",
+    title: registrationsOnly
+      ? `Remove registration${single ? "" : "s"}?`
+      : `Delete worktree${single ? "" : "s"}?`,
     message: single
       ? registrationsOnly ? `Remove registration for “${name}”?`
         : `Delete “${name}”${losses ? ` and its ${losses}` : ""}?`
