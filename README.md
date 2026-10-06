@@ -164,6 +164,8 @@ Arbor remembers each host's last scan across host switches and app restarts, and
 
 Drag the sidebar’s edge to resize it (160–320 pixels), double-click to reset, or use arrow keys on the separator. **Ctrl/Cmd+B**, **View → Toggle Sidebar**, and the toolbar button hide or show it. Its width and visibility are remembered; the toolbar button and application menus stay reachable while it is hidden.
 
+Click outside a dialog to do what Escape does, including cancelling a deletion review without deleting anything. Dragging from inside leaves it open; required setup stays open.
+
 ## Statistics
 
 Open **Statistics**, pinned beside Settings, for lifetime cleanup totals and 30-day charts: worktrees deleted, estimated space recovered, cleanups, largest worktree, and average worktree size. Each chart is labelled with its scale; point at a day, or move to a chart with Tab and use the arrow keys, to read that day's figure. Successful deletions from both the desktop app and CLI count. Missing checkout registrations count as cleanups but recover zero bytes; disk space is an estimate, not a measurement of free space.

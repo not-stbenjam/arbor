@@ -1,3 +1,4 @@
+import { installDialogDismiss } from "./dialog-dismiss.mjs";
 import { createSidebarController } from "./sidebar-controller.mjs";
 import { createFilesController } from "./files-controller.mjs";
 import * as tree from "../common/worktree-tree.mjs";
@@ -19,6 +20,7 @@ document.body.classList.toggle(
   window.arbor?.platform === "darwin",
 );
 initializeDOM();
+installDialogDismiss(document);
 function notify(message, error = false, action) {
   const el = document.createElement("div");
   el.className = `toast${error ? " error" : ""}`;
