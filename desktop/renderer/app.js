@@ -133,6 +133,7 @@ async function bootstrap() {
     api,
     defaults,
     onSubmit: (options) => workspace.completeSetup(options),
+    onComplete: () => trees.focusGrid(),
     onThemeChange: (theme) => preferences.setTheme(theme),
   });
   statistics = createStatisticsController({

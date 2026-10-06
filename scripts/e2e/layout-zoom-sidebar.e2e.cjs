@@ -1,6 +1,6 @@
 "use strict";
-const {scenario,assert}=require('../harness.cjs');
-const {layout}=require('../stress-helpers.cjs');
+const {scenario,assert}=require('./harness.cjs');
+const {layout}=require('./stress-helpers.cjs');
 scenario({
   name:'minimum window at 200 percent retains controls', timeout:30,
   setup(f) {f.repository('projects/repo').worktree('merged');f.preferences();},

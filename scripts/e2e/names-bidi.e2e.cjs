@@ -1,5 +1,5 @@
 "use strict";
-const {scenario,assert}=require('../harness.cjs');
+const {scenario,assert}=require('./harness.cjs');
 scenario({
   name:'bidi controls must not invisibly reorder row names', timeout:30,
   setup(f) {const r=f.repository('projects/repo');r.worktree('safe\u202egnp.exe');f.preferences();},

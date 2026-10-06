@@ -213,8 +213,10 @@ a {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.workspace {
+body {
   --sidebar-width: 208px;
+}
+.workspace {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100vh;
@@ -227,6 +229,20 @@ a {
   padding: 8px;
   overflow: hidden;
   min-height: 0;
+}
+/* In a window too short for all of it, at high zoom, the sidebar scrolls
+   as a whole rather than cutting off what is at its foot. */
+@media (max-height: 420px) {
+  .sidebar {
+    overflow-y: auto;
+  }
+  .sidebar .repo-list {
+    flex: none;
+    overflow: visible;
+  }
+  .sidebar .sidebar-footer {
+    flex-shrink: 0;
+  }
 }
 .machine-area {
   margin-bottom: 11px;
@@ -1235,11 +1251,11 @@ dialog::backdrop {
 .toast-region {
   position: fixed;
   bottom: 39px;
-  left: calc(208px + 16px);
+  left: calc(var(--sidebar-width) + 16px);
   display: grid;
   gap: 7px;
   z-index: 20;
-  max-width: min(410px, calc(100vw - 208px - 150px));
+  max-width: min(410px, calc(100vw - var(--sidebar-width) - 150px));
 }
 /* The bar that acts on a selection has its count and its buttons there. */
 body:has(#selection-bar:not([hidden])) .toast-region {
@@ -1287,11 +1303,8 @@ body:has(#selection-bar:not([hidden])) .toast-region {
   border: 0;
 }
 @media (max-width: 1100px) {
-  .workspace {
+  body {
     --sidebar-width: 185px;
-  }
-  .toast-region {
-    left: calc(185px + 16px);
   }
   .toolbar,
   .pathbar,
@@ -1330,8 +1343,8 @@ body:has(#selection-bar:not([hidden])) .toast-region {
   }
 }
 @media (max-width: 800px) {
-  .workspace {
-    grid-template-columns: 160px minmax(0, 1fr);
+  body {
+    --sidebar-width: 160px;
   }
   /* Refresh can be an icon. The button that deletes always says so, and
      says what its confirming click will do. */

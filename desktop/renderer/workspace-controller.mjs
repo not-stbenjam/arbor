@@ -242,24 +242,44 @@ export function createWorkspaceController({
       if (result.error) showError(result.error);
       const removed = (result.results || []).filter((r) => r.removed),
         failed = (result.results || []).filter((r) => !r.removed);
+      const count = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+      // Stopped part-way, the rest were not tried, which is not a failure.
+      const left = result.stopped
+        ? list.length - (result.results || []).length
+        : 0;
       if (removed.length) {
         const key = (host, path) => JSON.stringify([host || "", path]);
-        const gone = new Set(removed.map((r) => key(r.host, r.path)));
-        // A missing checkout had no folder, whatever an older scan measured.
-        const freed = list
-          .filter((w) => !w.missing && gone.has(key(w.host, w.path)))
-          .reduce((total, w) => total + Math.max(0, w.sizeBytes || 0), 0);
-        // Sizes come from the last scan, so the figure is an estimate.
+        // A missing checkout had no folder, whatever an older scan measured,
+        // and the deletion itself says when it found none.
+        const gone = new Set(
+          removed.filter((r) => !r.missing).map((r) => key(r.host, r.path)),
+        );
         const folders = list.filter(
           (w) => !w.missing && gone.has(key(w.host, w.path)),
-        ).length;
-        const count = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
-        notify(
-          folders
-            ? `Deleted ${count(removed.length, "worktree")}${freed ? ` · About ${size(freed)} recovered` : ""}.`
-            : `Removed ${count(removed.length, "missing worktree registration")}.`,
         );
-      }
+        // Sizes come from the last scan, so the figure is an estimate.
+        const freed = folders.reduce(
+          (total, w) => total + Math.max(0, w.sizeBytes || 0),
+          0,
+        );
+        // A detached worktree's commits were given a branch to stay on.
+        const kept = removed.map((r) => r.retainedBranch).filter(Boolean);
+        notify(
+          [
+            folders.length
+              ? `Deleted ${count(removed.length, "worktree")}${freed ? ` · About ${size(freed)} recovered` : ""}`
+              : `Removed ${count(removed.length, "missing worktree registration")} · No folder was there to delete`,
+            kept.length === 1
+              ? `Its commits are kept on the branch ${kept[0]}`
+              : kept.length
+                ? `Commits of ${kept.length} detached worktrees are kept on arbor/retained branches`
+                : "",
+            left ? `Stopped with ${left} left alone` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ") + ".",
+        );
+      } else if (left) notify(`Stopped. ${count(left, "worktree")} left alone.`);
       if (failed.length)
         showError(
           failed
@@ -356,6 +376,15 @@ export function createWorkspaceController({
       schedule(700);
     }
   }
+  async function stopRemoval() {
+    if (!removing) return;
+    try {
+      updateState(await api.stopRemoval());
+    } catch (error) {
+      // It may have finished in the meantime, which is what was wanted.
+      if (removing) showError(error.message);
+    }
+  }
   async function reset() {
     if (resettingPreferences || removing) return;
     resettingPreferences = true;
@@ -400,6 +429,7 @@ export function createWorkspaceController({
     refreshHosts,
     setHostFilter,
     canDelete,
+    stopRemoval,
     remove,
     deleteWorktrees,
     cancel,

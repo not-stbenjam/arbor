@@ -1,6 +1,6 @@
 "use strict";
-const {scenario}=require('../harness.cjs');
-const {accessible}=require('../stress-helpers.cjs');
+const {scenario}=require('./harness.cjs');
+const {accessible}=require('./stress-helpers.cjs');
 scenario({
   name:'zoomed refresh retains an accessible name', timeout:30,
   setup(f) {f.repository('projects/repo').worktree('merged');f.preferences();},

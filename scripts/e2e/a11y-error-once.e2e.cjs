@@ -1,5 +1,5 @@
 "use strict";
-const { scenario, assert } = require("../harness.cjs");
+const { scenario, assert } = require("./harness.cjs");
 scenario({
   name: "sorting does not repeat an unchanged error alert", timeout: 30,
   setup(f) {
@@ -11,7 +11,7 @@ scenario({
   },
   launches: [async t => {
     await t.settled(); await t.painted();
-    await t.click(`${await t.row(t.world.path)} [data-delete]`);
+    await t.click(`${await t.row(t.world.path)} .activity-cell`); await t.press("Delete");
     await t.until(() => t.visible("#error-banner"), "error alert");
     const before = await t.text("#error-message");
     // Observe the live region until the sort button's accessible label

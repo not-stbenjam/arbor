@@ -25,8 +25,8 @@ scenario({
     await tabTo(t, "#setup-start"); await t.press("Enter");
     await t.settled();
     await t.until(() => t.js("!document.querySelector('#setup-dialog').open"), "setup closes");
-    // Immediate focus restoration is asserted independently in bugs/setup-focus.
+    // The keyboard is handed to the list the scan is filling.
     await t.until(async () => await t.count('.worktree-row') === 1, 'scan painted');
-    await t.press("Tab"); await focus(t, "#machine-button");
+    await focus(t, "#worktree-grid");
   }],
 });

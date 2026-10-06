@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -192,4 +193,37 @@ func relative(root, path string) string {
 		name = "…" + name[len(name)-limit:]
 	}
 	return filepath.ToSlash(name)
+}
+
+// sealed finds a folder in root that deleting would stop at: one that holds
+// something and that this user may not change, or may not look into. Git
+// forgets a worktree even when it could not delete all of its files, and
+// what is left is then a folder nothing lists any more. Finding such a
+// folder first means nothing is touched and the worktree can be put right.
+func sealed(root string) string {
+	const writeAndEnter = 0x2 | 0x1
+	checked := map[string]bool{}
+	found := ""
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			// A folder that cannot be read cannot be emptied either.
+			found = path
+			return fs.SkipAll
+		}
+		if path == root {
+			return nil
+		}
+		// A folder is checked when the first thing in it is met: an empty
+		// one is deleted through its parent, whatever its own permissions.
+		parent := filepath.Dir(path)
+		if !checked[parent] {
+			checked[parent] = true
+			if syscall.Access(parent, writeAndEnter) != nil {
+				found = parent
+				return fs.SkipAll
+			}
+		}
+		return nil
+	})
+	return found
 }

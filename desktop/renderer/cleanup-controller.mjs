@@ -1,4 +1,4 @@
-import { icon, esc, branchName, size, sizeOf } from "./presentation.mjs";
+import { icon, esc, plain, branchName, size, sizeOf } from "./presentation.mjs";
 import { recommendationReason } from "./worktree-presentation.mjs";
 
 const plural = (count, noun) => `${count} ${count === 1 ? noun : `${noun}s`}`;
@@ -21,11 +21,6 @@ export const cleanupScope = (workspace, shown) =>
 // A name is shown as it is, but never invisibly: a character that would hide
 // or reorder the text around it is drawn as a mark instead, and the name
 // keeps its own direction whatever script it is written in.
-const plain = (value) =>
-  String(value ?? "").replace(
-    /[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g,
-    "\ufffd",
-  );
 const named = (value) => `<bdi>${esc(plain(value))}</bdi>`;
 // A path too long for its line breaks between folders. A folder's own name
 // is split only when it is longer than a line.

@@ -41,8 +41,11 @@ export function createWorkspaceView({
       count = plural(ready.length, "worktree"),
       button = $("#cleanup-button");
     $("#refresh-button").disabled = disabled;
+    const refresh = state.cancelled ? "Scan again" : "Refresh";
     $("#refresh-button").innerHTML =
-      `${icon("refresh", state.busy ? "spinning" : "")}<span>${state.cancelled ? "Scan again" : "Refresh"}</span>`;
+      `${icon("refresh", state.busy ? "spinning" : "")}<span>${refresh}</span>`;
+    // In a narrow window the button is its icon alone, and still has a name.
+    $("#refresh-button").setAttribute("aria-label", refresh);
     button.disabled = disabled || !state.revision || !ready.length;
     // A running operation is not an unavailable one; it stays fully legible.
     button.setAttribute("aria-busy", String(workspace.removing));
@@ -186,7 +189,11 @@ export function createWorkspaceView({
     $("#error-banner").hidden = !message;
     $("#error-banner").dataset.kind = kind;
     $("#error-banner").setAttribute("role", error ? "alert" : "status");
-    $("#error-message").textContent = sentenceCase(message);
+    // An alert is read out when it is written, so one that has not changed
+    // is not written again each time the list is drawn.
+    const said = sentenceCase(message);
+    if ($("#error-message").textContent !== said)
+      $("#error-message").textContent = said;
     $("#dismiss-error").setAttribute("aria-label", `Dismiss ${kind}`);
     renderProgress();
     renderControls();
@@ -195,6 +202,8 @@ export function createWorkspaceView({
   $("#host-progress-list").addEventListener("click", (event) => {
     const button = event.target.closest("[data-stop-host]");
     if (button && !button.disabled) workspace.cancel(button.dataset.stopHost);
+    const halt = event.target.closest("[data-stop-removal]");
+    if (halt && !halt.disabled) workspace.stopRemoval();
   });
   $("#refresh-button").onclick = workspace.refresh;
   $("#cleanup-button").onclick = () => onCleanup();

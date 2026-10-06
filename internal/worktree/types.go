@@ -112,4 +112,7 @@ type RemovalResult struct {
 	Removed        bool   `json:"removed"`
 	Error          string `json:"error,omitempty"`
 	RetainedBranch string `json:"retainedBranch,omitempty"`
+	// Missing says there was no folder to delete: the worktree was only
+	// something Git still had a record of.
+	Missing bool `json:"missing,omitempty"`
 }

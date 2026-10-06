@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.invoke("arbor:complete-setup", options),
     cancelScan: (host) => ipcRenderer.invoke("arbor:cancel-scan", host),
     remove: (selection) => ipcRenderer.invoke("arbor:remove", selection),
+    stopRemoval: () => ipcRenderer.invoke("arbor:stop-removal"),
     chooseFolder: () => ipcRenderer.invoke("arbor:choose-folder"),
     getPreferences: () => ipcRenderer.invoke("arbor:get-preferences"),
     savePreferences: (preferences) =>

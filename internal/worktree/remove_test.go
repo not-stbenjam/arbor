@@ -617,3 +617,49 @@ func TestUnfinishedOperationIsALossEvenWithoutTheFolder(t *testing.T) {
 		t.Fatal("the registration was not removed")
 	}
 }
+
+// Git forgets a worktree it could only partly delete. One with a folder
+// that cannot be emptied is refused whole, before anything is touched.
+func TestWorktreeWithAReadOnlyFolderIsRefusedWhole(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("the superuser may change a read-only folder")
+	}
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	linked := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	sealedDir := filepath.Join(linked, "ignored", "cache")
+	if err := os.MkdirAll(sealedDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	testWrite(t, filepath.Join(sealedDir, "module.txt"), "kept\n")
+	// An empty read-only folder stops nothing: it goes through its parent.
+	if err := os.Mkdir(filepath.Join(linked, "ignored", "empty"), 0500); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealedDir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealedDir, 0700) })
+	w := testTree(t, testScan(t, root), linked)
+	result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: w.Losses})
+	if err == nil || result.Removed || !strings.Contains(err.Error(), "the folder ignored/cache inside it is read-only") {
+		t.Fatalf("removal: %+v, %v", result, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(sealedDir, "module.txt")); string(data) != "kept\n" {
+		t.Fatal("a file was deleted from a worktree that was refused")
+	}
+	if _, err := os.Stat(filepath.Join(linked, "tracked.txt")); err != nil {
+		t.Fatal("the worktree was partly deleted")
+	}
+	if !strings.Contains(testGit(t, repo, "worktree", "list", "--porcelain"), linked) {
+		t.Fatal("Git no longer knows the worktree that was refused")
+	}
+	// Made writable, it goes.
+	if err := os.Chmod(sealedDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	w = testTree(t, testScan(t, root), linked)
+	if result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: w.Losses}); err != nil || !result.Removed || result.Missing {
+		t.Fatalf("removal once writable: %+v, %v", result, err)
+	}
+}

@@ -28,7 +28,9 @@ scenario({
     for (const p of t.world.paths) {
       const row = await t.row(p);
       assert.equal(await t.attribute(row, "data-path"), p);
-      assert.equal(await t.attribute(`${row} .worktree-path`, "title"), p);
+      // What is shown marks characters that hide or reorder a name; the
+      // row's own record of the path, above, keeps every one of them.
+      assert.equal(await t.attribute(`${row} .worktree-path`, "title"), p.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, "\ufffd"));
     }
     assert.equal(await t.count("#worktree-list img, #worktree-list script"), 0);
     assert.equal(t.fixture.exists("PWNED"), false);

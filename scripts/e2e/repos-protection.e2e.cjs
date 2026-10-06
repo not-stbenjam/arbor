@@ -69,10 +69,10 @@ scenario({
       await t.step("corrupt and unreadable checkouts cannot be deleted; sparse checkout is clean",async()=>{
         for (const p of [t.world.broken,t.world.unreadable]) {
           const w=await t.worktree(p); assert.ok(w); assert.equal(w.canRemove,false); assert.equal(w.canDiscard,false); assert.equal(w.recommended,false);
-          // The enabled Delete affordance is isolated in bugs/corrupt-delete-button.
+          // Its Delete is off and says why, with nothing to press and nothing asked.
           const before = t.messages.length;
-          await t.click(`${await t.row(p)} [data-delete]`);
-          await t.until(() => t.visible("#error-banner"), "blocked deletion is explained");
+          assert.equal(await t.enabled(`${await t.row(p)} [data-delete]`), false);
+          assert.match(await t.attribute(`${await t.row(p)} [data-delete]`, "title"), /^Cannot be deleted: /);
           assert.equal(t.messages.length, before); assert.ok(t.fixture.exists(p));
         }
         const sparse=await t.worktree(t.world.sparse); assert.equal(sparse.recommended,true); assert.deepEqual(sparse.losses,[]);

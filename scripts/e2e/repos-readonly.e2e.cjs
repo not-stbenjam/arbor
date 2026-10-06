@@ -10,10 +10,10 @@ scenario({
       await t.settled();t.answer('Delete Worktree');await t.click(`${await t.row(t.world.target)} [data-delete]`);
       await t.until(()=>t.visible('#error-banner'),'permission error');await t.settled();
       assert.ok(t.fixture.exists(t.world.target));assert.ok(t.fixture.exists(path.join(t.world.target,'README.md')));
-      assert.match(await t.text('#error-message'),/Permission denied|permission denied/);
+      assert.match(await t.text('#error-message'),/read-only.*Make it writable/s);
       assert.ok(t.fixture.exists(t.world.keep));assert.equal(t.fixture.read('projects/sentinel'),'keep');
-      // Retryability after Git drops the failed registration is asserted in
-      // bugs/readonly-disappears; this scenario checks the surviving data.
+      // That the row stays and deletes once writable is in delete-read-only;
+      // this scenario checks what is beside it.
 
     } finally {if(t.fixture.exists(t.world.target))fs.chmodSync(t.world.target,0o755);}
   }],

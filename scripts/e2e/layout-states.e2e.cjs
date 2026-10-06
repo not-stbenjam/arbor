@@ -10,8 +10,10 @@ scenario({
       if(theme==='dark')await t.click('#theme-button');
       await t.click('#select-all');assert.deepEqual(await layout(t),[],'selection bar');
       await t.click('#clear-selection');
-      await t.click(`${await t.row(t.world.broken)} [data-delete]`);
-      await t.until(()=>t.visible('#error-banner'),'error');assert.deepEqual(await layout(t),[],'error banner');
+      // Its own Delete is off; the keyboard's Delete on the row says why.
+      assert.equal(await t.enabled(`${await t.row(t.world.broken)} [data-delete]`),false);
+      await t.click(`${await t.row(t.world.broken)} .activity-cell`);await t.press('Delete');
+      await t.until(()=>t.visible('#error-banner'),'error');await t.click('#clear-selection');assert.deepEqual(await layout(t),[],'error banner');
       await t.click('#dismiss-error');
       await open(t,'#warning-button','#notes-dialog');assert.deepEqual(await layout(t,'#notes-dialog'),[],'notes');await close(t,'#warning-button','#notes-dialog');
       await t.press('/');await t.type('no-matching-worktrees');await t.until(()=>t.visible('#empty-state'),'empty search');

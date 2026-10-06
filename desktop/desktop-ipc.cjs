@@ -76,6 +76,7 @@ function registerDesktopIPC({
       guardInteraction();
       return backend.cancelScan(host);
     });
+    handle("arbor:stop-removal", () => backend.stopRemoval());
     handle("arbor:menu-availability", (commands) =>
       setMenuAvailability(commands),
     );

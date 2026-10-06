@@ -189,6 +189,15 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	if missing := unacknowledged(late, options.Acknowledged); missing != "" {
 		return fmt.Errorf("not deleted: it would also discard %s. Look at it again and confirm that", missing)
 	}
+	if !missing {
+		if folder := sealed(current.Path); folder != "" {
+			where := "it"
+			if rel, err := filepath.Rel(current.Path, folder); err == nil && rel != "." {
+				where = "the folder " + rel + " inside it"
+			}
+			return fmt.Errorf("not deleted: %s is read-only, so only part of the worktree could be removed. Make it writable (chmod -R u+w on the worktree) and delete again", where)
+		}
+	}
 	// Inspection reads every file and can query GitHub, long enough for the
 	// checkout to change. Confirm as the last step that this is still the folder
 	// that was inspected, at the same commit and branch: a folder swapped into
@@ -219,5 +228,7 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	args = append(args, "--", current.Path)
 	defer watchRemoval(current.Path, files, options.Progress)()
 	_, err = gitCommon(ctx, common, args...)
+	// With no folder there, nothing on disk was deleted: only what Git kept.
+	result.Missing = err == nil && missing
 	return err
 }

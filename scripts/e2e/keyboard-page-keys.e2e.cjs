@@ -1,6 +1,6 @@
 "use strict";
-const {scenario,assert}=require('../harness.cjs');
-const {scaleFixture,tabTo}=require('../stress-helpers.cjs');
+const {scenario,assert}=require('./harness.cjs');
+const {scaleFixture,tabTo}=require('./stress-helpers.cjs');
 scenario({
   name:'Page Down keeps the active row visible',timeout:30,
   setup:f=>scaleFixture(f,30),

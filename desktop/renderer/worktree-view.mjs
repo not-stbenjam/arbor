@@ -602,26 +602,50 @@ export function createWorktreeView({
         selectRow(selection.cursor, { tick: true });
       return;
     }
-    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    if (
+      ["ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp"].includes(
+        event.key,
+      )
+    ) {
       event.preventDefault();
       if (!visible.length) return;
       let index = visible.findIndex((w) => w.id === selection.cursor);
+      // A page is as many rows as the list shows, less one to keep the place.
+      const height = document.querySelector(".worktree-row")?.offsetHeight || 1;
+      const page = Math.max(
+        1,
+        Math.floor($("#table-scroll").clientHeight / height) - 1,
+      );
+      const step = {
+        ArrowDown: 1,
+        ArrowUp: -1,
+        PageDown: page,
+        PageUp: -page,
+      }[event.key];
       index =
         event.key === "Home"
           ? 0
           : event.key === "End"
             ? visible.length - 1
-            : event.key === "ArrowDown"
-              ? Math.min(visible.length - 1, index + 1)
-              : Math.max(0, index - 1);
+            : index < 0
+              ? 0
+              : Math.max(0, Math.min(visible.length - 1, index + step));
       // Only Shift changes what is ticked on the way; Ctrl or Cmd with an
       // arrow key is the system's or nobody's, not a tick.
       selectRow(visible[index].id, { range: event.shiftKey });
+      // A page key turns the page: the row it lands on leads the next one.
       document
         .querySelector(
           `.worktree-row[data-id="${CSS.escape(visible[index].id)}"]`,
         )
-        ?.scrollIntoView({ block: "nearest" });
+        ?.scrollIntoView({
+          block:
+            event.key === "PageDown"
+              ? "start"
+              : event.key === "PageUp"
+                ? "end"
+                : "nearest",
+        });
     }
     if (
       event.key === "Enter" ||
@@ -651,7 +675,8 @@ export function createWorktreeView({
   // A search opens every folder so its matches show. That is a view of the
   // search, not a change to how the tree was arranged, so the arrangement
   // comes back when the search is cleared.
-  let collapsedBeforeSearch = null;
+  let collapsedBeforeSearch = null,
+    searchSaid = 0;
   function setSearch(value) {
     if (search === value) return;
     if (!search.trim() && value.trim()) {
@@ -665,6 +690,17 @@ export function createWorktreeView({
     search = value;
     selection.ids.clear();
     render();
+    // Said once typing pauses, not for each letter.
+    clearTimeout(searchSaid);
+    searchSaid = setTimeout(() => {
+      const count = visible.length,
+        text = search.trim();
+      $("#announcement").textContent = !text
+        ? `Filter cleared. ${count} ${count === 1 ? "worktree" : "worktrees"} shown.`
+        : count
+          ? `${count} ${count === 1 ? "worktree matches" : "worktrees match"} “${text}”.`
+          : `No worktrees match “${text}”.`;
+    }, 400);
   }
   $("#search").oninput = (event) => setSearch(event.target.value);
   $("#tree-sort").onchange = (event) => {
@@ -721,6 +757,9 @@ export function createWorktreeView({
     // Puts the keyboard in the list, or on what there is to do when the
     // list is empty.
     focus: focusList,
+    // The list itself, rows or none: where the keyboard belongs once setup
+    // has started the first scan and there is nothing yet to stand on.
+    focusGrid: () => $("#worktree-grid").focus({ preventScroll: true }),
     // What the list currently shows after the view, repository, and search
     // filters, including rows inside collapsed folders.
     get filtered() {

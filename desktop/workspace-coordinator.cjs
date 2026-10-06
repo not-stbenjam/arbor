@@ -36,6 +36,7 @@ class WorkspaceCoordinator {
   #transitionPending = Promise.resolve();
   #transitionController;
   #removing = false;
+  #removalStopped = false;
   #cleanupHosts = new Set();
   #cleanupPending = Promise.resolve();
   #initialHost;
@@ -271,6 +272,16 @@ class WorkspaceCoordinator {
     }
     return this.getState();
   }
+  // Stops a deletion after the worktree it is on. One deletion can span
+  // hosts, taken in turn, and stopping it leaves the later hosts alone too.
+  stopRemoval() {
+    if (this.#closed) throw new Error("Arbor is closing");
+    if (!this.#removing) throw new Error("No cleanup is running");
+    this.#removalStopped = true;
+    for (const entry of this.#entries.values())
+      if (entry.backend.getState().canStopRemoval) entry.backend.stopRemoval();
+    return this.getState();
+  }
   async configureWorkspace(value, persist, { restore = false } = {}) {
     this.assertInteractive();
     if (this.#setupRequired) throw new Error("Complete setup before scanning");
@@ -414,6 +425,7 @@ class WorkspaceCoordinator {
     for (const group of groups.values())
       group.plan = planRemoval(group.entry.backend.getState(), group.selection);
     this.#removing = true;
+    this.#removalStopped = false;
     this.#cleanupHosts = new Set(groups.keys());
     this.#cleanupPending = (async () => {
       const results = [];
@@ -451,7 +463,7 @@ class WorkspaceCoordinator {
         for (const { entry, selection } of groups.values())
           planRemoval(entry.backend.getState(), selection);
         for (const { entry, selection, plan } of groups.values()) {
-          if (this.#closed) break;
+          if (this.#closed || this.#removalStopped) break;
           try {
             const outcome = await entry.backend.remove(
               selection,
@@ -474,7 +486,11 @@ class WorkspaceCoordinator {
             );
           }
         }
-        return { results, stopped: this.#closed, ...this.#resultState() };
+        return {
+          results,
+          stopped: this.#closed || this.#removalStopped,
+          ...this.#resultState(),
+        };
       } finally {
         this.#removing = false;
         this.#cleanupHosts.clear();

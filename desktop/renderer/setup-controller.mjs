@@ -7,6 +7,7 @@ export function createSetupController({
   api,
   defaults,
   onSubmit,
+  onComplete = () => {},
   onThemeChange,
 }) {
   const $ = (selector) => document.querySelector(selector);
@@ -187,6 +188,8 @@ export function createSetupController({
     try {
       await onSubmit({ ...options, theme });
       $("#setup-dialog").close();
+      // The button that had the keyboard went with the dialog.
+      onComplete();
     } catch (error) {
       $("#setup-error").textContent = error.message;
       $("#setup-error").hidden = false;

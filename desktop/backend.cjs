@@ -21,6 +21,9 @@ class Backend {
   #scanController;
   #targetInspectionController;
   #stopAfterCurrent;
+  // Asked for from the window: the rest of a deletion is left alone, and
+  // the application stays open.
+  #stopRequested = false;
   #state;
   #operation;
   #pending;
@@ -79,6 +82,11 @@ class Backend {
       ...structuredClone(this.#state),
       partialWorktrees: structuredClone(this.#live.rows),
       operation: this.#operation,
+      canStopRemoval:
+        this.#operation === "remove" &&
+        !this.#stopRequested &&
+        !this.#stopAfterCurrent,
+      stopRequested: this.#operation === "remove" && this.#stopRequested,
       canCancelScan:
         this.#state.canCancelScan ||
         (this.#transition === "workspace" &&
@@ -508,6 +516,7 @@ class Backend {
     this.#state.error = "";
     this.#operation = "remove";
     this.#stopAfterCurrent = false;
+    this.#stopRequested = false;
     this.#beginProgress("removing");
     this.#state.progress.total = plan.selected.length;
     const options = { ...this.#options };
@@ -515,7 +524,7 @@ class Backend {
       host: options.host,
       run: this.#run,
       confirm,
-      shouldStop: () => this.#stopAfterCurrent,
+      shouldStop: () => this.#stopAfterCurrent || this.#stopRequested,
       onBegin: () => {
         this.#state.revision = null;
       },
@@ -536,10 +545,18 @@ class Backend {
         await this.#cache.pending;
         this.#state.busy = false;
         this.#operation = null;
+        this.#stopRequested = false;
         this.#state.progress = null;
         this.#live.clear();
       });
     return this.#pending;
+  }
+
+  // The worktree being deleted is finished, since half of one is worse
+  // than either; the ones after it are left as they are.
+  stopRemoval() {
+    if (this.#operation !== "remove") throw new Error("No cleanup is running");
+    this.#stopRequested = true;
   }
 
   #stopCleanupAfterCurrent() {

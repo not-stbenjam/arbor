@@ -63,6 +63,8 @@ async function executeCleanupBatch(
         ...(typeof result.retainedBranch === "string" && result.retainedBranch
           ? { retainedBranch: result.retainedBranch }
           : {}),
+        // There was no folder: only Git's record of the worktree went.
+        ...(result.missing === true ? { missing: true } : {}),
       };
     } catch (error) {
       outcome = {

@@ -65,6 +65,7 @@ test("the renderer bridge exposes only channels the interface uses", () => {
       "arbor:save-preferences",
       "arbor:scan",
       "arbor:set-host-filter",
+      "arbor:stop-removal",
       "arbor:worktree-menu",
     ],
   );

@@ -1417,8 +1417,37 @@ test("a cleanup reports what it freed, counting only folders that existed", asyn
   await fixture.workspace.deleteWorktrees([rows[2]]);
   // A missing folder was never deleted; only its registration was removed.
   assert.deepEqual(fixture.notifications, [
-    ["Removed 1 missing worktree registration."],
+    ["Removed 1 missing worktree registration · No folder was there to delete."],
   ]);
+  // A folder that vanished after the scan was not deleted either, and the
+  // deletion itself says so: the size the scan measured is not claimed.
+  fixture.notifications.length = 0;
+  fixture.api.remove = async () => ({
+    results: [
+      { path: "/work/a", removed: true, missing: true },
+      { path: "/work/b", removed: true, retainedBranch: "arbor/retained/b-1a2b3c" },
+    ],
+  });
+  await fixture.workspace.deleteWorktrees(rows.slice(0, 2));
+  assert.deepEqual(fixture.notifications, [
+    [
+      "Deleted 2 worktrees · About 1 KB recovered · Its commits are kept on the branch arbor/retained/b-1a2b3c.",
+    ],
+  ]);
+  // Stopped part-way, what was not reached is said, and is not an error.
+  fixture.notifications.length = 0;
+  fixture.api.remove = async () => ({
+    stopped: true,
+    results: [{ path: "/work/a", removed: true }],
+  });
+  await fixture.workspace.deleteWorktrees([rows[0], rows[1], rows[3]]);
+  assert.deepEqual(fixture.notifications, [
+    ["Deleted 1 worktree · About 2 KB recovered · Stopped with 2 left alone."],
+  ]);
+  fixture.notifications.length = 0;
+  fixture.api.remove = async () => ({ stopped: true, results: [] });
+  await fixture.workspace.deleteWorktrees([rows[0], rows[1]]);
+  assert.deepEqual(fixture.notifications, [["Stopped. 2 worktrees left alone."]]);
   fixture.workspace.dispose();
 });
 

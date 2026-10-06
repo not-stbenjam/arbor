@@ -42,6 +42,17 @@ const paths = {
 };
 const icon = (name, extra = "") =>
   `<svg class="icon ${extra}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.branch}</svg>`;
+// Text that came from a repository, made safe to read: characters that
+// cannot be seen, or that reverse the order of what follows them, are shown
+// as a mark. A folder named "safe<reverse>gnp.exe" would otherwise read as
+// "safeexe.png".
+const plain = (value) =>
+  String(value ?? "").replace(
+    /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g,
+    "\ufffd",
+  );
+// The same, ready to put in the page.
+const shown = (value) => esc(plain(value));
 const esc = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,
@@ -184,6 +195,8 @@ export function describeProgress(state, removing = false) {
 export {
   icon,
   esc,
+  plain,
+  shown,
   branchName,
   repoID,
   parsedDate,
