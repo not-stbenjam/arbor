@@ -166,7 +166,7 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
   const markup = renderTreeRows([row], options);
   const escapedContext =
     "Folder missing · &lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt; · &lt;repo&gt;&amp;&quot;";
-  assert.ok(markup.includes(`title="${escapedContext}"`));
+  assert.ok(markup.includes(`title="${escapedContext} · Unknown · —"`));
   assert.ok(
     markup.includes(
       '<span class="worktree-state" data-tone="muted" title="The folder is gone. Deleting removes only its leftover Git registration.">Folder missing</span><span> · </span><span class="worktree-branch">&lt;script&gt;',
@@ -280,7 +280,7 @@ test("a row states the one fact that decides cleanup, and stays quiet otherwise"
       '<span class="worktree-state" data-tone="muted" title="&lt;held&gt; &amp; &quot;kept&quot;">Locked</span><span> · </span><span class="worktree-branch">topic</span><span> · </span><span class="worktree-repository">repo</span>',
     ),
   );
-  assert.ok(markup.includes('title="Locked · topic · repo"'));
+  assert.ok(markup.includes('title="Locked · topic · repo · Unknown · —"'));
 });
 
 test("repository sidebar and directory group escape names and every path attribute", async () => {
@@ -2989,4 +2989,20 @@ test("a row and a selection say when deleting is not a clean delete, before the 
     "4 worktrees selected · 3 not clean",
   );
   fixture.workspace.dispose();
+});
+
+test("compact row metadata repeats the age and size, with a complete tooltip", async () => {
+  const { renderTreeRows } = await import("../renderer/worktree-presentation.mjs");
+  const { ago } = await import("../renderer/presentation.mjs");
+  const activityAt = new Date(Date.now() - 3 * 86400000).toISOString();
+  for (const extra of [{}, { missing: true }, { pending: true }]) {
+    const markup = renderTreeRows([{
+      kind: "worktree", depth: 0, label: "agent",
+      worktree: { id: "a", path: "/work/agent", branch: "topic", repo: "shop", sizeBytes: 1024, canRemove: true, activityAt, ...extra },
+    }], { selected: new Set(), collapsed: new Set() });
+    const bytes = extra.missing || extra.pending ? "—" : "1 KB";
+    assert.ok(markup.includes(`class="worktree-metrics"> · ${ago(activityAt)} · ${bytes}</span>`));
+    assert.match(markup, new RegExp(`title="[^"]* · 3d ago · ${bytes}"`));
+    assert.ok(markup.includes(`class="size-cell">${bytes}</td>`));
+  }
 });

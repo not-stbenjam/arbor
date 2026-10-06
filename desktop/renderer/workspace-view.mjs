@@ -92,6 +92,7 @@ export function createWorkspaceView({
       : workspace.removing
         ? "Deleting worktrees…"
         : `${plural(list.length, "worktree")} · ${detail}${state.hostFilter === null && unavailable ? ` · ${unavailable}` : ""}`;
+    $("#status-message").title = $("#status-message").textContent;
   }
   let progressMarkup = "",
     progressSummary = "";
