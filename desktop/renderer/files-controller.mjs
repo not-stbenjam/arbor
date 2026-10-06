@@ -15,7 +15,7 @@ export function filesContent(report) {
         return `<section class="files-group"><h3>${heading(kind)} <span>(${report.counts[kind]})</span></h3><ul>${entries
           .map(
             (entry) =>
-              `<li><bdi class="files-path">${shown(entry.path)}</bdi><span class="files-size">${measured(entry.sizeBytes, entry.sizeLowerBound)}</span>${entry.kind === "ignored" ? `<span class="files-detail">${entry.safeIgnored ? `Marked safe · ${shown(entry.safeIgnoredRule || "")}` : "Not marked safe"}</span>` : ""}${entry.status || entry.directory ? `<span class="files-detail">${entry.status ? shown(entry.status) : ""}${entry.status && entry.directory ? " · " : ""}${entry.directory ? `${entry.sizeLowerBound ? "at least " : ""}${entry.files || 0} files` : ""}</span>` : ""}</li>`,
+              `<li><bdi class="files-path">${shown(entry.path)}</bdi><span class="files-size">${measured(entry.sizeBytes, entry.sizeLowerBound)}</span>${entry.kind === "ignored" ? `<span class="files-detail">${entry.safeIgnored ? `Marked safe · ${shown(entry.safeIgnoredRule || "")}` : "Not marked safe"}</span>` : ""}${entry.status || entry.directory ? `<span class="files-detail">${entry.status ? shown(entry.status) : ""}${entry.status && entry.directory ? " · " : ""}${entry.directory ? `${entry.sizeLowerBound ? "at least " : ""}${entry.files || 0} ${entry.files === 1 ? "file" : "files"}` : ""}</span>` : ""}</li>`,
           )
           .join("")}</ul>${more ? `<p>and ${more} more</p>` : ""}</section>`;
       })

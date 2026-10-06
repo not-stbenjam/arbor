@@ -106,7 +106,7 @@ func printFiles(out io.Writer, report worktree.FilesReport) error {
 				}
 			}
 			if entry.Directory {
-				detail += fmt.Sprintf(" · %s%d files", prefix, entry.Files)
+				detail += " · " + prefix + count(entry.Files, "file")
 			}
 			fmt.Fprintf(&text, "  %s  %s%s%s\n", printable(entry.Path), prefix, byteSize(entry.SizeBytes), detail)
 		}
