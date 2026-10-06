@@ -14,7 +14,7 @@ func TestFilesHumanOutputQuotesPathsAndExplainsBounds(t *testing.T) {
 	if err := printFiles(&out, r); err != nil {
 		t.Fatal(err)
 	}
-	for _, wanted := range []string{printable(r.Path), printable(r.Entries[0].Path), "Ignored files (3)", "at least 1 KB", "at least 2 files", "and 2 more", "Total: 3 entries · at least 1 KB"} {
+	for _, wanted := range []string{printable(r.Path), printable(r.Entries[0].Path), "Ignored files (3)", "at least 1 KB", "at least 2 files", "and 2 more", "more than one heading"} {
 		if !strings.Contains(out.String(), wanted) {
 			t.Fatalf("missing %q: %s", wanted, &out)
 		}

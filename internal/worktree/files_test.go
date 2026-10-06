@@ -176,7 +176,7 @@ func TestFilesSizeBudget(t *testing.T) {
 	testWrite(t, filepath.Join(root, "file"), "contents")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	bytes, files, dir, lower := measureFiles(ctx, root)
+	bytes, files, dir, lower := measureFiles(ctx, root, root)
 	if bytes != 0 || files != 0 || !dir || !lower {
 		t.Fatalf("measurement = %d %d %v %v", bytes, files, dir, lower)
 	}
@@ -244,5 +244,67 @@ func TestFilesNestedBareAndSubmoduleFilter(t *testing.T) {
 	}
 	if _, err := os.Stat(ran); !os.IsNotExist(err) {
 		t.Fatal("a submodule's filter ran")
+	}
+}
+
+func TestFilesSaysWhatItCouldNotLookThrough(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "notes"), "untracked")
+	sealed := filepath.Join(wt, "sealed")
+	if err := os.Mkdir(sealed, 0700); err != nil {
+		t.Fatal(err)
+	}
+	testWrite(t, filepath.Join(sealed, "inside"), "unseen")
+	if err := os.Chmod(sealed, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0700) })
+	if _, err := os.ReadDir(sealed); err == nil {
+		t.Skip("this user can read any folder")
+	}
+	// A folder nobody can open, as a container's build output often is, is
+	// said to be unread; the rest is still listed.
+	r := fileInventory(t, wt, repo, 200)
+	if e := inventoryEntry(t, r, "changes", "notes"); e.SizeBytes != 9 {
+		t.Fatalf("%+v", e)
+	}
+	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "1 folder could not be read") {
+		t.Fatalf("warnings = %q", r.Warnings)
+	}
+
+	// So is a search that runs out of time.
+	budget := filesSearchBudget
+	filesSearchBudget = 0
+	t.Cleanup(func() { filesSearchBudget = budget })
+	r = fileInventory(t, wt, repo, 200)
+	inventoryEntry(t, r, "changes", "notes")
+	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "was not finished (it took too long)") {
+		t.Fatalf("warnings = %q", r.Warnings)
+	}
+}
+
+func TestFilesMeasuresAWorktreeReachedThroughALink(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.Mkdir(real, 0700); err != nil {
+		t.Fatal(err)
+	}
+	testWrite(t, filepath.Join(real, "file"), "contents")
+	if err := os.Symlink(real, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	// The link is how the folder is reached, not something inside it.
+	via := filepath.Join(root, "link")
+	if bytes, _, _, lower := measureFiles(context.Background(), via, filepath.Join(via, "file")); bytes != 8 || lower {
+		t.Fatalf("measured %d, least %v", bytes, lower)
+	}
+	// A link inside it is not followed to what it points at.
+	if err := os.Symlink(real, filepath.Join(real, "inner")); err != nil {
+		t.Fatal(err)
+	}
+	if bytes, _, _, lower := measureFiles(context.Background(), real, filepath.Join(real, "inner", "file")); bytes != 0 || !lower {
+		t.Fatalf("measured %d through a link, least %v", bytes, lower)
 	}
 }

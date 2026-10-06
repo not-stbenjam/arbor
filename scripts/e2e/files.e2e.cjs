@@ -27,7 +27,7 @@ scenario({
   await t.settled();
   const {size} = await import("../../desktop/renderer/presentation.mjs");
   async function verify(tree) {
-   await t.until(async () => (await t.text("#files-total"))?.startsWith("Total:"), "the inventory to load");
+   await t.until(async () => / items?$/.test(await t.text("#files-total")), "the inventory to load");
    assert.equal(await t.text("#files-title"), `What ${tree.name} holds`);
    const cli = t.fixture.cli("files", tree.path, "--repo", tree.repo, "--json", ...(tree.host ? ["--host", tree.host] : []));
    assert.equal(cli.status, 0, cli.stderr);
@@ -52,8 +52,8 @@ scenario({
     const lines = await t.texts(".files-group li");
     assert.ok(lines.some((text)=>text.includes(file)&&text.includes(size(entry.sizeBytes))), `${file} size shown`);
    }
-   const bytes=Object.values(report.bytes).reduce((a,b)=>a+b,0), count=Object.values(report.counts).reduce((a,b)=>a+b,0);
-   assert.equal(await t.text("#files-total"),`Total: ${count} entries · ${size(bytes)}`);
+   const count=Object.values(report.counts).reduce((a,b)=>a+b,0);
+   assert.equal(await t.text("#files-total"),`${count} items`);
    assert.equal(await t.count("#files-dialog [data-delete], #files-dialog .button-danger"),0);
    assert.match(await t.text("#files-lead"),/permanently discards/);
    return report;

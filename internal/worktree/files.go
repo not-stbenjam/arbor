@@ -186,10 +186,11 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 				return result, err
 			}
 		}
-		// Finding repositories must finish: otherwise a count of zero would hide
-		// history. Measuring their contents below can safely give a lower bound.
-		search, cancel := context.WithTimeout(ctx, 3*time.Second)
-		err = walkFiles(search, w.Path, func(disk string, d fs.DirEntry) error {
+		// A repository inside holds history that is nowhere else, so what could
+		// not be looked through is said: a count of none would hide it.
+		search, cancel := context.WithTimeout(ctx, filesSearchBudget)
+		unread := 0
+		err = walkFiles(search, w.Path, func(string, error) error { unread++; return nil }, func(disk string, d fs.DirEntry) error {
 			if d.Name() == ".git" {
 				parent := filepath.Dir(disk)
 				if parent != w.Path && !slices.Contains(submodules, parent) {
@@ -220,8 +221,13 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 			return nil
 		})
 		cancel()
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
 		if err != nil {
-			return result, fmt.Errorf("could not finish looking for repositories inside the folder: %w", err)
+			result.Warnings = append(result.Warnings, "Looking for repositories inside this folder was not finished ("+searchFailure(err).Error()+"); there may be some that are not listed.")
+		} else if unread > 0 {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("%s could not be read, and may hold files or repositories that are not listed.", folders(unread)))
 		}
 	}
 	// Repositories Git kept for submodules survive a missing checkout. Show
@@ -256,12 +262,12 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 			add("refs", ref, "", "")
 		}
 	}
-	measuring, cancel := context.WithTimeout(ctx, 3*time.Second)
+	measuring, cancel := context.WithTimeout(ctx, filesMeasureBudget)
 	defer cancel()
 	for _, item := range candidates {
 		entry := item.entry
 		if item.disk != "" {
-			entry.SizeBytes, entry.Files, entry.Directory, entry.SizeLowerBound = measureFiles(measuring, item.disk)
+			entry.SizeBytes, entry.Files, entry.Directory, entry.SizeLowerBound = measureFiles(measuring, w.Path, item.disk)
 		}
 		if !entry.Directory {
 			entry.Files = 0
@@ -317,9 +323,29 @@ func fileStatus(xy string) string {
 	return "modified"
 }
 
+// filesSearchBudget is how long is spent looking for repositories inside a
+// worktree, and filesMeasureBudget how long adding up what was found.
+var filesSearchBudget, filesMeasureBudget = 10 * time.Second, 3 * time.Second
+
+func searchFailure(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.New("it took too long")
+	}
+	return err
+}
+
+func folders(n int) string {
+	if n == 1 {
+		return "1 folder"
+	}
+	return fmt.Sprintf("%d folders", n)
+}
+
 // Read directory entries in batches: WalkDir reads a whole giant directory
 // before its callback can observe a deadline. Neither walker follows links.
-func walkFiles(ctx context.Context, path string, visit func(string, fs.DirEntry) error) error {
+// A folder that cannot be opened or read is given to unreadable, which says
+// whether to go on without it (nil) or stop.
+func walkFiles(ctx context.Context, path string, unreadable func(string, error) error, visit func(string, fs.DirEntry) error) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
@@ -337,7 +363,7 @@ func walkFiles(ctx context.Context, path string, visit func(string, fs.DirEntry)
 		}
 		dir, err := os.Open(path)
 		if err != nil {
-			return err
+			return unreadable(path, err)
 		}
 		defer dir.Close()
 		for {
@@ -359,7 +385,7 @@ func walkFiles(ctx context.Context, path string, visit func(string, fs.DirEntry)
 				return nil
 			}
 			if err != nil {
-				return err
+				return unreadable(path, err)
 			}
 		}
 	}
@@ -370,9 +396,11 @@ func walkFiles(ctx context.Context, path string, visit func(string, fs.DirEntry)
 	return err
 }
 
-func measureFiles(ctx context.Context, path string) (bytes int64, files int, directory, lower bool) {
+func measureFiles(ctx context.Context, root, path string) (bytes int64, files int, directory, lower bool) {
 	// A tracked parent may have become a link. Count no bytes through it.
-	for parent := filepath.Dir(path); parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
+	// Only folders inside the worktree are in question: how the worktree
+	// itself is reached is not something a repository decides.
+	for parent := filepath.Dir(path); parent != root && strings.HasPrefix(parent, root+string(filepath.Separator)); parent = filepath.Dir(parent) {
 		info, err := os.Lstat(parent)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
 			return 0, 0, false, true
@@ -386,7 +414,8 @@ func measureFiles(ctx context.Context, path string) (bytes int64, files int, dir
 		return 0, 0, false, true
 	}
 	directory = info.IsDir()
-	err = walkFiles(ctx, path, func(_ string, d fs.DirEntry) error {
+	// What cannot be read is left out of the sum, which is then a least.
+	err = walkFiles(ctx, path, func(string, error) error { lower = true; return nil }, func(_ string, d fs.DirEntry) error {
 		info, err := d.Info()
 		if err != nil {
 			return err
@@ -397,6 +426,6 @@ func measureFiles(ctx context.Context, path string) (bytes int64, files int, dir
 		}
 		return nil
 	})
-	lower = err != nil
+	lower = lower || err != nil
 	return
 }

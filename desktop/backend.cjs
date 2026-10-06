@@ -227,7 +227,8 @@ class Backend {
     const rows = displayedRows(state).map((row) => ({ ...row, id: row.sourceID }));
     const target = menuTarget({ ...state, report: { worktrees: rows } }, value);
     const row = rows.find((row) => row.id === target.id);
-    const args = ["files", "--json", "--repo", row.commonDir];
+    const args = ["files", "--json"];
+    if (row.commonDir) args.push("--repo", row.commonDir);
     if (this.#options.host) args.push("--host", this.#options.host);
     args.push("--", target.path);
     const controller = new AbortController();

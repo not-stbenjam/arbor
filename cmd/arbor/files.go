@@ -20,7 +20,7 @@ func newFilesCommand() *cobra.Command {
 	var asJSON, watchStdin bool
 	cmd := &cobra.Command{
 		Use: "files PATH", Short: "Show what deleting one linked worktree would discard",
-		Long:    "List local files and worktree metadata that deleting a linked worktree would\ndiscard. Nothing is changed. Counts and bytes include entries beyond --limit.\nSizes are lower bounds when the three-second measurement budget runs out.\nCategories can overlap; their sum is not space recovered.",
+		Long:    "List what deleting a linked worktree would discard: files that are not\ncommitted, ignored files, and what Git keeps for that worktree alone, largest\nfirst under each heading. Nothing is changed.\n\nCounts are of everything, whether or not --limit left it out of the list. A\nsize is marked \"at least\" when adding it up took too long or a folder could\nnot be read. The same folder can be under more than one heading.",
 		Example: "  arbor files /path/to/worktree\n  arbor files /missing/worktree --repo /path/to/repository --json\n  arbor files --host my-vps --limit 20 -- '~/projects/worktree'",
 		Args:    checkedArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -50,10 +50,10 @@ func newFilesCommand() *cobra.Command {
 			return printFiles(cmd.OutOrStdout(), report)
 		},
 	}
-	cmd.Flags().StringVar(&repository, "repo", "", "Owning repository or Git common directory (for missing checkouts)")
+	cmd.Flags().StringVar(&repository, "repo", "", "The repository it belongs to: its folder, or its .git folder (needed when the worktree's own folder is gone)")
 	cmd.Flags().StringVar(&host, "host", "", "SSH host alias or user@hostname")
-	cmd.Flags().IntVar(&limit, "limit", 200, "Maximum entries shown per kind (1–10000)")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Write machine-readable results")
+	cmd.Flags().IntVar(&limit, "limit", 200, "How many to list under each heading (1–10000)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Write machine-readable results to stdout")
 	cmd.Flags().BoolVar(&watchStdin, "watch-stdin", false, "Cancel when the SSH input channel closes")
 	_ = cmd.Flags().MarkHidden("watch-stdin")
 	return cmd
@@ -72,11 +72,7 @@ var fileHeadings = map[string]string{
 func printFiles(out io.Writer, report worktree.FilesReport) error {
 	var text strings.Builder
 	fmt.Fprintf(&text, "What %s holds\nDeleting this worktree permanently discards the items below. Nothing is moved to Trash.\n", printable(report.Path))
-	var count int
-	var bytes int64
 	for _, kind := range worktree.FileKinds {
-		count += report.Counts[kind]
-		bytes += report.Bytes[kind]
 		if report.Counts[kind] == 0 {
 			continue
 		}
@@ -107,12 +103,9 @@ func printFiles(out io.Writer, report worktree.FilesReport) error {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(&text, "\n%s\n", printable(warning))
 	}
-	prefix := ""
-	if report.SizeLowerBound {
-		prefix = "at least "
-	}
-	fmt.Fprintln(&text, "\nCategories can overlap. Sizes count files on disk, not commits or space recovered.")
-	fmt.Fprintf(&text, "Total: %d entries · %s%s\n", count, prefix, byteSize(bytes))
+	// No total: a folder can be listed under more than one heading, and its
+	// size with it.
+	fmt.Fprintln(&text, "\nThe same folder can be under more than one heading. Sizes are of files on disk, not of commits or of space recovered.")
 	_, err := io.WriteString(out, text.String())
 	return err
 }

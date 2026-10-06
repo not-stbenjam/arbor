@@ -42,5 +42,5 @@ test("dialog loads, reports failure, restores focus and ignores late answers", a
  pending[1].reject(new Error("offline\n<host>"));await second;
  assert.match($("#files-status").textContent,/offline�<host>/);
  const third=controller.open({id:"three",path:"/work/three"});pending[2].resolve(report());await third;
- assert.equal($("#files-total").textContent,"Total: 3 entries · at least 20 B");
+ assert.equal($("#files-total").textContent,"3 items");
 });

@@ -10,7 +10,7 @@ main(() => scenario("commands", async (f) => {
   assert.equal(inventory.path, b.path);
   assert.equal(inventory.counts.changes, 1);
   assert.equal(inventory.entries[0].status, "modified");
-  assert.match(ok(f.cli("files", b.path)).stdout, /Uncommitted changes[\s\S]*Total:/);
+  assert.match(ok(f.cli("files", b.path)).stdout, /Uncommitted changes[\s\S]*more than one heading/);
   for (const args of [["files"], ["files", a.path, b.path], ["files", ""], ["files", a.path, "--limit=0"], ["files", a.path, "--limit=10001"], ["files", a.path, "--host=-bad"]])
     assert.equal(f.cli(...args).status, 2, args.join(" "));
   assert.equal(f.cli("files", repo.path, "--json").status, 1);

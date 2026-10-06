@@ -43,9 +43,10 @@ export function createFilesController({ document, api, workspace }) {
       if (current !== request || !dialog.open) return;
       $("#files-status").textContent = "";
       $("#files-content").innerHTML = filesContent(report);
+      // A count and no size: a folder can be under more than one heading,
+      // and adding the headings up would count it twice.
       const count = Object.values(report.counts).reduce((sum, value) => sum + value, 0);
-      const bytes = Object.values(report.bytes).reduce((sum, value) => sum + value, 0);
-      $("#files-total").textContent = `Total: ${count} entries · ${measured(bytes, report.sizeLowerBound)}`;
+      $("#files-total").textContent = `${count} ${count === 1 ? "item" : "items"}`;
     } catch (error) {
       if (current !== request || !dialog.open) return;
       $("#files-status").textContent = `Could not show what this worktree holds: ${plain(error.message)}`;
