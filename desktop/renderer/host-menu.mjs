@@ -3,7 +3,7 @@ import { esc, icon } from './presentation.mjs';
 export function createHostMenu({ document, choices, selected, choose, manage }) {
   const button = document.querySelector('#machine-button');
   const menu = document.querySelector('#host-menu');
-  let entries = [];
+  let entries = [], openOnPress = false;
   const items = () => [...menu.querySelectorAll('[role^="menuitem"]')];
   const close = () => { menu.hidePopover(); button.setAttribute('aria-expanded', 'false'); };
   function open(last = false) {
@@ -20,7 +20,10 @@ export function createHostMenu({ document, choices, selected, choose, manage }) 
     button.setAttribute('aria-expanded', 'true');
     (last ? items().at(-1) : menu.querySelector('[aria-checked="true"]') || items()[0]).focus();
   }
-  button.onclick = () => menu.matches(':popover-open') ? close() : open();
+  // Native light-dismiss runs before click. Remember whether this press
+  // began on the open dropdown, so its button does not immediately reopen it.
+  button.addEventListener('pointerdown', () => { openOnPress = menu.matches(':popover-open'); });
+  button.onclick = (event) => (event?.detail > 0 ? openOnPress : menu.matches(':popover-open')) ? close() : open();
   button.addEventListener('keydown', (event) => {
     if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); open(event.key === 'ArrowUp'); }
   });

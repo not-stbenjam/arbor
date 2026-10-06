@@ -38,6 +38,9 @@ scenario({
       await t.click('#machine-button');
       assert.deepEqual(await t.texts('#host-menu [role="menuitemradio"]'), ['All hosts', 'This computer', 'Build']);
       assert.equal(await t.attribute('#host-menu [data-all-hosts]', 'aria-checked'), 'true');
+      await t.click('#machine-button');
+      assert.equal(await t.visible('#host-menu'), false, 'the same button closes its dropdown');
+      await t.click('#machine-button');
       await t.press('ArrowDown'); await t.press('Enter');
       await t.until(async () => (await t.state()).hostFilter === '', 'keyboard local choice');
       assert.equal(await t.visible('#path-location'), true);

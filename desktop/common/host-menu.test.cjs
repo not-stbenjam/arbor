@@ -32,6 +32,8 @@ test('host menu marks the scope, moves keyboard focus and chooses without scanni
   menu.handlers.keydown({ key: 'ArrowDown', preventDefault() {} }); assert.equal(document.activeElement, items[0]);
   menu.handlers.click({ target: { closest: () => ({ dataset: { choice: '0' }, hasAttribute: () => false }) } });
   assert.equal(chosen, null); assert.equal(open, false); assert.equal(document.activeElement, button);
+  button.onclick(); button.handlers.pointerdown(); menu.hidePopover();
+  button.onclick({ detail: 1 }); assert.equal(open, false, 'light-dismiss does not reopen the dropdown');
   button.onclick(); menu.handlers.keydown({ key: 'Escape', preventDefault() {} }); assert.equal(open, false);
   button.onclick(); menu.handlers.click({ target: { closest: () => ({ hasAttribute: () => true }) } }); assert.equal(managed, 1);
 });
