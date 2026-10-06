@@ -674,8 +674,13 @@
       <div id="files-body" class="dialog-body" tabindex="0">
         <p id="files-lead">Deleting this worktree discards these files and Git data.</p>
         <p id="files-path" class="files-path"></p>
-        <p id="files-status" role="status"></p>
-        <div id="files-content"></div>
+        <div class="files-results">
+          <div id="files-loading" hidden>
+            <p><span id="files-status" role="status"></span><span id="files-count" aria-hidden="true"></span></p>
+            <progress id="files-progress" class="host-progress-bar" role="progressbar" aria-label="Loading the files"></progress>
+          </div>
+          <div id="files-content"></div>
+        </div>
         <p class="files-note">Folders may appear under several headings; sizes can overlap.</p>
       </div>
       <div class="dialog-footer files-footer"><span id="files-total"></span><button type="button" class="button" id="files-close">Close</button><button type="button" class="button button-danger" id="files-delete" hidden>Delete…</button></div>

@@ -28,6 +28,9 @@ function dom() {
     querySelector(id) {
       if (!nodes.has(id))
         nodes.set(id, {
+          attributes: {},
+          setAttribute(name, value) { this.attributes[name] = value; },
+          removeAttribute(name) { delete this.attributes[name]; },
           textContent: "",
           innerHTML: "",
           open: false,
@@ -87,7 +90,7 @@ test("dialog loads, reports failure, restores focus and ignores late answers", a
     workspace: { snapshot: { revision: "revision" } },
   });
   const first = controller.open({ id: "one", path: "/work/one" });
-  assert.deepEqual(pending[0].value, { id: "one", revision: "revision" });
+  assert.deepEqual(pending[0].value, { id: "one", revision: "revision", request: 1 });
   assert.match($("#files-status").textContent, /Loading/);
   assert.equal(document.activeElement, $("#files-title"));
   $("#files-close").onclick();
@@ -99,6 +102,8 @@ test("dialog loads, reports failure, restores focus and ignores late answers", a
   pending[1].reject(new Error("offline\n<host>"));
   await second;
   assert.match($("#files-status").textContent, /offline�<host>/);
+  assert.equal($("#files-progress").hidden, true);
+  assert.equal($("#files-dialog").attributes["aria-busy"], "false");
   const third = controller.open({ id: "three", path: "/work/three" });
   pending[2].resolve(report());
   await third;
@@ -132,4 +137,42 @@ test("remote files name the machine beside the path", async () => {
   const controller = createFilesController({ document, workspace: { snapshot: { revision: "r" } }, api: { worktreeFiles: async () => report() } });
   await controller.open({ id: "remote", path: "/work/topic", host: "build-host" });
   assert.equal(document.querySelector("#files-path").textContent, "build-host: /work/topic");
+});
+
+test("loading has honest values, announces stages, cancels replaced requests and never delays a result", async () => {
+  const { createFilesController } = await import("../renderer/files-controller.mjs");
+  const document = dom(), $ = (id) => document.querySelector(id);
+  const pending = [], cancelled = [];
+  let progress;
+  const api = {
+    onFilesProgress(fn) { progress = fn; },
+    cancelFiles(id) { cancelled.push(id); return Promise.resolve(); },
+    worktreeFiles(value) { return new Promise((resolve) => pending.push({value, resolve})); },
+  };
+  const controller = createFilesController({ document, api, workspace: {snapshot: {revision: "r"}} });
+  const first = controller.open({id: "a", path: "/a"});
+  assert.equal($("#files-dialog").attributes["aria-busy"], "true");
+  assert.equal($("#files-loading").hidden, true);
+  progress({request: 1, stage: "files-search", discovered: 12400});
+  assert.equal($("#files-progress").attributes["aria-valuenow"], undefined);
+  assert.equal($("#files-count").textContent, " 12,400 files");
+  await new Promise((resolve) => setTimeout(resolve, 170));
+  assert.equal($("#files-loading").hidden, false);
+  progress({request: 1, stage: "files-measure", completed: 37, total: 120});
+  assert.equal($("#files-status").textContent, "Adding up sizes…");
+  assert.equal($("#files-progress").attributes["aria-valuenow"], "37");
+  assert.equal($("#files-progress").attributes["aria-valuemax"], "120");
+  const second = controller.open({id: "b", path: "/b"});
+  assert.deepEqual(cancelled, [1]);
+  progress({request: 1, stage: "files-measure", completed: 120, total: 120});
+  assert.equal($("#files-progress").attributes["aria-valuenow"], undefined);
+  pending[1].resolve(report()); await second;
+  assert.equal($("#files-loading").hidden, true);
+  assert.equal($("#files-dialog").attributes["aria-busy"], "false");
+  pending[0].resolve(report()); await first;
+  const third = controller.open({id: "c", path: "/c"});
+  $("#files-close").onclick();
+  assert.deepEqual(cancelled, [1, 3]);
+  pending[2].resolve(report()); await third;
+  assert.equal($("#files-content").innerHTML, "");
 });

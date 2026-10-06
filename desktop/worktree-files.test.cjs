@@ -109,6 +109,7 @@ test("backend resolves row IDs, routes the host, rejects stale revisions and mis
     assert.deepEqual(calls[0], [
       "files",
       "--json",
+      "--progress",
       "--repo",
       "/work/repo/.git",
       ...(host ? ["--host", host] : []),
@@ -193,4 +194,14 @@ test("files resolve newly discovered registrations alongside the saved rows", as
     );
     await backend.waitUntilIdle();
   }
+});
+
+test("file progress rejects invented totals and malformed counts", () => {
+  const { progressEvent } = require("./protocol.cjs");
+  const event = { stage: "files-search", path: "/work", discovered: 12400, completed: 0, total: 0 };
+  assert.deepEqual(progressEvent(event), event);
+  for (const change of [{total: 12}, {completed: 1}, {discovered: -1}, {discovered: 1.5}, {stage: "files-fake"}])
+    assert.equal(progressEvent({...event, ...change}), null);
+  assert.ok(progressEvent({...event, stage: "files-measure", completed: 37, total: 120}));
+  assert.equal(progressEvent({...event, stage: "files-measure", completed: 121, total: 120}), null);
 });

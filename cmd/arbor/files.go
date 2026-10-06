@@ -17,7 +17,7 @@ import (
 func newFilesCommand() *cobra.Command {
 	var host, repository string
 	var limit int
-	var asJSON, watchStdin bool
+	var asJSON, watchStdin, progress bool
 	cmd := &cobra.Command{
 		Use: "files PATH", Short: "Show what deleting one linked worktree would discard",
 		Long:    "List what deleting a linked worktree would discard: files that are not\ncommitted, ignored files, and what Git keeps for that worktree alone, largest\nfirst under each heading. Nothing is changed.\n\nCounts are of everything, whether or not --limit left it out of the list. A\nsize is marked \"at least\" when adding it up took too long or a folder could\nnot be read. The same folder can be under more than one heading.",
@@ -40,7 +40,7 @@ func newFilesCommand() *cobra.Command {
 				defer cancel()
 				defer watchInput(ctx, os.Stdin, cancel)()
 			}
-			report, err := engine.Files(ctx, host, args[0], repository, limit)
+			report, err := engine.Files(ctx, host, args[0], repository, limit, removalProgress(cmd.ErrOrStderr(), progress, false))
 			if err != nil {
 				return err
 			}
@@ -54,6 +54,7 @@ func newFilesCommand() *cobra.Command {
 	cmd.Flags().StringVar(&host, "host", "", "SSH host alias or user@hostname")
 	cmd.Flags().IntVar(&limit, "limit", 200, "How many to list under each heading (1–10000)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Write machine-readable results to stdout")
+	cmd.Flags().BoolVar(&progress, "progress", false, "Write framed JSON progress to stderr")
 	cmd.Flags().BoolVar(&watchStdin, "watch-stdin", false, "Cancel when the SSH input channel closes")
 	_ = cmd.Flags().MarkHidden("watch-stdin")
 	return cmd
