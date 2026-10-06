@@ -4,7 +4,6 @@ import {
   shown,
   branchName,
   size,
-  sizeOf,
   ago,
   fullDate,
   parsedDate,
@@ -177,11 +176,13 @@ export function projectTree(
     query,
     state: (row) => worktreeState(row)?.label,
   });
+  // Rank a folder by the worktree someone sorting this way is looking for,
+  // however deeply it sits, rather than by the number of smaller checkouts.
   const value = (descendants) =>
     sort === "size"
-      ? sizeOf(descendants)
+      ? Math.max(...descendants.map((w) => w.sizeBytes || 0))
       : sort === "activity"
-        ? Math.max(
+        ? (descending ? Math.max : Math.min)(
             ...descendants.map((w) => parsedDate(w.activityAt)?.valueOf() || 0),
           )
         : sort === "branch"
@@ -222,7 +223,10 @@ export function projectTree(
       grouped.get(host).push(row);
     }
     directoryRows = [...grouped]
-      .sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)))
+      .sort(([a, left], [b, right]) =>
+        (["size", "activity"].includes(sort) ? compare(left, right) : 0) ||
+        (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)),
+      )
       .flatMap(([host, rows]) => {
         const source = hosts.find((entry) => entry.host === host);
         const key = JSON.stringify([host]);
