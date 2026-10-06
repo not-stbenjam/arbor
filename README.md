@@ -167,9 +167,16 @@ arbor list --path "$HOME/git" --json --progress
 # Explicitly refresh remote refs and check GitHub pull requests.
 arbor list --path "$HOME/git" --fetch --github
 
+# Show older worktrees, least recently used first; use size for largest first.
+arbor list --path ~/code --older-than 30d --sort activity
+arbor list --path ~/code --sort size --strict --json
+
 # Preview cleanup; --yes is required to remove anything.
 arbor clean --path "$HOME/git"
 arbor clean --path "$HOME/git" --fetch --github --yes
+arbor clean --path ~/code --older-than 30d --sort size  # preview
+# For cron, use an absolute CLI path and keep stderr in the job log.
+arbor clean --path ~/code --older-than 30d --yes
 
 # Remove one worktree; its local branch is kept.
 arbor remove -- /absolute/path/to/worktree  # preview, including what --force would discard
@@ -193,7 +200,7 @@ The CLI uses Cobra for command-specific help, argument validation, typo suggesti
 
 `--path` scopes discovery and cleanup: only linked worktrees inside that folder appear. `arbor list --linked-only=false` additionally includes primary checkouts and other registered worktrees for diagnostics, not deletion. Repeat `--exclude` to add multiple rules; each argument is one literal pattern, so commas are not separators. Both `list` and `clean` accept exclusions.
 
-Human-readable output names the scanned folder once and lists each worktree's path beneath it, with branch, repository, last activity, size, and status, and explicitly says when no worktrees match. Long branch names keep both ends; `--json` has every value in full. Human scans announce their start and completion on stderr, with additional progress when they take longer than a moment; `--quiet` suppresses it. `--json` writes only the result to stdout; add `--progress` for newline-delimited `@arbor-progress ` JSON events on stderr. Removal and cleanup preview by default, with the total size on disk and, per path, what `--force` would discard; `--yes` is required to delete anything, and never discards local files by itself. Scan warnings and skipped worktrees from `clean` and `remove` always go to stderr, including with `--json`, so an incomplete scan never looks like a folder with nothing to clean; a JSON preview also carries the scan warnings as `warnings`.
+Human-readable output names the scanned folder once and lists each worktree's path beneath it, with branch, repository, last activity, size, and status, and explicitly says when no worktrees match. In a terminal, paths and branches keep both ends when shortened to fit the width; below 60 columns (or when diagnostics cannot fit), entries use blocks of lines. `COLUMNS` overrides the detected terminal width, with 100 columns as the fallback. Redirected output is never shortened, and `--json` has every value in full. Sizes use the desktop's 1024-based B/KB/MB/GB/TB units and rounding (for example, `3 MB` or `1.2 GB`), with English number formatting. A clean checkout whose commits are not known to be merged is labelled `not merged`; `merged`, `new`, and `local changes` retain their meanings. A closing list summary gives the displayed count and size, plus the recommended count, size, and a cleanup command when there are recommendations. Filtered nonempty lists say how many of the scanned worktrees are shown. Human scans announce their start and completion on stderr, with additional progress when they take longer than a moment; `--quiet` suppresses it. `--json` writes only the result to stdout; add `--progress` for newline-delimited `@arbor-progress ` JSON events on stderr. Removal and cleanup preview by default, with the total size on disk and, per path, what `--force` would discard; `--yes` is required to delete anything, and never discards local files by itself. Scan warnings and skipped worktrees from `clean` and `remove` always go to stderr, including with `--json`, so an incomplete scan never looks like a folder with nothing to clean; a JSON preview also carries the scan warnings as `warnings`.
 
 ### Scripting and exit status
 
@@ -234,10 +241,19 @@ check scripts when upgrading this alpha. A missing checkout's size is not
 reclaimable space.
 
 Exit status is **0** for success (including no matches and previews), **1** for
-usage, scan or removal errors (including partial deletion), and **130** when
-interrupted. Scan warnings can accompany status 0. For unattended work, inspect
-`list`/preview `warnings` and each worktree's `problems`; a successful exit alone
-does not prove a complete scan. JSON `list` carries warnings in stdout; cleanup
+failures while working (scan errors, refused removals, and partial deletion),
+**2** for usage errors (unknown flags, invalid values, argument counts, or
+conflicting flags), **3** for an incomplete scan with `list --strict` or
+`clean --strict`, and **130** when interrupted. Boolean and duration value
+errors name the expected input, for example `--json takes true or false, not
+"maybe"`.
+
+`--strict` prints the normal output, then returns 3 if the scan has warnings
+or any worktree has `problems`, even if filters hide that worktree. Without
+`--strict`, those diagnostics can accompany status 0. Strict mode reports scan
+completeness; it does not prevent `clean --yes` from removing selected
+worktrees. A scan/removal failure still returns 1, and interruption returns
+130. JSON `list` carries warnings in stdout; cleanup
 also prints scan warnings to stderr. `--quiet` hides human progress, not results
 or warnings. `--progress` explicitly enables framed JSON events on stderr.
 Output has no ANSI color escapes, including in a terminal; `NO_COLOR` needs no
@@ -247,19 +263,35 @@ For example, with `jq` installed, save and check a report before producing
 NUL-separated paths for `xargs -0` or `fzf --read0` (paths may contain newlines):
 
 ```sh
-arbor list --path "$HOME/git" --json > worktrees.json &&
-  jq -e '(.warnings | length) == 0 and all(.worktrees[]; (.problems | length) == 0)' worktrees.json >/dev/null &&
+arbor list --path "$HOME/git" --strict --json > worktrees.json &&
   jq -j '.worktrees[] | select(.recommended) | .path + "\u0000"' worktrees.json
 ```
 
-There is no built-in age filter, sort flag, or NUL-output mode. To select merged
-recommendations older than 30 days, compare `activityAt` with a cutoff in a
-script, then re-inspect each candidate and remove it with `--head` and
-`--recommended-only`. Neither flag pins activity time: an age test in a script
-is not atomic with deletion. Do not schedule that workflow against worktrees
-being used concurrently. `clean --yes` itself has no 30-day condition.
+Both `list` and `clean` accept `--older-than DURATION`: positive fixed-length
+days (`30d`), hours (`12h`), weeks (`2w`), or Go durations (`1h30m`). Activity
+must be known and at or before the cutoff calculated when the command starts.
+Unknown activity never matches. The filter only narrows the normal selection,
+including with `--all` or `--force`. During `clean --yes`, each fresh removal
+inspection must still meet the same cutoff; a newly active worktree is skipped
+with a reason and the command returns 1. This also applies over `--host`.
+The check narrows the race with concurrent work but does not lock out other
+processes.
+
+`--sort name|size|activity` orders lists and cleanup previews, including JSON.
+The default `name` retains repository/path order; `size` puts the largest
+first, and `activity` puts the oldest known activity first, with unknown times
+last. Ties retain the default order. Sorting does not alter removal selection.
+
+For example, preview old recommendations before scheduling their cleanup:
+
+```sh
+arbor clean --path ~/code --older-than 30d --sort activity
+arbor clean --path ~/code --older-than 30d --yes
+```
+
 Use an absolute CLI path and an explicit scan path in cron; keep stderr in its
-log. The CLI has no man page; command help is available offline with
+log. There is no built-in NUL-output mode; use JSON as above for unusual paths.
+The CLI has no man page; command help is available offline with
 `arbor help COMMAND`.
 
 ### Shell completion

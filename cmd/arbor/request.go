@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/stbenjam/arbor/internal/engine"
 	"github.com/stbenjam/arbor/internal/worktree"
@@ -15,6 +16,10 @@ var cleanupSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // worktreeRequest is validated command intent, independent of Cobra and output.
 type worktreeRequest struct {
+	strict                                  bool
+	olderThan                               ageDuration
+	sortOrder                               string
+	notActiveSince                          time.Time
 	command, host                           string
 	scan                                    worktree.Options
 	preview, all, recommended, discardLocal bool
@@ -26,8 +31,13 @@ type worktreeRequest struct {
 	watchStdin, json, progress, humanProgress bool
 }
 
-func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, error) {
-	r := worktreeRequest{command: command, host: flags.common.host, scan: flags.common.options(), preview: !flags.yes,
+func normalizeRequest(command string, flags *commandOptions) (r worktreeRequest, err error) {
+	defer func() {
+		if err != nil {
+			err = &usageFailure{err}
+		}
+	}()
+	r = worktreeRequest{command: command, host: flags.common.host, scan: flags.common.options(), preview: !flags.yes,
 		all: flags.all, recommended: flags.recommended, discardLocal: flags.discardLocal || flags.force,
 		expectMissing: flags.expectMissing, expectEmpty: flags.expectEmpty, expectBranch: flags.expectBranch,
 		head: flags.head, id: flags.id, branch: flags.branch,
@@ -35,6 +45,24 @@ func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, e
 		progress: flags.progress, humanProgress: !flags.common.json && !flags.quiet && !flags.progress}
 	if command != "list" && command != "clean" && command != "remove" {
 		return r, fmt.Errorf("unknown worktree command %q", command)
+	}
+	r.strict = flags.strict
+	r.olderThan = flags.olderThan
+	r.sortOrder = flags.sortOrder
+	switch r.sortOrder {
+	case "", "name", "size", "activity":
+	default:
+		return r, fmt.Errorf("--sort accepts name, size or activity, not %q", r.sortOrder)
+	}
+	if flags.olderThan > 0 {
+		r.notActiveSince = time.Now().Add(-time.Duration(flags.olderThan))
+	}
+	if flags.notActiveSince != "" {
+		cutoff, err := time.Parse(time.RFC3339Nano, flags.notActiveSince)
+		if err != nil || cutoff.IsZero() {
+			return r, errors.New("--not-active-since needs a nonzero RFC 3339 timestamp")
+		}
+		r.notActiveSince = cutoff
 	}
 	policyFlag := "--discard-local"
 	if flags.force {
@@ -84,6 +112,9 @@ func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, e
 			r.scan.Excludes = append(r.scan.Excludes, worktree.DefaultExcludes()...)
 		}
 		r.scan.Excludes = append(r.scan.Excludes, flags.excludes...)
+	}
+	if err := worktree.ValidateExcludes(r.scan.Excludes); err != nil {
+		return r, err
 	}
 	return r, nil
 }

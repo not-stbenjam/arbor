@@ -26,6 +26,9 @@ func selectTargets(r worktreeRequest, report worktree.Report) (targetSelection, 
 	selection := targetSelection{selected: []worktree.Worktree{}}
 	if r.command == "clean" {
 		for _, w := range report.Worktrees {
+			if !matchesAge(w, r.notActiveSince) {
+				continue
+			}
 			if w.Recommended || r.all && (w.CanRemove || r.discardLocal && w.CanDiscard) {
 				selection.selected = append(selection.selected, w)
 			} else if r.all {

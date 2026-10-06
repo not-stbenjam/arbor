@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -20,7 +23,7 @@ func newStatsCommand() *cobra.Command {
 		Args:    checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := engine.ValidateHost(host); err != nil {
-				return err
+				return usageError(cmd, err)
 			}
 			report, err := engine.ReadStats(cmd.Context(), host)
 			if err != nil {
@@ -47,15 +50,32 @@ func newStatsCommand() *cobra.Command {
 }
 
 func byteSize(bytes int64) string {
-	if bytes < 1024 {
-		return fmt.Sprintf("%d B", bytes)
+	if bytes < 0 {
+		return "—"
 	}
-	value := float64(bytes)
-	for _, unit := range []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"} {
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	value, unit := float64(bytes), 0
+	for value >= 1024 && unit < len(units)-1 {
 		value /= 1024
-		if value < 1024 || unit == "EiB" {
-			return fmt.Sprintf("%.1f %s", value, unit)
-		}
+		unit++
 	}
-	return "0 B"
+	precision := 0
+	if unit > 0 && value < 10 {
+		precision = 1
+	}
+	scale := math.Pow10(precision)
+	// Intl.NumberFormat rounds positive halves up, not to the nearest even digit.
+	value = math.Floor(value*scale+0.5) / scale
+	text := strconv.FormatFloat(value, 'f', precision, 64)
+	if precision > 0 {
+		text = strings.TrimSuffix(text, ".0")
+	}
+	whole, fraction, decimal := strings.Cut(text, ".")
+	for i := len(whole) - 3; i > 0; i -= 3 {
+		whole = whole[:i] + "," + whole[i:]
+	}
+	if decimal {
+		whole += "." + fraction
+	}
+	return whole + " " + units[unit]
 }

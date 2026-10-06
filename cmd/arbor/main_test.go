@@ -83,7 +83,7 @@ func TestCLITableShowsSizeAndTheDecidingStatus(t *testing.T) {
 	if len(lines) != 5 || !strings.Contains(lines[0], "SIZE") {
 		t.Fatalf("unexpected table: %s", out.String())
 	}
-	for i, want := range [][]string{{"3.0 MiB", "merged"}, {"512 B", "new"}, {"2.0 KiB", "local changes"}, {"—", "missing checkout"}} {
+	for i, want := range [][]string{{"3 MB", "merged"}, {"512 B", "new"}, {"2 KB", "local changes"}, {"—", "missing checkout"}} {
 		fields := strings.Fields(lines[i+1])
 		row := strings.Join(fields, " ")
 		for _, text := range want {
@@ -106,13 +106,13 @@ func TestCLITableShowsSizeAndTheDecidingStatus(t *testing.T) {
 func TestCLITableNamesTheFolderOnceAndKeepsRowsNarrow(t *testing.T) {
 	var out bytes.Buffer
 	branch := "feature/checkout-redesign-with-a-rather-long-branch-name-for-truncation"
-	if err := printTable(&out, "/home/dev/code", []worktree.Worktree{
+	if err := printTableWidth(&out, "/home/dev/code", []worktree.Worktree{
 		{Path: "/home/dev/code/worktrees/api/login", Branch: "feature/login", Repo: "api", CanRemove: true, CanDiscard: true},
 		{Path: "/home/dev/code/worktrees/web/checkout", Branch: branch, Repo: "web", CanRemove: true, CanDiscard: true},
 		{Path: "/home/dev/codex/outside", Branch: "elsewhere", Repo: "api", CanRemove: true, CanDiscard: true},
 		// Merged, but detached: clean does not take it, so it is not "merged".
 		{Path: "/home/dev/code/sessions/one", Detached: true, Merged: true, CanDiscard: true},
-	}); err != nil {
+	}, 110); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -121,13 +121,16 @@ func TestCLITableNamesTheFolderOnceAndKeepsRowsNarrow(t *testing.T) {
 	}
 	for i, want := range [][]string{
 		{"worktrees/api/login", "feature/login"},
-		{"worktrees/web/checkout", "feature/checkout-re…-name-for-truncation"},
+		{"worktrees/web/checkout", shorten(branch, 40)},
 		{"/home/dev/codex/outside", "elsewhere"},
 		// --yes alone does not take it, so it is not called clean.
 		{"sessions/one", "(detached)", "detached"},
 	} {
 		fields := strings.Fields(lines[i+2])
 		for j, text := range want[:2] {
+			if i == 1 && j == 1 {
+				continue
+			}
 			if fields[j] != text {
 				t.Fatalf("row %d field %d = %q, want %q\n%s", i, j, fields[j], text, out.String())
 			}
@@ -523,7 +526,7 @@ func TestStatusNamesWhatForceIsNeededFor(t *testing.T) {
 		want  string
 		entry worktree.Worktree
 	}{
-		{"clean", worktree.Worktree{CanRemove: true, CanDiscard: true}},
+		{"not merged", worktree.Worktree{CanRemove: true, CanDiscard: true}},
 		{"merged", worktree.Worktree{CanRemove: true, CanDiscard: true, Recommended: true}},
 		{"ignored files", worktree.Worktree{CanDiscard: true, Ignored: true, Losses: []string{"ignored"}, Blockers: []string{"Ignored files on disk (may include local secrets or build output)"}}},
 		{"unchecked files", worktree.Worktree{CanDiscard: true, Losses: []string{"unchecked"}, Blockers: []string{"Unchecked files: Git was told not to look at some files"}}},

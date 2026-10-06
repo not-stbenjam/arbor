@@ -29,11 +29,12 @@ asserts the behaviour wanted, so a confirmed defect fails. Once fixed it
 moves into a topic. `safety.cjs` holds the ones that were: a symbolic link
 followed to another worktree, a malformed exclusion that crashed, an empty
 `--head`, an emptied folder not put back, a path that is not valid text, and
-refs of a worktree's own.
+refs of a worktree's own. The `commands` topic checks status 2 for usage
+errors, 1 for refused removals, 3 for incomplete scans with `--strict`, and
+130 for interruption, alongside the age-filter, sort and strict examples.
 
 ```sh
 node scripts/stress/run.cjs safety
-node scripts/stress/run.cjs bugs/exit-codes
 ```
 
 `STRESS_INTERRUPTS` defaults to 240, distributed over scan/removal and SIGINT,

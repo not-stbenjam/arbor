@@ -23,18 +23,12 @@ func compileExcludes(root string, rules []string) (func(string) bool, error) {
 	if rules == nil {
 		rules = DefaultExcludes()
 	}
-	if len(rules) > config.MaxExcludes() {
-		return nil, fmt.Errorf("at most %d scan exclusions are supported", config.MaxExcludes())
+	if err := ValidateExcludes(rules); err != nil {
+		return nil, err
 	}
 	var names []excludeComponent
 	var paths [][]excludeComponent
 	for _, rule := range rules {
-		if rule == "" || len(rule) > 4096 || strings.ContainsRune(rule, '\x00') {
-			return nil, fmt.Errorf("scan exclusions must be nonempty directory names or paths of at most 4096 bytes")
-		}
-		if rule == "." || rule == ".." {
-			return nil, fmt.Errorf("scan exclusion %q must name a directory", rule)
-		}
 		if !strings.ContainsRune(rule, filepath.Separator) && rule != "~" {
 			component, err := compileExcludeComponent(rule)
 			if err != nil {
@@ -105,4 +99,28 @@ func compileExcludes(root string, rules []string) (func(string) bool, error) {
 		}
 		return false
 	}, nil
+}
+
+// ValidateExcludes checks flag syntax without resolving paths on either host.
+func ValidateExcludes(rules []string) error {
+	if len(rules) > config.MaxExcludes() {
+		return fmt.Errorf("at most %d scan exclusions are supported", config.MaxExcludes())
+	}
+	for _, rule := range rules {
+		if rule == "" || len(rule) > 4096 || strings.ContainsRune(rule, '\x00') {
+			return fmt.Errorf("scan exclusions must be nonempty directory names or paths of at most 4096 bytes")
+		}
+		if rule == "." || rule == ".." {
+			return fmt.Errorf("scan exclusion %q must name a directory", rule)
+		}
+		for _, part := range strings.Split(rule, string(filepath.Separator)) {
+			if part == "" || part == "." || part == ".." {
+				continue
+			}
+			if _, err := compileExcludeComponent(part); err != nil {
+				return fmt.Errorf("invalid scan exclusion %q: %w", rule, err)
+			}
+		}
+	}
+	return nil
 }

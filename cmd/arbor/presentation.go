@@ -7,22 +7,23 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/stbenjam/arbor/internal/worktree"
 )
 
 func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
-	if r.recommended {
+	total := len(report.Worktrees)
+	if r.recommended || !r.notActiveSince.IsZero() {
 		filtered := []worktree.Worktree{}
 		for _, w := range report.Worktrees {
-			if w.Recommended {
+			if (!r.recommended || w.Recommended) && matchesAge(w, r.notActiveSince) {
 				filtered = append(filtered, w)
 			}
 		}
 		report.Worktrees = filtered
 	}
+	report.Worktrees = sortedWorktrees(report.Worktrees, r.sortOrder)
 	if r.json {
 		return json.NewEncoder(out).Encode(report)
 	}
@@ -34,11 +35,14 @@ func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
 		_, err := fmt.Fprintf(out, "No %sworktrees found under %s.\n", qualifier, printable(report.Root))
 		return err
 	}
-	return printTable(out, report.Root, report.Worktrees)
+	if err := printTable(out, report.Root, report.Worktrees); err != nil {
+		return err
+	}
+	return writeListSummary(out, r, report, total)
 }
 
 func writePreview(out io.Writer, r worktreeRequest, report worktree.Report, selection targetSelection) error {
-	selected := selection.selected
+	selected := sortedWorktrees(selection.selected, r.sortOrder)
 	if r.json {
 		return json.NewEncoder(out).Encode(map[string]any{"dryRun": true, "worktrees": selected, "warnings": report.Warnings, "requiresForce": selection.needsForce})
 	}
@@ -115,6 +119,10 @@ func writeOutcome(out io.Writer, r worktreeRequest, outcome batchOutcome) error 
 // repeats that folder, so it is named once and the rows are relative to it;
 // --json keeps complete paths for programs.
 func printTable(out io.Writer, root string, entries []worktree.Worktree) error {
+	return printTableWidth(out, root, entries, terminalWidth(out))
+}
+
+func printTableWidth(out io.Writer, root string, entries []worktree.Worktree, width int) error {
 	relative := false
 	paths := make([]string, len(entries))
 	for i, entry := range entries {
@@ -124,14 +132,13 @@ func printTable(out io.Writer, root string, entries []worktree.Worktree) error {
 		}
 	}
 	if relative {
-		if _, err := fmt.Fprintf(out, "Under %s:\n", printable(root)); err != nil {
+		if _, err := fmt.Fprintf(out, "Under %s:\n", tableRoot(root, width)); err != nil {
 			return err
 		}
 	}
-	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "PATH\tBRANCH\tREPOSITORY\tACTIVITY\tSIZE\tSTATUS")
+	rows := [][6]string{{"PATH", "BRANCH", "REPOSITORY", "ACTIVITY", "SIZE", "STATUS"}}
 	for i, entry := range entries {
-		branch := shorten(entry.Branch, 40)
+		branch := entry.Branch
 		if entry.Detached {
 			branch = "(detached)"
 		}
@@ -146,19 +153,27 @@ func printTable(out io.Writer, root string, entries []worktree.Worktree) error {
 		if !entry.Missing {
 			size = byteSize(entry.SizeBytes)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", printable(paths[i]), printable(branch), printable(entry.Repo), age, size, status(entry))
+		rows = append(rows, [6]string{printable(paths[i]), printable(branch), printable(entry.Repo), age, size, status(entry)})
 	}
-	return w.Flush()
+	return renderTable(out, rows, width)
 }
 
 // shorten keeps both ends of a long name, where branch names differ.
 func shorten(s string, limit int) string {
-	runes := []rune(s)
-	if len(runes) <= limit {
+	if textWidth(s) <= limit {
 		return s
 	}
-	head := (limit - 1) / 2
-	return string(runes[:head]) + "…" + string(runes[len(runes)-(limit-1-head):])
+	if limit <= 1 {
+		return "…"
+	}
+	head, _ := takeColumns(s, (limit-1)/2)
+	tail := []rune(s)
+	used, start := 0, len(tail)
+	for start > 0 && used+runeColumns(tail[start-1]) <= limit-1-textWidth(head) {
+		start--
+		used += runeColumns(tail[start])
+	}
+	return head + "…" + string(tail[start:])
 }
 
 // status names the one fact that most affects a cleanup decision. "merged"
@@ -215,6 +230,9 @@ func status(entry worktree.Worktree) string {
 	case entry.Recommended:
 		return "merged"
 	}
+	if !entry.Merged {
+		return "not merged"
+	}
 	return "clean"
 }
 
@@ -254,4 +272,85 @@ func duration(d time.Duration) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+}
+
+// Stable ties keep the scan's repository/path order, also used by --sort name.
+func sortedWorktrees(entries []worktree.Worktree, order string) []worktree.Worktree {
+	result := slices.Clone(entries)
+	slices.SortStableFunc(result, func(a, b worktree.Worktree) int {
+		switch order {
+		case "size":
+			if a.SizeBytes > b.SizeBytes {
+				return -1
+			}
+			if a.SizeBytes < b.SizeBytes {
+				return 1
+			}
+		case "activity":
+			if a.ActivityAt.IsZero() && !b.ActivityAt.IsZero() {
+				return 1
+			}
+			if b.ActivityAt.IsZero() && !a.ActivityAt.IsZero() {
+				return -1
+			}
+			return a.ActivityAt.Compare(b.ActivityAt)
+		}
+		return 0
+	})
+	return result
+}
+
+func tableRoot(root string, width int) string {
+	root = printable(root)
+	if width > 0 {
+		return shorten(root, max(1, width-7))
+	}
+	return root
+}
+
+func writeListSummary(out io.Writer, r worktreeRequest, report worktree.Report, total int) error {
+	shown := count(len(report.Worktrees), "worktree")
+	if r.recommended || !r.notActiveSince.IsZero() {
+		shown = fmt.Sprintf("%d of %s shown", len(report.Worktrees), count(total, "worktree"))
+	}
+	line := fmt.Sprintf("%s, %s.", shown, byteSize(totalSize(report.Worktrees)))
+	var recommended []worktree.Worktree
+	for _, w := range report.Worktrees {
+		if w.Recommended {
+			recommended = append(recommended, w)
+		}
+	}
+	if len(recommended) > 0 {
+		command := "arbor clean --path " + shellArgument(report.Root)
+		if r.host != "" {
+			command += " --host " + shellArgument(r.host)
+		}
+		if r.olderThan > 0 {
+			command += " --older-than " + r.olderThan.String()
+		}
+		if r.scan.Excludes != nil {
+			command += " --no-default-excludes"
+			for _, exclude := range r.scan.Excludes {
+				command += " --exclude " + shellArgument(exclude)
+			}
+		}
+		if r.scan.Fetch {
+			command += " --fetch"
+		}
+		if r.scan.GitHub {
+			command += " --github"
+		}
+		line += fmt.Sprintf(" %d can be deleted now (%s): %s", len(recommended), byteSize(totalSize(recommended)), command)
+	}
+	_, err := fmt.Fprintln(out, line)
+	return err
+}
+
+func shellArgument(value string) string {
+	if value != "" && strings.IndexFunc(value, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/_-.@:", r))
+	}) < 0 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(printable(value), "'", "'\"'\"'") + "'"
 }

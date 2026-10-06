@@ -13,7 +13,7 @@ import (
 )
 
 // runWorktrees composes validation, inspection, selection, execution, and output.
-func runWorktrees(ctx context.Context, command string, flags *commandOptions, stdout, stderr io.Writer) error {
+func runWorktrees(ctx context.Context, command string, flags *commandOptions, stdout, stderr io.Writer) (err error) {
 	r, err := normalizeRequest(command, flags)
 	if err != nil {
 		return err
@@ -41,6 +41,12 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 		return err
 	}
 	status.finish(report)
+	// Inspect the full scan, before any age or recommendation filter hides rows.
+	defer func() {
+		if err == nil && r.strict && incompleteScan(report) {
+			err = errIncompleteScan
+		}
+	}()
 	// A JSON list carries its own warnings. Cleanup results do not, and an
 	// incomplete scan must never look like a clean folder with nothing to do.
 	if !r.json || command != "list" {
@@ -86,4 +92,16 @@ func runWorktrees(ctx context.Context, command string, flags *commandOptions, st
 	outcome := executeBatch(ctx, r, selection.selected, sessionID, remove, observe)
 	recordOutcome(r.host, batchID, sessionID, outcome, stderr)
 	return writeOutcome(stdout, r, outcome)
+}
+
+func incompleteScan(report worktree.Report) bool {
+	if len(report.Warnings) > 0 {
+		return true
+	}
+	for _, w := range report.Worktrees {
+		if len(w.Problems) > 0 {
+			return true
+		}
+	}
+	return false
 }

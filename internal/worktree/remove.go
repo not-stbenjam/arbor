@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // RemovalOptions binds a requested cleanup to the confirmed commit and policy.
 type RemovalOptions struct {
+	NotActiveSince  time.Time
 	ExpectedHead    string
 	RecommendedOnly bool
 	DiscardLocal    bool
@@ -111,6 +113,15 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	// to run none of the repository's filter programs then either. Which
 	// those are is read now, so that nothing slow comes after the last checks.
 	quiet, _ := repositoryFilters(ctx, current.Path)
+	// The age filter is consent for an inactive checkout, not just its commit.
+	if !options.NotActiveSince.IsZero() {
+		if current.ActivityAt.IsZero() {
+			return errors.New("skipped: activity time is unknown; not removed")
+		}
+		if current.ActivityAt.After(options.NotActiveSince) {
+			return errors.New("skipped: used since it was listed; not removed")
+		}
+	}
 	if snapshot.Empty && !current.Empty && !current.Missing {
 		return errors.New("checkout is no longer an empty directory; inspect it again")
 	}

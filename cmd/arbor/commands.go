@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stbenjam/arbor/internal/engine"
 	"github.com/stbenjam/arbor/internal/worktree"
 )
@@ -20,6 +21,10 @@ func (c commonFlags) options() worktree.Options {
 }
 
 type commandOptions struct {
+	strict                                                        bool
+	sortOrder                                                     string
+	olderThan                                                     ageDuration
+	notActiveSince                                                string
 	common                                                        commonFlags
 	yes, recommended, progress, all, quiet                        bool
 	linkedOnly, noDefaultExcludes, discardLocal, keepLocal, force bool
@@ -43,7 +48,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetVersionTemplate("arbor {{.Version}}\n")
-	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error { return usageError(cmd, err) })
+	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error { return usageError(cmd, friendlyFlagError(err)) })
 	root.AddCommand(newListCommand(), newCleanCommand(), newRemoveCommand(), newGUICommand(), newStatsCommand())
 	root.AddCommand(&cobra.Command{
 		Use: "version", Short: "Print the Arbor version", Args: checkedArgs(cobra.NoArgs),
@@ -52,11 +57,18 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 			return err
 		},
 	})
+	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	checkCommandArgs(root)
 	return root
 }
 
 func usageError(cmd *cobra.Command, err error) error {
-	return fmt.Errorf("%w\nRun '%s --help' for usage", err, cmd.CommandPath())
+	var usage *usageFailure
+	if errors.As(err, &usage) {
+		return err
+	}
+	return &usageFailure{fmt.Errorf("%w\nRun '%s --help' for usage", err, cmd.CommandPath())}
 }
 
 func checkedArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
@@ -97,10 +109,13 @@ func worktreeCommand(use, short, long, example string, flags *commandOptions) *c
 		Use: use, Short: short, Long: long, Example: example,
 		Args: checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("sort") && flags.sortOrder == "" {
+				return usageError(cmd, errors.New("--sort accepts name, size or activity"))
+			}
 			if cmd.Name() == "remove" {
 				// Given and left empty, it would require nothing at all.
 				if cmd.Flags().Changed("head") && flags.head == "" {
-					return errors.New("--head needs the commit to require; leave the flag out to require none")
+					return usageError(cmd, errors.New("--head needs the commit to require; leave the flag out to require none"))
 				}
 				flags.common.root = args[0]
 				// An empty branch is itself an expectation: the checkout was detached.
@@ -115,10 +130,13 @@ func newListCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("list", "Find and inspect linked worktrees",
 		"Find linked worktrees under a folder, with paths, branches, activity, and status.\nPrimary checkouts are omitted. Use --linked-only=false to include them for\ndiagnostics. Fetch and GitHub checks are opt-in. JSON stdout remains clean;\nhuman progress and --progress events go to stderr.",
-		"  arbor list -p ~/code\n  arbor list --host my-vps --json\n  arbor list --exclude '~/.codex*/.tmp'\n  arbor list --recommended --fetch --github", flags)
+		"  arbor list -p ~/code\n  arbor list --path ~/code --older-than 30d --sort activity\n  arbor list --path ~/code --sort size --strict --json\n  arbor list --host my-vps --json\n  arbor list --exclude '~/.codex*/.tmp'\n  arbor list --recommended --fetch --github", flags)
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
+	cmd.Flags().BoolVar(&flags.strict, "strict", false, "Exit with status 3 after output if the scan has warnings or incomplete inspections")
+	cmd.Flags().StringVar(&flags.sortOrder, "sort", "name", "Order by name, size (largest first), or activity (oldest first; unknown last)")
+	cmd.Flags().Var(&flags.olderThan, "older-than", "Keep only worktrees inactive for this long (30d, 12h, 2w or a Go duration); unknown activity never matches")
 	f := cmd.Flags()
 	f.BoolVar(&flags.linkedOnly, "linked-only", true, "Show only linked worktrees; use --linked-only=false for all registrations")
 	f.BoolVar(&flags.recommended, "recommended", false, "Show only clean, merged cleanup recommendations")
@@ -135,10 +153,13 @@ func newCleanCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("clean", "Preview or delete worktrees beneath a folder",
 		"Preview clean, merged worktrees that can be removed. Nothing is deleted until\n--yes is supplied. --all also takes clean worktrees that are not merged; their\nbranches keep the commits. Worktrees that are not a clean delete are skipped\nunless --force is added. --force agrees to everything the preview lists for\nthem: local files, and where it says so a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder.\nNamed branches and the checked-out commit are kept. Commits reachable only\nthrough a worktree's reflog or private refs are not protected. Nothing is\nsent to Trash.",
-		"  arbor clean -p ~/code\n  arbor clean -p ~/code --yes\n  arbor clean -p ~/old-sessions --all --yes\n  arbor clean -p ~/old-sessions --all --force --yes\n  arbor clean --host my-vps --path '~/projects' --json", flags)
+		"  arbor clean -p ~/code\n  arbor clean -p ~/code --yes\n  arbor clean --path ~/code --older-than 30d --yes\n  arbor clean -p ~/old-sessions --all --yes\n  arbor clean -p ~/old-sessions --all --force --yes\n  arbor clean --host my-vps --path '~/projects' --json", flags)
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
+	cmd.Flags().BoolVar(&flags.strict, "strict", false, "Exit with status 3 after output if the scan has warnings or incomplete inspections")
+	cmd.Flags().StringVar(&flags.sortOrder, "sort", "name", "Order by name, size (largest first), or activity (oldest first; unknown last)")
+	cmd.Flags().Var(&flags.olderThan, "older-than", "Keep only worktrees inactive for this long (30d, 12h, 2w or a Go duration); unknown activity never matches")
 	cmd.Flags().BoolVarP(&flags.yes, "yes", "y", false, "Perform removal instead of previewing")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Include clean worktrees that are not merged")
 	cmd.Flags().BoolVarP(&flags.force, "force", "f", false, "With --all, also take worktrees that are not a clean delete, discarding what the preview lists")
@@ -160,6 +181,8 @@ func newRemoveCommand() *cobra.Command {
 	f.BoolVarP(&flags.force, "force", "f", false, "Discard whatever the preview lists, and override a lock; needed for anything that is not a clean delete")
 	f.StringVar(&flags.repository, "repo", "", "Owning repository or Git common directory (for missing checkouts)")
 	_ = cmd.MarkFlagDirname("repo")
+	f.StringVar(&flags.notActiveSince, "not-active-since", "", "Require activity at or before this RFC 3339 cutoff")
+	_ = f.MarkHidden("not-active-since")
 	f.StringVar(&flags.head, "head", "", "Require this exact commit before removal")
 	f.BoolVar(&flags.recommended, "recommended-only", false, "Require a fresh clean, merged cleanup recommendation")
 	f.BoolVar(&flags.discardLocal, "discard-local", false, "Discard local files and override a lock (for integrations; see --acknowledge)")
@@ -184,7 +207,7 @@ func newGUICommand() *cobra.Command {
 		Args:    checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := engine.ValidateHost(flags.common.host); err != nil {
-				return err
+				return usageError(cmd, err)
 			}
 			if err := launchDesktop(flags.common); err != nil {
 				return err
@@ -195,4 +218,34 @@ func newGUICommand() *cobra.Command {
 	}
 	addConnectionFlags(cmd, flags, true)
 	return cmd
+}
+
+// Cobra creates completion commands too; their argument checks need the same status.
+func checkCommandArgs(cmd *cobra.Command) {
+	// A non-runnable command prints help before Cobra validates its arguments.
+	if !cmd.Runnable() {
+		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
+	}
+
+	if cmd.Args != nil {
+		cmd.Args = checkedArgs(cmd.Args)
+	}
+	for _, child := range cmd.Commands() {
+		checkCommandArgs(child)
+	}
+}
+
+func friendlyFlagError(err error) error {
+	var invalid *pflag.InvalidValueError
+	if !errors.As(err, &invalid) {
+		return err
+	}
+	flag := invalid.GetFlag()
+	switch flag.Value.Type() {
+	case "bool":
+		return fmt.Errorf("--%s takes true or false, not %q", flag.Name, invalid.GetValue())
+	case "duration":
+		return fmt.Errorf("--%s takes a positive duration (for example 30d, 12h or 2w), not %q", flag.Name, invalid.GetValue())
+	}
+	return err
 }
