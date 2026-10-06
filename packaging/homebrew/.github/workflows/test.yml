@@ -25,6 +25,12 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+      # GitHub's Linux machines have Homebrew, but not on the path.
+      - name: Put Homebrew on the path
+        if: runner.os == 'Linux'
+        run: |
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+          echo "/home/linuxbrew/.linuxbrew/sbin" >> "$GITHUB_PATH"
       - name: Register the checked-out tap
         run: |
           set -euo pipefail
