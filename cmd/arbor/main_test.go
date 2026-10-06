@@ -83,7 +83,7 @@ func TestCLITableShowsSizeAndTheDecidingStatus(t *testing.T) {
 	if len(lines) != 5 || !strings.Contains(lines[0], "SIZE") {
 		t.Fatalf("unexpected table: %s", out.String())
 	}
-	for i, want := range [][]string{{"3.0 MiB", "merged"}, {"512 B", "new"}, {"2.0 KiB", "local changes"}, {"—", "missing checkout"}} {
+	for i, want := range [][]string{{"3 MB", "merged"}, {"512 B", "new"}, {"2 KB", "local changes"}, {"—", "missing checkout"}} {
 		fields := strings.Fields(lines[i+1])
 		row := strings.Join(fields, " ")
 		for _, text := range want {
