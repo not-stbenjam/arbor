@@ -16,6 +16,7 @@ var cleanupSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // worktreeRequest is validated command intent, independent of Cobra and output.
 type worktreeRequest struct {
+	sortOrder                               string
 	notActiveSince                          time.Time
 	command, host                           string
 	scan                                    worktree.Options
@@ -37,6 +38,12 @@ func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, e
 		progress: flags.progress, humanProgress: !flags.common.json && !flags.quiet && !flags.progress}
 	if command != "list" && command != "clean" && command != "remove" {
 		return r, fmt.Errorf("unknown worktree command %q", command)
+	}
+	r.sortOrder = flags.sortOrder
+	switch r.sortOrder {
+	case "", "name", "size", "activity":
+	default:
+		return r, fmt.Errorf("--sort accepts name, size or activity, not %q", r.sortOrder)
 	}
 	if flags.olderThan > 0 {
 		r.notActiveSince = time.Now().Add(-time.Duration(flags.olderThan))

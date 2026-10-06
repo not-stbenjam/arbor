@@ -20,6 +20,7 @@ func (c commonFlags) options() worktree.Options {
 }
 
 type commandOptions struct {
+	sortOrder                                                     string
 	olderThan                                                     ageDuration
 	notActiveSince                                                string
 	common                                                        commonFlags
@@ -121,6 +122,7 @@ func newListCommand() *cobra.Command {
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
+	cmd.Flags().StringVar(&flags.sortOrder, "sort", "name", "Order by name, size (largest first), or activity (oldest first; unknown last)")
 	cmd.Flags().Var(&flags.olderThan, "older-than", "Keep only worktrees inactive for this long (30d, 12h, 2w or a Go duration); unknown activity never matches")
 	f := cmd.Flags()
 	f.BoolVar(&flags.linkedOnly, "linked-only", true, "Show only linked worktrees; use --linked-only=false for all registrations")
@@ -142,6 +144,7 @@ func newCleanCommand() *cobra.Command {
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
+	cmd.Flags().StringVar(&flags.sortOrder, "sort", "name", "Order by name, size (largest first), or activity (oldest first; unknown last)")
 	cmd.Flags().Var(&flags.olderThan, "older-than", "Keep only worktrees inactive for this long (30d, 12h, 2w or a Go duration); unknown activity never matches")
 	cmd.Flags().BoolVarP(&flags.yes, "yes", "y", false, "Perform removal instead of previewing")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Include clean worktrees that are not merged")

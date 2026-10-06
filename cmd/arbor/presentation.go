@@ -23,6 +23,7 @@ func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
 		}
 		report.Worktrees = filtered
 	}
+	report.Worktrees = sortedWorktrees(report.Worktrees, r.sortOrder)
 	if r.json {
 		return json.NewEncoder(out).Encode(report)
 	}
@@ -38,7 +39,7 @@ func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
 }
 
 func writePreview(out io.Writer, r worktreeRequest, report worktree.Report, selection targetSelection) error {
-	selected := selection.selected
+	selected := sortedWorktrees(selection.selected, r.sortOrder)
 	if r.json {
 		return json.NewEncoder(out).Encode(map[string]any{"dryRun": true, "worktrees": selected, "warnings": report.Warnings, "requiresForce": selection.needsForce})
 	}
@@ -254,4 +255,30 @@ func duration(d time.Duration) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+}
+
+// Stable ties keep the scan's repository/path order, also used by --sort name.
+func sortedWorktrees(entries []worktree.Worktree, order string) []worktree.Worktree {
+	result := slices.Clone(entries)
+	slices.SortStableFunc(result, func(a, b worktree.Worktree) int {
+		switch order {
+		case "size":
+			if a.SizeBytes > b.SizeBytes {
+				return -1
+			}
+			if a.SizeBytes < b.SizeBytes {
+				return 1
+			}
+		case "activity":
+			if a.ActivityAt.IsZero() && !b.ActivityAt.IsZero() {
+				return 1
+			}
+			if b.ActivityAt.IsZero() && !a.ActivityAt.IsZero() {
+				return -1
+			}
+			return a.ActivityAt.Compare(b.ActivityAt)
+		}
+		return 0
+	})
+	return result
 }
