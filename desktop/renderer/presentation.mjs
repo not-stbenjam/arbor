@@ -1,48 +1,14 @@
-const paths = {
-  branch:
-    '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 7v10m0-3h6a6 6 0 0 0 6-6"/>',
-  trees: '<path d="M8 21V3m0 5L4 5m4 9-5-4m5 8 5-4M16 3v7m0-4 4-3m-4 7 4-3"/>',
-  merge:
-    '<circle cx="7" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M7 7v10m11-10c0 7-11 3-11 10"/>',
-  monitor:
-    '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
-  server:
-    '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01m4-11h6m-6 11h6"/>',
-  chevrons: '<path d="m8 9 4-4 4 4m-8 6 4 4 4-4"/>',
-  "chevron-down": '<path d="m6 9 6 6 6-6"/>',
-  "chevron-right": '<path d="m9 6 6 6-6 6"/>',
-  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
-  "check-circle": '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
-  settings:
-    '<path d="m10 3-1 3-3 1-3 3 2 2-1 3 3 3 3-1 2 4 3-2 1-3 4-1 1-4-3-1-1-3-4-1-1-3Z"/><circle cx="12" cy="12" r="3"/>',
-  sliders:
-    '<path d="M4 6h4m4 0h8M4 12h10m4 0h2M4 18h2m4 0h10"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/>',
-  refresh:
-    '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
-  undo: '<path d="M4 4v5h5"/><path d="M4.6 14a8 8 0 1 0 1.7-7.6L4 9"/>',
-  check: '<path d="m5 12 4 4L19 6"/>',
-  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
-  sort: '<path d="m8 8 4-4 4 4m-8 8 4 4 4-4"/>',
-  close: '<path d="m6 6 12 12M18 6 6 18"/>',
-  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
-  folder:
-    '<path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
-  warning: '<path d="m12 3 10 18H2L12 3Zm0 6v5m0 3h.01"/>',
-  edit: '<path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6Z"/>',
-  external:
-    '<path d="M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/>',
-  moon: '<path d="M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11Z"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  minus: '<path d="M5 12h14"/>',
-  "arrow-up": '<path d="M12 19V5m-6 6 6-6 6 6"/>',
-  "arrow-down": '<path d="M12 5v14m-6-6 6 6 6-6"/>',
-  chart: '<path d="M4 3v18h17M9 16v-4m5 4V8m5 8V5"/>',
-  copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
+import { iconPaths } from "./icons.generated.mjs";
+
+// Arbor's own mark, also used by the All worktrees view, is not an interface
+// icon. Keep its original drawing and stroke; the packaged app mark is separate.
+const arborMark = '<path d="M8 21V3m0 5L4 5m4 9-5-4m5 8 5-4M16 3v7m0-4 4-3m-4 7 4-3"/>';
+const icon = (name, extra = "") => {
+  const mark = name === "trees";
+  if (!mark && !Object.hasOwn(iconPaths, name))
+    throw new Error(`Unknown icon: ${name}`);
+  return `<svg class="icon ${extra}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${mark ? 1.65 : 2}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${mark ? arborMark : iconPaths[name]}</svg>`;
 };
-const icon = (name, extra = "") =>
-  `<svg class="icon ${extra}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.branch}</svg>`;
 // Text that came from a repository, made safe to read: characters that
 // cannot be seen, or that reverse the order of what follows them, are shown
 // as a mark, so that two names that differ never look the same. (The

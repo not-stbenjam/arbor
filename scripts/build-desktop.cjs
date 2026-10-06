@@ -36,6 +36,9 @@ function run(command, args, env = {}) {
     throw new Error(`${command} exited with status ${result.status}`);
 }
 
+// Committed renderer assets must match the pinned package before shipping.
+run(process.execPath, ["scripts/icons.cjs", "--check"]);
+
 fs.mkdirSync(path.join(root, "bin"), { recursive: true });
 fs.mkdirSync(path.join(root, "build", "icons"), { recursive: true });
 run(
@@ -93,6 +96,8 @@ if (!process.argv.includes("--prepare")) {
         "!desktop/smoke-test.cjs",
       ],
       extraResources: [
+        { from: "LICENSE", to: "LICENSE" },
+        { from: "THIRD_PARTY_NOTICES.txt", to: "THIRD_PARTY_NOTICES.txt" },
         { from: "bin/arbor-cli", to: "bin/arbor-cli" },
         { from: "build/icons/icon.png", to: "icon.png" },
       ],

@@ -467,3 +467,5 @@ To release, push the version tag and publish its GitHub Release. macOS packages 
 ## License
 
 [MIT](LICENSE).
+
+Interface icons by [Lucide](https://lucide.dev) (ISC, with Feather MIT notices in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)); Arbor’s application mark is unchanged. Regenerate the committed renderer icons with `npm run icons` after changing the pinned package or the mapping in `scripts/icons.cjs`.
