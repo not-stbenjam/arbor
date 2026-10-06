@@ -30,6 +30,11 @@ function repositoryKey(worktree) {
     worktree.commonDir || worktree.repo || worktree.path,
   );
 }
+function activityTime(value) {
+  if (typeof value !== "string" && typeof value !== "number") return NaN;
+  const date = new Date(value);
+  return date.getFullYear() >= 1971 ? date.valueOf() : NaN;
+}
 function filter(worktrees, options = {}) {
   const query = String(options.query || "")
     .trim()
@@ -38,6 +43,9 @@ function filter(worktrees, options = {}) {
     (w) =>
       (!options.repo || repositoryKey(w) === options.repo) &&
       (options.view !== "recommended" || w.recommended) &&
+      (!options.stateFilter || options.kind?.(w) === options.stateFilter) &&
+      (options.activityBefore === undefined ||
+        activityTime(w.activityAt) <= options.activityBefore) &&
       (!query ||
         // What the row shows as its state is searchable with the rest, so
         // "ignored" or "merged" finds the rows that say so.

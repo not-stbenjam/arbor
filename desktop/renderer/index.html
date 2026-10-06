@@ -114,6 +114,18 @@
               </select></label
             >
             <button id="sort-direction" class="icon-button"></button>
+            <label class="tree-filter-label">State
+              <select id="state-filter" aria-label="State"><option value="">Any state</option></select>
+            </label>
+            <label class="tree-filter-label">Last used
+              <select id="age-filter" aria-label="Last used">
+                <option value="">Any time</option>
+                <option value="7">Not for a week</option>
+                <option value="30">Not for a month</option>
+                <option value="90">Not for 3 months</option>
+                <option value="365">Not for a year</option>
+              </select>
+            </label>
             <button
               id="scan-options-button"
               class="icon-button"
