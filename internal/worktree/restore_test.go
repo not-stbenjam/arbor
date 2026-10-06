@@ -13,7 +13,7 @@ import (
 func TestRestoreBranchAndDetached(t *testing.T) {
 	for _, detached := range []bool{false, true} {
 		t.Run(map[bool]string{false: "branch", true: "detached"}[detached], func(t *testing.T) {
-			root := t.TempDir()
+			root := testRoot(t)
 			repo := testRepo(t, filepath.Join(root, "repo"))
 			target := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 			head := testGit(t, repo, "rev-parse", "HEAD")
@@ -46,7 +46,7 @@ func TestRestoreBranchAndDetached(t *testing.T) {
 func TestRestoreRefusals(t *testing.T) {
 	for _, kind := range []string{"file", "folder", "link", "dangling link", "parent", "branch", "checked out", "repository", "commit"} {
 		t.Run(kind, func(t *testing.T) {
-			root := t.TempDir()
+			root := testRoot(t)
 			repo := testRepo(t, filepath.Join(root, "repo"))
 			testGit(t, repo, "branch", "topic")
 			target := filepath.Join(root, "restored")
@@ -103,7 +103,7 @@ func TestRestoreRefusals(t *testing.T) {
 	}
 }
 func TestRestoreReportsMovedBranch(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	head := testGit(t, repo, "rev-parse", "HEAD")
 	testGit(t, repo, "commit", "--allow-empty", "-m", "later")
@@ -114,7 +114,7 @@ func TestRestoreReportsMovedBranch(t *testing.T) {
 	}
 }
 func TestRestoreRunsNoHooksOrRepositoryFilters(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	testGit(t, repo, "branch", "topic")
 	hook, hookRan := testFilter(t, root, "post-checkout")
@@ -154,7 +154,7 @@ func TestRestoreRunsNoHooksOrRepositoryFilters(t *testing.T) {
 	}
 }
 func TestRestoreLeavesPartialCheckout(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	// A global filter is permitted but can fail. Registration and files already
 	// written must survive that failure, unlike worktree add's normal rollback.
@@ -190,30 +190,39 @@ func TestRestoreLeavesPartialCheckout(t *testing.T) {
 }
 
 func TestRestoreAllowsStandardLFS(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	testWrite(t, filepath.Join(repo, ".gitattributes"), "tracked.txt filter=lfs\n")
 	testGit(t, repo, "add", ".")
 	testGit(t, repo, "commit", "-m", "LFS attribute")
 	testGit(t, repo, "branch", "topic")
-	tools := filepath.Join(root, "tools")
-	if err := os.Mkdir(tools, 0700); err != nil {
-		t.Fatal(err)
+	// A machine can be set up to run Git LFS for every repository, by a
+	// protocol the stand-in below does not speak. There the real one is
+	// left to do it, and that the worktree is put back is the test.
+	machine := gitText(context.Background(), root, "config", "--get", "filter.lfs.process") != ""
+	ran := ""
+	if !machine {
+		tools := filepath.Join(root, "tools")
+		if err := os.Mkdir(tools, 0700); err != nil {
+			t.Fatal(err)
+		}
+		_, ran = testFilter(t, tools, "git-lfs")
+		t.Setenv("PATH", tools+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
-	_, ran := testFilter(t, tools, "git-lfs")
-	t.Setenv("PATH", tools+string(os.PathListSeparator)+os.Getenv("PATH"))
 	testGit(t, repo, "config", "filter.lfs.smudge", "git-lfs smudge -- %f")
 	r, err := Restore(context.Background(), RestoreOptions{Path: filepath.Join(root, "restored"), CommonDir: repo, Branch: "topic"})
 	if err != nil || !r.Restored {
 		t.Fatalf("%+v %v", r, err)
 	}
-	if _, err := os.Stat(ran); err != nil {
-		t.Fatal("standard LFS was not allowed", err)
+	if !machine {
+		if _, err := os.Stat(ran); err != nil {
+			t.Fatal("standard LFS was not allowed", err)
+		}
 	}
 }
 
 func TestRestoreAsksAgainWhereTheFilesAreWritten(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	testWrite(t, filepath.Join(repo, ".gitattributes"), "tracked.txt filter=probe\n")
 	testGit(t, repo, "add", ".")
@@ -248,7 +257,7 @@ func TestRestoreAsksAgainWhereTheFilesAreWritten(t *testing.T) {
 }
 
 func TestRestorePutsItOnABranchGitWouldNotName(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	testGit(t, repo, "update-ref", "refs/heads/-topic", "HEAD")
 	target := filepath.Join(root, "restored")
@@ -265,7 +274,7 @@ func TestRestorePutsItOnABranchGitWouldNotName(t *testing.T) {
 }
 
 func TestRestoreDoesNotFetch(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	source := testRepo(t, filepath.Join(root, "source"))
 	testGit(t, source, "config", "uploadpack.allowFilter", "true")
 	clone := filepath.Join(root, "clone")

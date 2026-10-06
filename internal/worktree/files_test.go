@@ -10,6 +10,17 @@ import (
 	"testing"
 )
 
+// testRoot is a temporary folder by the name Git will call it, which on
+// macOS is not the name it is handed out by.
+func testRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func fileInventory(t *testing.T, path, repo string, limit int) FilesReport {
 	t.Helper()
 	r, err := Files(context.Background(), path, repo, limit)
@@ -29,7 +40,7 @@ func inventoryEntry(t *testing.T, r FilesReport, kind, path string) FileEntry {
 	return FileEntry{}
 }
 func TestFilesKindsSizesAndLimit(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	for _, name := range []string{"delete", "rename", "assume", "skip"} {
 		testWrite(t, filepath.Join(repo, name), name)
@@ -89,7 +100,7 @@ func TestFilesKindsSizesAndLimit(t *testing.T) {
 	}
 }
 func TestFilesMissingAndSubmodules(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	sub := testRepo(t, filepath.Join(root, "sub"))
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
@@ -110,7 +121,7 @@ func TestFilesMissingAndSubmodules(t *testing.T) {
 	inventoryEntry(t, r, "refs", "refs/worktree/saved")
 }
 func TestFilesOperationsAndConflict(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 	admin := adminDirectory(filepath.Join(repo, ".git"), wt)
@@ -147,7 +158,7 @@ func TestFilesOperationsAndConflict(t *testing.T) {
 	}
 }
 func TestFilesRefusesOtherPathsAndDoesNotFollowLinks(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 	other := testRepo(t, filepath.Join(root, "other"))
@@ -172,7 +183,7 @@ func TestFilesRefusesOtherPathsAndDoesNotFollowLinks(t *testing.T) {
 	}
 }
 func TestFilesSizeBudget(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	testWrite(t, filepath.Join(root, "file"), "contents")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -182,7 +193,7 @@ func TestFilesSizeBudget(t *testing.T) {
 	}
 }
 func TestFilesRunsNoRepositoryPrograms(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	testWrite(t, filepath.Join(repo, ".gitattributes"), "tracked.txt filter=probe\n")
 	testGit(t, repo, "add", ".")
@@ -213,7 +224,7 @@ func TestFilesRunsNoRepositoryPrograms(t *testing.T) {
 }
 
 func TestFilesNestedBareAndSubmoduleFilter(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	sub := testRepo(t, filepath.Join(root, "sub"))
 	testWrite(t, filepath.Join(sub, ".gitattributes"), "tracked.txt filter=probe\n")
@@ -248,7 +259,7 @@ func TestFilesNestedBareAndSubmoduleFilter(t *testing.T) {
 }
 
 func TestFilesSaysWhatItCouldNotLookThrough(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 	testWrite(t, filepath.Join(wt, "notes"), "untracked")
@@ -286,7 +297,7 @@ func TestFilesSaysWhatItCouldNotLookThrough(t *testing.T) {
 }
 
 func TestFilesMeasuresAWorktreeReachedThroughALink(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	real := filepath.Join(root, "real")
 	if err := os.Mkdir(real, 0700); err != nil {
 		t.Fatal(err)
@@ -310,7 +321,7 @@ func TestFilesMeasuresAWorktreeReachedThroughALink(t *testing.T) {
 }
 
 func TestFilesTellsApartNamesThatAreNotText(t *testing.T) {
-	root := t.TempDir()
+	root := testRoot(t)
 	repo := testRepo(t, filepath.Join(root, "repo"))
 	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
 	for _, name := range []string{"bad\xfe", "bad\xff"} {
