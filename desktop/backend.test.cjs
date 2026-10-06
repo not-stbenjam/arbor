@@ -69,10 +69,10 @@ test("cached manual cleanup binds consent and missing/empty expectations without
         // Forced, with nothing seen in it to lose: it says it is deleted
         // whatever it holds, and is not called discarding work.
         if (kind === "locked" || kind === "detached") {
-          assert.match(dialog.detail, /deleted whatever it holds now/);
+          assert.match(dialog.detail, /Any uncommitted files are discarded/);
           assert.equal(
             dialog.buttons[1],
-            kind === "locked" ? "Override Lock & Delete" : "Delete Worktree",
+            kind === "locked" ? "Delete" : "Delete",
           );
         } else assert.doesNotMatch(dialog.detail, /whatever it holds now/);
         return true;

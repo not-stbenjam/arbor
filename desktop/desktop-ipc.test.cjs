@@ -366,3 +366,29 @@ test("the window says which menu commands can be used", () => {
   assert.throws(() => call("menu-availability", null), /Invalid menu state/);
   assert.throws(() => call("menu-availability", ["refresh"]), /Invalid menu state/);
 });
+
+test("Show Files cancels removal and returns only the single worktree identity; only button 1 consents", async () => {
+  const row = { id: "host-scoped", path: "/work/ignored", canRemove: false, canDiscard: true, losses: ["ignored"] };
+  for (const response of [0, 1, 2, 3]) {
+    let approved;
+    const ipc = adapter({
+      backend: {
+        assertInteractive() {},
+        async remove(selection, confirm) {
+          approved = await confirm([row], { discardLocal: true });
+          return { cancelled: !approved, results: [] };
+        },
+      },
+      dialog: { async showMessageBox(window, options) {
+        assert.deepEqual(options.buttons, ["Cancel", "Delete", "Show Files…"]);
+        assert.equal(options.defaultId, 0);
+        assert.equal(options.cancelId, 0);
+        return { response };
+      } },
+    });
+    const result = await ipc.call("remove", {});
+    assert.equal(approved, response === 1);
+    assert.equal(result.cancelled, response !== 1);
+    assert.equal(result.showFiles, response === 2 ? Buffer.from(JSON.stringify(["", row.id])).toString("base64url") : undefined);
+  }
+});

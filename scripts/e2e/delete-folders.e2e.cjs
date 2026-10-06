@@ -33,8 +33,8 @@ scenario({
       await t.click("#cleanup-confirm");
       await t.until(() => t.messages.length === 1, "folder question");
       await t.settled();
-      assert.match(t.messages[0].message, /1 of 3 worktrees is not clean.*delete all 3/);
-      assert.match(t.messages[0].detail, /folder that holds them.*is kept/);
+      assert.match(t.messages[0].message, /Delete 3 worktrees\?/);
+      assert.doesNotMatch(t.messages[0].detail, /folder that holds them/);
       for (const tree of t.world) assert.equal(t.fixture.exists(tree.path), true);
       await t.click(`${group} [data-toggle-directory]`);
     });

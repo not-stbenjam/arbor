@@ -37,7 +37,7 @@ scenario({
           async () => / items?$/.test(await t.text("#files-total")),
           "the inventory to load",
         );
-        assert.equal(await t.text("#files-title"), `What ${tree.name} holds`);
+        assert.equal(await t.text("#files-title"), `Show Files — ${tree.name}`);
         const cli = t.fixture.cli(
           "files",
           tree.path,
@@ -99,11 +99,11 @@ scenario({
         assert.equal(await t.text("#files-total"), `${count} items`);
         assert.equal(
           await t.count(
-            "#files-dialog [data-delete], #files-dialog .button-danger",
+            "#files-dialog [data-delete]:not([hidden]), #files-dialog .button-danger:not([hidden])",
           ),
           0,
         );
-        assert.match(await t.text("#files-lead"), /permanently discards/);
+        assert.match(await t.text("#files-lead"), /discards these files and Git data/);
         return report;
       }
       for (const tree of t.world.trees) {
@@ -113,9 +113,9 @@ scenario({
             const row = await t.row(tree.path);
             const menu = await t.contextMenu(`${row} .branch-cell`);
             assert.ok(
-              menu.find((item) => item.label === "Show what it holds…").enabled,
+              menu.find((item) => item.label === "Show Files…").enabled,
             );
-            await t.chooseMenu("Show what it holds…");
+            await t.chooseMenu("Show Files…");
             await verify(tree);
             assert.equal(await t.focused(), "h2#files-title");
             if (!tree.host) {
@@ -157,14 +157,14 @@ scenario({
               () => t.native.menus > beforeEnter,
               "Enter opens the row menu",
             );
-            await t.chooseMenu("Show what it holds…");
+            await t.chooseMenu("Show Files…");
             await verify(tree);
             await t.press("Escape");
             // The ellipsis uses the same native menu.
             const before = t.native.menus;
             await t.click(`${row} [data-worktree-menu]`);
             await t.until(() => t.native.menus > before, "ellipsis opens");
-            await t.chooseMenu("Show what it holds…");
+            await t.chooseMenu("Show Files…");
             await verify(tree);
             await t.press("Escape");
           },

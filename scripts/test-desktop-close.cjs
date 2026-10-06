@@ -162,7 +162,7 @@ if (args[0] === 'remove') {
     if (options.title === "Cleanup is running") return { response: 1 };
     if (
       phase === "confirmations" &&
-      ["Delete worktree?", "Delete detached worktree?"].includes(
+      ["Delete worktree?", "Delete worktrees?"].includes(
         options.title,
       )
     ) {
@@ -285,17 +285,17 @@ if (args[0] === 'remove') {
             // Deleted only by being told to, with nothing seen in it to
             // lose: asked about plainly, and still said to be forced.
             assert.equal(confirmations[0].message, "Delete “tree-1”?");
-            assert.equal(confirmations[0].title, "Delete detached worktree?");
+            assert.equal(confirmations[0].title, "Delete worktrees?");
             assert.match(
               confirmations[0].detail,
-              /recovery branches are created only if needed/,
+              /branch and commits are kept/,
             );
             assert.equal(confirmations[1].message, "Delete “tree-2”?");
             assert.ok(
               confirmations.every(
                 (options) =>
-                  options.detail.includes("deleted whatever it holds now") &&
-                  options.buttons[1] === "Delete Worktree",
+                  options.detail.includes("Any uncommitted files are discarded") &&
+                  options.buttons[1] === "Delete",
               ),
               "force-removal consent must cover files added since the cached scan",
             );

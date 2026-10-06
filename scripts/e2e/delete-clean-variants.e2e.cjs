@@ -30,7 +30,7 @@ scenario({
         t.answer(1);
         await t.click(`${await t.row(tree.path)} [data-delete]`);
         await gone(t, tree);
-        assert.match(t.messages.at(-1).detail, /Git branches and commits are kept/);
+        assert.match(t.messages.at(-1).detail, /Its branch and commits are kept/);
         assert.equal(t.fixture.exists(tree.repository), true);
         await t.click('#toast-region button[aria-label="Dismiss notification"]');
       }

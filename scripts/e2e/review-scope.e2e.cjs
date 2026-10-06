@@ -22,7 +22,7 @@ scenario({
       assert.deepEqual(await t.texts(".cleanup-path"), [t.world[0].path, t.world[2].path]);
       assert.ok((await t.texts(".cleanup-reason")).every((text) => text === "All commits are in origin/main"));
       assert.ok((await t.texts(".cleanup-size")).every((text) => /^\d+(?:\.\d+)? B$/.test(text)));
-      assert.match(await t.text("#cleanup-lead"), /branches and commits are kept/);
+      assert.match(await t.text("#cleanup-lead"), /Branches and commits are kept/);
       assert.equal(await t.focused(), "button#cleanup-cancel.button");
       await t.click("#cleanup-cancel");
       await t.click("#cleanup-button", { count: 2 }); await t.press("Escape");

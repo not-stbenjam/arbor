@@ -18,6 +18,7 @@ export function createWorktreeView({
   tree,
   showWorktreeMenu,
   onRender = () => {},
+  onShowFiles = () => {},
   onSortChange = () => {},
   // Shows several worktrees chosen for deletion, each with what deleting it
   // means, before anything is asked.
@@ -102,7 +103,7 @@ export function createWorktreeView({
     const inList = new Set(visible.map((row) => row.id)),
       unseen = rows.filter((row) => !inList.has(row.id)).length;
     $("#selection-label").textContent =
-      `${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"} selected${unseen ? ` · ${unseen} not shown` : ""}${unclean ? ` · ${unclean} not clean` : ""}${kept ? ` · ${kept} cannot be deleted` : ""}`;
+      `${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"} selected${unseen ? ` · ${unseen} not shown` : ""}${unclean ? ` · ${unclean} with data to discard` : ""}${kept ? ` · ${kept} cannot be deleted` : ""}`;
     $("#remove-selected").disabled =
       blocked() ||
       !workspace.snapshot.revision ||
@@ -120,6 +121,7 @@ export function createWorktreeView({
       return null;
     for (const [key, attribute] of [
       ["delete", "data-delete"],
+      ["showFiles", "data-show-files"],
       ["worktreeMenu", "data-worktree-menu"],
       ["folderDelete", "data-folder-delete"],
       ["toggleDirectory", "data-toggle-directory"],
@@ -664,6 +666,10 @@ export function createWorktreeView({
       if (button.dataset.delete) {
         const w = items().find((w) => w.id === button.dataset.delete);
         if (w) workspace.deleteWorktrees([w]);
+      }
+      if (button.dataset.showFiles) {
+        const row = items().find((row) => row.id === button.dataset.showFiles);
+        if (row) onShowFiles(row);
       }
       if (button.dataset.worktreeMenu)
         showWorktreeMenu(button.dataset.worktreeMenu);

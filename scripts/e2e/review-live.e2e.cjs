@@ -36,7 +36,7 @@ scenario({
       await t.click("#cleanup-button");
       assert.deepEqual(await t.texts(".cleanup-name"), ["b-safe", "a-changed"]);
       assert.equal(await t.exists(".cleanup-item.changed"), false);
-      await t.until(async () => /Changed since/.test(await t.text(".cleanup-item.changed") || ""), "the review marks the row the host now says has changed");
+      await t.until(async () => /Changed; kept\./.test(await t.text(".cleanup-item.changed") || ""), "the review marks the row the host now says has changed");
       assert.deepEqual(await t.texts(".cleanup-name"), ["b-safe", "a-changed"]);
       assert.match(await t.text(".cleanup-item.changed"), /Kept/);
       assert.equal(await t.text("#cleanup-confirm"), "Delete 1 worktree");

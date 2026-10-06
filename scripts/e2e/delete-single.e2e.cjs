@@ -34,26 +34,26 @@ scenario({
         await t.settled();
         const question = t.messages.at(-1);
         assert.match(question.message, new RegExp(tree.name));
-        assert.match(question.detail, /branches and commits are kept/i);
+        assert.match(question.detail, /branch and commits are kept/i);
         if (index < 3) {
-          assert.equal(question.title, "Not a clean delete");
-          assert.match(question.detail, index === 2 ? /ignored files/ : /uncommitted changes and untracked files/);
-          assert.match(await t.attribute(`${row} [data-delete]`, "title"), /Not a clean delete/);
+          assert.equal(question.title, "Delete worktrees?");
+          assert.match(question.message, index === 2 ? /ignored files/ : /uncommitted changes/);
+          assert.match(await t.attribute(`${row} [data-delete]`, "title"), /Discards/);
         }
-        if (["locked", "reason", "missing"].includes(tree.name)) assert.match(question.detail, /locks.*overridden/);
-        if (tree.name === "missing") assert.match(question.detail, /Only Git worktree registrations will be removed/);
-        if (tree.name === "detached") assert.match(question.detail, /Detached commits will be kept/);
+        if (["locked", "reason", "missing"].includes(tree.name)) assert.match(question.detail, /Lock overridden/);
+        if (tree.name === "missing") assert.match(question.detail, /Folder already gone; only registration removed/);
+        if (tree.name === "detached") assert.match(question.detail, /Its branch and commits are kept/);
         // A clean worktree that is only locked or detached is not said to
         // hold work: it is asked about by what it is, and still as forced.
         if (["locked", "reason"].includes(tree.name)) {
-          assert.equal(question.title, "Delete locked worktree?");
-          assert.equal(question.message, `Delete “${tree.name}” and override its lock?`);
-          assert.deepEqual(question.buttons, ["Cancel", "Override Lock & Delete"]);
-          assert.match(question.detail, /^The last scan found nothing uncommitted in it\. It is deleted whatever it holds now/);
+          assert.equal(question.title, "Delete worktrees?");
+          assert.equal(question.message, `Delete “${tree.name}”?`);
+          assert.deepEqual(question.buttons, ["Cancel", "Delete"]);
+          assert.match(question.detail, /^Any uncommitted files are discarded/);
         }
         if (tree.name === "detached") {
-          assert.equal(question.title, "Delete detached worktree?");
-          assert.deepEqual(question.buttons, ["Cancel", "Delete Worktree"]);
+          assert.equal(question.title, "Delete worktrees?");
+          assert.deepEqual(question.buttons, ["Cancel", "Delete"]);
         }
         assert.equal(t.fixture.exists(tree.path), tree.name !== "missing");
         assert.equal(registered(t, tree.repository, tree.path), true);

@@ -31,7 +31,7 @@ scenario({
             .map((element) => element.id || element.className);
         })()`);
       await t.step("after one deletion, with the list longer than the window", async () => {
-        t.answer("Delete Worktree");
+        t.answer("Delete");
         await t.click(`${row(2)} [data-delete]`);
         await t.until(() => t.exists("#toast-region .toast"), "the note that it went");
         await t.settled();

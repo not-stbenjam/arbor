@@ -92,7 +92,7 @@ function createWorktreeContextMenu({
       },
       { type: "separator" },
       {
-        label: "Show what it holds…",
+        label: "Show Files…",
         click: click((row) => sendAction({
           type: "worktree-files", id: row.id, revision: row.revision,
         })),
