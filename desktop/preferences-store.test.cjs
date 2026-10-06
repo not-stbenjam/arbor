@@ -191,3 +191,28 @@ test("local root history is bounded, recent-first and deduplicated across saves"
     "/project-2",
   ]);
 });
+
+test("view choices survive restart and stale settings without saving search or selection", async (t) => {
+  const filename = fixture(t);
+  const store = await PreferencesStore.open(filename);
+  const stale = store.get();
+  assert.equal(stale.sort, "path");
+  assert.equal(stale.descending, false);
+  assert.equal(stale.hostFilter, null);
+  await store.saveView({ sort: "size", descending: true, hostFilter: "", search: "secret", selection: ["id"] });
+  await store.saveEditable({ ...stale, theme: "dark" });
+  let saved = (await PreferencesStore.open(filename)).get();
+  assert.equal(saved.sort, "size");
+  assert.equal(saved.descending, true);
+  assert.equal(saved.hostFilter, "");
+  assert.equal(saved.search, undefined);
+  assert.equal(saved.selection, undefined);
+  await store.saveView({ hostFilter: null });
+  assert.equal(store.get().sort, "size");
+  assert.equal(store.get().hostFilter, null);
+  await store.saveView({ sort: "unknown", descending: "yes", hostFilter: "bad host" });
+  saved = (await PreferencesStore.open(filename)).get();
+  assert.equal(saved.sort, "path");
+  assert.equal(saved.descending, false);
+  assert.equal(saved.hostFilter, null);
+});

@@ -5,7 +5,7 @@ import {
   renderRepositoryList,
   rowElementID,
 } from "./worktree-presentation.mjs";
-import { icon, esc, ago, sentenceCase } from "./presentation.mjs";
+import { icon, esc, ago, sentenceCase, viewHost } from "./presentation.mjs";
 import { reconcileSelection, selectRow as chooseRow } from "./selection.mjs";
 import { lossesOf } from "../common/losses.mjs";
 
@@ -17,6 +17,7 @@ export function createWorktreeView({
   tree,
   showWorktreeMenu,
   onRender = () => {},
+  onSortChange = () => {},
   // Shows several worktrees chosen for deletion, each with what deleting it
   // means, before anything is asked.
   reviewDeletion = (rows) => workspace.deleteWorktrees(rows),
@@ -272,6 +273,7 @@ export function createWorktreeView({
       workspace.snapshot.cancelled,
       workspace.snapshot.revision,
       workspace.snapshot.hostFilter,
+      viewHost(workspace.snapshot),
       workspace.snapshot.setupRequired,
       workspace.snapshot.error,
       workspace.error,
@@ -509,6 +511,7 @@ export function createWorktreeView({
           sort = button.dataset.sort;
           descending = ["activity", "size"].includes(sort);
         }
+        onSortChange({ sort, descending });
         renderRows();
       }
       if (button.dataset.toggleDirectory) {
@@ -732,10 +735,12 @@ export function createWorktreeView({
   $("#tree-sort").onchange = (event) => {
     sort = event.target.value;
     descending = ["activity", "size"].includes(sort);
+    onSortChange({ sort, descending });
     renderRows();
   };
   $("#sort-direction").onclick = () => {
     descending = !descending;
+    onSortChange({ sort, descending });
     renderRows();
   };
   $("#clear-selection").onclick = clearSelection;
@@ -761,6 +766,10 @@ export function createWorktreeView({
   }
   return {
     reset: resetView,
+    restoreSort(saved) {
+      sort = saved.sort;
+      descending = saved.descending;
+    },
     render() {
       const next = items();
       const cursor = selection.cursor;

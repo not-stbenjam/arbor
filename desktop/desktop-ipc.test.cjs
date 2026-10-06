@@ -63,6 +63,7 @@ test("the renderer bridge exposes only channels the interface uses", () => {
       "arbor:remove",
       "arbor:reset-preferences",
       "arbor:save-preferences",
+      "arbor:save-view",
       "arbor:scan",
       "arbor:set-host-filter",
       "arbor:stop-removal",
@@ -170,7 +171,8 @@ test("native cleanup consent is abortable and released after the dialog settles"
 
 test("host-aware IPC preserves explicit All, local, remote and omitted targets", async () => {
   const calls = [],
-    guards = [];
+    guards = [],
+    savedViews = [];
   const { call } = adapter({
     backend: {
       assertInteractive() {
@@ -196,6 +198,7 @@ test("host-aware IPC preserves explicit All, local, remote and omitted targets",
         assert.fail("host navigation must not configure/start a scan");
       },
     },
+    preferences: { saveView: async (value) => savedViews.push(value) },
   });
   for (const host of [null, "", "build-vps", undefined]) {
     assert.deepEqual(await call("get-stats", host), { host });
@@ -212,6 +215,7 @@ test("host-aware IPC preserves explicit All, local, remote and omitted targets",
       ["stop", host],
     ]),
   );
+  assert.deepEqual(savedViews, [null, "", "build-vps", undefined].map((hostFilter) => ({ hostFilter })));
   assert.equal(guards.length, 4, "stop requests retain the interaction guard");
 });
 

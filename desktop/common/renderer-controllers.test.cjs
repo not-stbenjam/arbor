@@ -166,7 +166,7 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
   const markup = renderTreeRows([row], options);
   const escapedContext =
     "Folder missing · &lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt; · &lt;repo&gt;&amp;&quot;";
-  assert.ok(markup.includes(`title="${escapedContext}"`));
+  assert.ok(markup.includes(`title="${escapedContext} · Unknown · —"`));
   assert.ok(
     markup.includes(
       '<span class="worktree-state" data-tone="muted" title="The folder is gone. Deleting removes only its leftover Git registration.">Folder missing</span><span> · </span><span class="worktree-branch">&lt;script&gt;',
@@ -188,8 +188,8 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
     '<span class="path-leaf"><span class="path-basename">&lt;topic&gt;</span></span>',
     'data-id="id&quot;unsafe"',
     'data-worktree-menu="id&quot;unsafe"',
-    'aria-label="Actions for /work/&lt;topic&gt;"',
-    'aria-label="Delete /work/&lt;topic&gt;"',
+    'aria-label="Actions for &lt;topic&gt;"',
+    'aria-label="Delete &lt;topic&gt;"',
     '<span class="worktree-branch">&lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt;</span><span> · </span><span class="worktree-repository">&lt;repo&gt;&amp;&quot;</span>',
     // A row's buttons are for the pointer: Delete and Enter reach the same
     // actions from the row, so Tab does not stop twice at every worktree.
@@ -280,7 +280,7 @@ test("a row states the one fact that decides cleanup, and stays quiet otherwise"
       '<span class="worktree-state" data-tone="muted" title="&lt;held&gt; &amp; &quot;kept&quot;">Locked</span><span> · </span><span class="worktree-branch">topic</span><span> · </span><span class="worktree-repository">repo</span>',
     ),
   );
-  assert.ok(markup.includes('title="Locked · topic · repo"'));
+  assert.ok(markup.includes('title="Locked · topic · repo · Unknown · —"'));
 });
 
 test("repository sidebar and directory group escape names and every path attribute", async () => {
@@ -2910,10 +2910,10 @@ test("a row and a selection say when deleting is not a clean delete, before the 
   assert.match(folders, /<input type="checkbox" class="row-check" data-select-folder="team"/);
   assert.match(markup, /<input type="checkbox" class="row-check" tabindex="-1" data-select="clean"/);
   // The Delete button of a clean row is just Delete.
-  assert.match(markup, /data-delete="clean" aria-label="Delete \/local\/team\/clean" >Delete</);
+  assert.match(markup, /data-delete="clean" aria-label="Delete clean" >Delete</);
   assert.match(
     markup,
-    /data-delete="vendored" aria-label="Delete \/local\/team\/vendored, which is not a clean delete" title="Not a clean delete\. It would discard submodule checkouts, and any commits made inside them that were never pushed\. Asks first\."/,
+    /data-delete="vendored" aria-label="Delete vendored, which is not a clean delete" title="Not a clean delete\. It would discard submodule checkouts, and any commits made inside them that were never pushed\. Asks first\."/,
   );
   // Its row names the reason in the colour used for something to lose.
   assert.match(markup, /<span class="worktree-state" data-tone="caution" title="Deleting this worktree discards submodule checkouts[^"]*">Submodules<\/span>/);
@@ -2932,7 +2932,7 @@ test("a row and a selection say when deleting is not a clean delete, before the 
       disabled: false,
       canDelete: () => true,
     }),
-    /data-delete="gone" aria-label="Delete \/local\/team\/gone, which is not a clean delete" title="Not a clean delete\./,
+    /data-delete="gone" aria-label="Delete gone, which is not a clean delete" title="Not a clean delete\./,
   );
   assert.equal(
     worktreeStateOf(row("absent", { canRemove: false, missing: true })).label,
@@ -2989,4 +2989,40 @@ test("a row and a selection say when deleting is not a clean delete, before the 
     "4 worktrees selected · 3 not clean",
   );
   fixture.workspace.dispose();
+});
+
+test("compact row metadata repeats the age and size, with a complete tooltip", async () => {
+  const { renderTreeRows } = await import("../renderer/worktree-presentation.mjs");
+  const { ago } = await import("../renderer/presentation.mjs");
+  const activityAt = new Date(Date.now() - 3 * 86400000).toISOString();
+  for (const extra of [{}, { missing: true }, { pending: true }]) {
+    const markup = renderTreeRows([{
+      kind: "worktree", depth: 0, label: "agent",
+      worktree: { id: "a", path: "/work/agent", branch: "topic", repo: "shop", sizeBytes: 1024, canRemove: true, activityAt, ...extra },
+    }], { selected: new Set(), collapsed: new Set() });
+    const bytes = extra.missing || extra.pending ? "—" : "1 KB";
+    assert.ok(markup.includes(`class="worktree-metrics"> · ${ago(activityAt)} · ${bytes}</span>`));
+    assert.match(markup, new RegExp(`title="[^"]* · 3d ago · ${bytes}"`));
+    assert.ok(markup.includes(`class="size-cell">${bytes}</td>`));
+  }
+});
+
+test("worktree rows have one concise name and a separate full-path description", async () => {
+  const { renderTreeRows } = await import("../renderer/worktree-presentation.mjs");
+  const activityAt = new Date(Date.now() - 3 * 86400000).toISOString();
+  const row = { id: "a", path: "/work/storefront/agent-7f3a", branch: "agent/cart-badge", repo: "storefront", activityAt, sizeBytes: 1288490189, canRemove: true, recommended: true };
+  const render = (extra = {}, cancelled = false) => renderTreeRows([{
+    kind: "worktree", depth: 2, label: "storefront/agent-7f3a", worktree: { ...row, ...extra },
+  }], { selected: new Set(), collapsed: new Set(), cancelled });
+  const markup = render();
+  assert.match(markup, /aria-label="agent-7f3a, Merged, branch agent\/cart-badge in storefront, 3 days ago, 1.2 GB"/);
+  assert.match(markup, /aria-description="\/work\/storefront\/agent-7f3a"/);
+  for (const name of ["Select", "Delete", "Actions for"])
+    assert.ok(markup.includes(`aria-label="${name} agent-7f3a"`));
+  assert.doesNotMatch(markup, /aria-label="[^"]*\/work\//);
+  assert.match(render({ pending: true }, true), /aria-label="agent-7f3a, Scan incomplete, branch agent\/cart-badge in storefront, 3 days ago, Size unknown"/);
+  assert.match(render({ pending: true, branch: "", activityAt: "" }), /agent-7f3a, Checking…, repository storefront, Last active unknown, Size unknown/);
+  assert.match(render({ missing: true }), /Folder missing, branch agent\/cart-badge in storefront, 3 days ago, No folder on disk/);
+  assert.match(render({ branch: "", detached: true, recommended: false }), /Detached HEAD in storefront/);
+  assert.match(render({ path: '/work/<odd>"', branch: '<topic>"' }), /aria-description="\/work\/&lt;odd&gt;&quot;"/);
 });

@@ -1,5 +1,5 @@
 import * as tree from "../common/worktree-tree.mjs";
-import { icon, esc, initializeDOM } from "./presentation.mjs";
+import { icon, esc, initializeDOM, viewHost } from "./presentation.mjs";
 import { createCleanupController } from "./cleanup-controller.mjs";
 import { createPreferencesController } from "./preferences-controller.mjs";
 import { createSetupController } from "./setup-controller.mjs";
@@ -139,7 +139,7 @@ async function bootstrap() {
   statistics = createStatisticsController({
     document,
     api,
-    getHost: () => workspace.snapshot.hostFilter ?? null,
+    getHost: () => viewHost(workspace.snapshot) ?? null,
   });
   const showWorktreeMenu = async (id) => {
     if (!workspace.items.some((row) => row.id === id)) return;
@@ -154,6 +154,10 @@ async function bootstrap() {
     workspace,
     tree,
     showWorktreeMenu,
+    onSortChange: (value) =>
+      api.saveView(value).catch((error) =>
+        notify(`Could not save view: ${error.message}`, true),
+      ),
     reviewDeletion: (rows) => cleanup.openFor(rows),
     // Filtering changes what Delete recommended acts on, and so its count
     // and what an open review of it can still delete.
@@ -292,6 +296,7 @@ async function bootstrap() {
   // Drawing the list draws the chrome around it.
   trees.render();
   await preferences.load();
+  trees.restoreSort(await api.getPreferences());
   await workspace.initialize();
 }
 bootstrap().catch((error) => {

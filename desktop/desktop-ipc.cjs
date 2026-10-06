@@ -69,7 +69,15 @@ function registerDesktopIPC({
     handle("arbor:get-defaults", () => DEFAULTS);
     handle("arbor:get-state", () => backend.getState());
     handle("arbor:get-stats", (host) => backend.readStats(host));
-    handle("arbor:set-host-filter", (host) => backend.setHostFilter(host));
+    handle("arbor:set-host-filter", async (host) => {
+      const state = backend.setHostFilter(host);
+      await preferences.saveView({ hostFilter: host });
+      return state;
+    });
+    handle("arbor:save-view", (value) => {
+      guardInteraction();
+      return preferences.saveView(value);
+    });
     handle("arbor:refresh-hosts", (host) => backend.refreshHosts(host));
     handle("arbor:worktree-menu", showWorktreeMenu);
     handle("arbor:cancel-scan", (host) => {

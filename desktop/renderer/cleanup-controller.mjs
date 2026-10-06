@@ -1,4 +1,4 @@
-import { icon, esc, plain, branchName, size, sizeOf } from "./presentation.mjs";
+import { icon, esc, plain, branchName, size, sizeOf, viewHost } from "./presentation.mjs";
 import { recommendationReason } from "./worktree-presentation.mjs";
 import { LOSSES, lossesOf } from "../common/losses.mjs";
 
@@ -14,7 +14,7 @@ export const cleanupScope = (workspace, shown) =>
   shown().filtering
     ? "shown in this view"
     : `on ${
-        workspace.snapshot.hostFilter === null
+        viewHost(workspace.snapshot) === null
           ? "all hosts"
           : workspace.snapshot.host || "this computer"
       }`;
@@ -140,7 +140,7 @@ export function createCleanupController({
   const available = (rows) =>
     !workspace.blocked && rows.every((row) => workspace.canDelete(row));
   function renderList() {
-    const everyHost = workspace.snapshot.hostFilter === null;
+    const everyHost = viewHost(workspace.snapshot) === null;
     $("#cleanup-list").innerHTML = reviewed
       .map((row) => {
         const name = row.path.split("/").filter(Boolean).pop() || row.path;
@@ -189,7 +189,7 @@ export function createCleanupController({
         : "The worktrees you selected"
       : shown().filtering
         ? "Only what the list is showing"
-        : workspace.snapshot.hostFilter === null
+        : viewHost(workspace.snapshot) === null
           ? "All hosts"
           : workspace.snapshot.host || "This computer";
     // Deleting what is not clean is asked about once more, by name.

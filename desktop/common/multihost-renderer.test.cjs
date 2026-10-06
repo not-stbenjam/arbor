@@ -501,3 +501,50 @@ test("a deletion shows which worktree it is on, how far through its files, and o
     /<progress/,
   );
 });
+
+test("size and activity rank folders and machines by extreme descendants", async () => {
+  const { projectTree } = await import("../renderer/worktree-presentation.mjs");
+  const values = [
+    row("", "a", { path: "/work/a/one", sizeBytes: 60, activityAt: "2026-01-02" }),
+    row("", "b", { path: "/work/a/two", sizeBytes: 60, activityAt: "2026-01-03" }),
+    row("", "c", { path: "/work/z/deep/large", sizeBytes: 100, activityAt: "2026-01-01" }),
+    row("", "d", { path: "/work/z/deep/small", sizeBytes: 1, activityAt: "2026-01-05" }),
+    row("vps", "e", { path: "/work/remote", sizeBytes: 110, activityAt: "2026-01-04" }),
+  ];
+  for (const [sort, descending, ids] of [
+    ["size", true, ["e", "c", "d", "a", "b"]],
+    ["size", false, ["a", "b", "d", "c", "e"]],
+    ["activity", true, ["d", "c", "b", "a", "e"]],
+    ["activity", false, ["c", "d", "a", "b", "e"]],
+    ["path", false, ["a", "b", "c", "d", "e"]],
+  ]) {
+    const result = projectTree(values, { ...projection, sort, descending }, tree);
+    assert.deepEqual(result.visible.map((w) => w.sourceID), ids, `${sort} ${descending}`);
+  }
+  const collapsed = projectTree(values, {
+    ...projection, sort: "size", descending: true,
+    collapsedDirectories: new Set([tree.scopedKey("", "/work/z/deep")]),
+  }, tree);
+  assert.deepEqual(collapsed.visible.map((w) => w.sourceID), ["e", "a", "b"]);
+  const filtered = projectTree(values, { ...projection, sort: "size", descending: true, search: "one" }, tree);
+  assert.deepEqual(filtered.visible.map((w) => w.sourceID), ["a"]);
+  assert.deepEqual(values.map((w) => w.sourceID), ["a", "b", "c", "d", "e"]);
+});
+
+
+test("All with no SSH hosts shows local folders and repository names directly", async () => {
+  const { projectTree, projectRepositories } = await import("../renderer/worktree-presentation.mjs");
+  const { viewHost } = await import("../renderer/presentation.mjs");
+  const { cleanupScope } = await import("../renderer/cleanup-controller.mjs");
+  const state = { ...projection, hosts: [hosts[0]] };
+  const values = [row("", "a", { path: "/work/folder/one" }), row("", "b", { path: "/work/folder/two" })];
+  const result = projectTree(values, state, tree);
+  assert.equal(viewHost(state), "");
+  assert.equal(result.directoryRows.some((entry) => entry.kind === "host"), false);
+  assert.equal(result.directoryRows[0].label, "work");
+  assert.equal(result.directoryRows[0].depth, 0);
+  assert.equal(projectRepositories(values, state)[0].name, "repo");
+  assert.equal(cleanupScope({ snapshot: state }, () => ({ filtering: false })), "on this computer");
+  assert.equal(viewHost({ ...state, hosts }), null);
+  assert.equal(projectTree(values, { ...state, hosts }, tree).directoryRows[0].kind, "host");
+});

@@ -783,6 +783,9 @@ td {
   white-space: nowrap;
   overflow: hidden;
 }
+#space-label {
+  flex: none;
+}
 .statusbar-spacer {
   flex: 1;
 }
@@ -1459,7 +1462,7 @@ body:has(#selection-bar:not([hidden])) .toast-region {
   .statusbar {
     gap: 8px;
   }
-  .statusbar #space-label {
+  .statusbar #scan-time {
     display: none;
   }
   .machine-button {
@@ -2060,19 +2063,26 @@ th.sorted > button > .icon {
   color: var(--secondary);
   white-space: pre;
 }
-.worktree-context > span {
+.worktree-details {
+  display: contents;
+}
+.worktree-metrics {
+  display: none;
+}
+.worktree-context > span,
+.worktree-details > span {
   flex: none;
 }
 /* A long branch name gives way first. A long repository name gives way too,
    but never takes the whole line from the branch beside it. */
-.worktree-context > .worktree-branch,
-.worktree-context > .worktree-repository {
+.worktree-details > .worktree-branch,
+.worktree-details > .worktree-repository {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.worktree-context > .worktree-repository {
+.worktree-details > .worktree-repository {
   max-width: 45%;
 }
 .worktree-state {
@@ -2220,11 +2230,36 @@ th.sorted > button > .icon {
     transition: none !important;
   }
 }
-/* At the smallest window and a high zoom there is room for a worktree's
-   name or for when it was last used and how big it is, not both. The name
-   is what tells one row from another. This comes last so that no other
-   width for these columns outranks it. */
+/* When the columns give their room to the name, the second line carries
+   age and size. Keep its full text in the tooltip when names are long. */
 @media (max-width: 620px) {
+  .tree-worktree-line {
+    position: relative;
+    padding-bottom: 17px;
+  }
+  .worktree-context {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+  .worktree-context > .worktree-details {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .worktree-details > .worktree-state {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .worktree-context > .worktree-metrics {
+    display: block;
+    flex: none;
+    font-size: 11px;
+  }
   .directory-table .activity-column,
   .directory-table .size-column,
   .directory-table .worktree-row .activity-cell,
