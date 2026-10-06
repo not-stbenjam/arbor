@@ -20,7 +20,8 @@
     "test:e2e": "node scripts/e2e/run.cjs --skip scale-large",
     "test:e2e:scale": "node scripts/e2e/run.cjs --jobs 1 scale-large",
     "pretest:stress": "node scripts/build-desktop.cjs --prepare",
-    "test:stress": "node scripts/stress/run.cjs"
+    "test:stress": "node scripts/stress/run.cjs",
+    "test:scripts": "node --test scripts/*.test.cjs"
   },
   "devDependencies": {
     "electron": "44.5.1",
