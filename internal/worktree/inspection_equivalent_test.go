@@ -55,7 +55,8 @@ func TestSquashedBranchIsMerged(t *testing.T) {
 	testSquash(t, repo, "topic")
 	before := testObjects(t, repo)
 	w := testTree(t, testScan(t, root), topic)
-	if !w.Merged || !w.Recommended || w.MergeReason != "All changes are in refs/heads/main, as one commit (squashed)" {
+	squash := testGit(t, repo, "rev-parse", "HEAD")
+	if !w.Merged || !w.Recommended || w.MergeReason != "Squashed into refs/heads/main as "+squash[:10] {
 		t.Fatalf("a squashed branch is not merged: merged=%v recommended=%v reason=%q blockers=%v", w.Merged, w.Recommended, w.MergeReason, w.Blockers)
 	}
 	if after := testObjects(t, repo); strings.Join(after, "\n") != strings.Join(before, "\n") {
@@ -92,7 +93,7 @@ func TestRebasedBranchIsMerged(t *testing.T) {
 	testGit(t, repo, "cherry-pick", "topic~1", "topic")
 	testGit(t, repo, "cherry-pick", "partial~1")
 	report := testScan(t, root)
-	if w := testTree(t, report, topic); !w.Recommended || w.MergeReason != "All commits are in refs/heads/main, as copies (rebased or cherry-picked)" {
+	if w := testTree(t, report, topic); !w.Recommended || w.MergeReason != "Every commit was copied into refs/heads/main (rebased or cherry-picked)" {
 		t.Fatalf("a rebased branch is not merged: merged=%v reason=%q", w.Merged, w.MergeReason)
 	}
 	// One of two commits copied is not the branch merged.
@@ -113,7 +114,7 @@ func TestSquashAfterTheDefaultBranchWasMergedIn(t *testing.T) {
 	testGit(t, topic, "add", "two.txt")
 	testGit(t, topic, "commit", "-m", "Add two")
 	testSquash(t, repo, "topic")
-	if w := testTree(t, testScan(t, root), topic); !w.Recommended || !strings.Contains(w.MergeReason, "squashed") {
+	if w := testTree(t, testScan(t, root), topic); !w.Recommended || !strings.Contains(w.MergeReason, "Squashed into") {
 		t.Fatalf("a branch that caught up before it was squashed is not merged: merged=%v reason=%q", w.Merged, w.MergeReason)
 	}
 }
@@ -149,7 +150,7 @@ func TestLookingForASquashStopsAtItsLimit(t *testing.T) {
 	testSquash(t, repo, "topic")
 	testGit(t, repo, "commit", "--allow-empty", "-m", "One more")
 	w := testTree(t, testScan(t, root), topic)
-	if reason := inspectEquivalent(context.Background(), &w, func() bool { return false }); !strings.Contains(reason, "squashed") {
+	if reason := inspectEquivalent(context.Background(), &w, func() bool { return false }); !strings.Contains(reason, "Squashed into") {
 		t.Fatalf("reason = %q", reason)
 	}
 	if reason := inspectEquivalent(context.Background(), &w, func() bool { return true }); reason != "" {
@@ -224,5 +225,109 @@ func TestSquashedWorktreeIsRemovedAsARecommendation(t *testing.T) {
 	}
 	if head := testGit(t, repo, "rev-parse", "refs/heads/topic"); head != w.Head {
 		t.Fatalf("the branch moved or went: %s", head)
+	}
+}
+
+// A merge made on the branch can hold changes of its own. Its other commits
+// being in the default branch says nothing about those.
+func TestChangesMadeInAMergeAreNotPassedOver(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	topic := testTopic(t, repo, filepath.Join(root, "topic"), "topic", "one.txt")
+	side := testTopic(t, repo, filepath.Join(root, "side"), "side", "side.txt")
+	_ = side
+	testGit(t, topic, "merge", "--no-commit", "--no-ff", "side")
+	testWrite(t, filepath.Join(topic, "only-in-the-merge.txt"), "unique\n")
+	testGit(t, topic, "add", "only-in-the-merge.txt")
+	testGit(t, topic, "commit", "-m", "Merge side, and more")
+	testGit(t, repo, "commit", "--allow-empty", "-m", "Meanwhile")
+	testGit(t, repo, "cherry-pick", "topic^1", "side")
+	if _, err := os.Stat(filepath.Join(repo, "only-in-the-merge.txt")); err == nil {
+		t.Fatal("the fixture put the merge's own change in the default branch")
+	}
+	if w := testTree(t, testScan(t, root), topic); w.Merged || w.Recommended {
+		t.Fatalf("a branch whose merge holds work of its own counts as merged: %q", w.MergeReason)
+	}
+}
+
+// Patch IDs pass over white space, and white space can be the whole of a
+// difference. A match is only a match when it is exact.
+func TestChangesThatDifferOnlyInWhiteSpaceAreNotTheSame(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	for _, name := range []string{"copy", "squash"} {
+		topic := testLinked(t, repo, filepath.Join(root, name), name)
+		testWrite(t, filepath.Join(topic, name+".py"), "if False:\n    print('conditional')\n    print('work')\n")
+		testGit(t, topic, "add", ".")
+		testGit(t, topic, "commit", "-m", "Guarded")
+		if name == "squash" {
+			testWrite(t, filepath.Join(topic, "more.txt"), "more\n")
+			testGit(t, topic, "add", ".")
+			testGit(t, topic, "commit", "-m", "More")
+		}
+	}
+	// The default branch has the same lines, with one of them outside the guard.
+	testWrite(t, filepath.Join(repo, "copy.py"), "if False:\n    print('conditional')\nprint('work')\n")
+	testGit(t, repo, "add", ".")
+	testGit(t, repo, "commit", "-m", "Guarded")
+	testWrite(t, filepath.Join(repo, "squash.py"), "if False:\n    print('conditional')\nprint('work')\n")
+	testWrite(t, filepath.Join(repo, "more.txt"), "more\n")
+	testGit(t, repo, "add", ".")
+	testGit(t, repo, "commit", "-m", "Guarded, and more")
+	report := testScan(t, root)
+	for _, name := range []string{"copy", "squash"} {
+		if w := testTree(t, report, filepath.Join(root, name)); w.Merged || w.Recommended {
+			t.Fatalf("%s: a change that differs in its indentation counts as the same: %q", name, w.MergeReason)
+		}
+	}
+}
+
+// A commit that changes nothing is the same as every other that changes
+// nothing, which says nothing about where a branch's work is.
+func TestEmptyCommitsAreNotEvidence(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	topic := testLinked(t, repo, filepath.Join(root, "topic"), "topic")
+	testGit(t, topic, "commit", "--allow-empty", "-m", "Nothing here")
+	testGit(t, repo, "commit", "--allow-empty", "-m", "Nothing there")
+	if w := testTree(t, testScan(t, root), topic); w.Merged || w.Recommended {
+		t.Fatalf("an empty commit was matched with another: %q", w.MergeReason)
+	}
+}
+
+// A remote that promises file contents later marks a partial clone, however
+// else the repository is marked. Comparing there would fetch.
+func TestARemoteThatPromisesContentsMarksAPartialClone(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	if partialClone(context.Background(), repo) {
+		t.Fatal("an ordinary repository was taken for a partial clone")
+	}
+	testGit(t, repo, "remote", "add", "origin", filepath.Join(root, "elsewhere"))
+	testGit(t, repo, "config", "remote.origin.promisor", "true")
+	if !partialClone(context.Background(), repo) {
+		t.Fatal("a promisor remote was not noticed")
+	}
+}
+
+// Whatever is made for the comparison is gone afterwards, including when
+// the comparison could not be finished.
+func TestNothingIsLeftBehindWhenComparingFails(t *testing.T) {
+	root := t.TempDir()
+	scratch := t.TempDir()
+	t.Setenv("TMPDIR", scratch)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	topic := testTopic(t, repo, filepath.Join(root, "topic"), "topic", "one.txt", "two.txt")
+	testSquash(t, repo, "topic")
+	w := testTree(t, testScan(t, root), topic)
+	// Given a tree where the commit the branch left from should be, the
+	// changes can be told apart but no commit can be made of them: the
+	// comparison fails after its folder has been made.
+	notACommit := testGit(t, repo, "rev-parse", "HEAD~1^{tree}")
+	if found := squashed(context.Background(), &w, notACommit, testGit(t, topic, "rev-parse", "HEAD^{tree}")); found != "" {
+		t.Fatalf("a comparison that could not be made found %q", found)
+	}
+	if left, _ := os.ReadDir(scratch); len(left) != 0 {
+		t.Fatalf("%d things were left behind", len(left))
 	}
 }

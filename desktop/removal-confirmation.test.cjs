@@ -415,3 +415,15 @@ test("a missing worktree that still has submodule storage is not a clean removal
   assert.equal(plain.buttons[1], "Remove Registration");
   assert.doesNotMatch(plain.detail, /•|would destroy/);
 });
+
+test("refs of a worktree's own are named as a loss, and commits are not then said to be kept", () => {
+  const options = removalConfirmationOptions(
+    [{ id: "a", path: "/work/topic", branch: "topic", canRemove: false, canDiscard: true, losses: ["refs"] }],
+    true,
+  );
+  assert.equal(options.title, "Not a clean delete");
+  assert.match(options.detail, /this worktree's own refs \(refs\/worktree\), and any commits only they point to/);
+  assert.match(options.detail, /The branches and commits of the repository they belong to are kept\./);
+  assert.doesNotMatch(options.detail, /Git branches and commits are kept/);
+  assert.match(options.detail, /\/work\/topic — refs of its own/);
+});

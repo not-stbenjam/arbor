@@ -1,6 +1,6 @@
 import { icon, esc, plain, branchName, size, sizeOf, viewHost } from "./presentation.mjs";
 import { recommendationReason } from "./worktree-presentation.mjs";
-import { LOSSES, lossesOf } from "../common/losses.mjs";
+import { LOSSES, lossesOf, graveLosses } from "../common/losses.mjs";
 
 const plural = (count, noun) => `${count} ${count === 1 ? noun : `${noun}s`}`;
 
@@ -244,8 +244,11 @@ export function createCleanupController({
   function renderLead() {
     const going = reviewed.filter((row) => !refused.has(row.id)),
       unclean = going.filter((row) => !row.canRemove && lossesOf(row).length);
+    // Where history is among what would be lost, it is not also said to
+    // be kept: what is kept is the repository each worktree belongs to.
+    const grave = going.some((row) => graveLosses(row).length);
     const said = [
-      "Deleting these worktrees removes their folders for good: they are not moved to Trash, and Arbor cannot bring them back. Their branches and commits are kept.",
+      `Deleting these worktrees removes their folders for good: they are not moved to Trash, and Arbor cannot bring them back. ${grave ? "The branches and commits of the repositories they belong to are kept; what is marked below is not." : "Their branches and commits are kept."}`,
       !chosen
         ? "Each one has no uncommitted changes, untracked files or ignored files, and its commits are already merged."
         : unclean.length

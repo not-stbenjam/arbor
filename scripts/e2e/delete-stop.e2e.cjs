@@ -27,7 +27,14 @@ scenario({
         await t.click("#cleanup-confirm");
         await t.until(() => t.visible("[data-stop-removal]"), "Stop beside the deletion's progress");
         assert.equal(await t.text("[data-stop-removal]"), "Stop");
-        await t.click("[data-stop-removal]");
+        // With the keyboard on Stop, it stays there as the deletion moves
+        // from one worktree to the next, and pressing it there stops.
+        await t.js("document.querySelector('[data-stop-removal]').focus()");
+        const first = await t.text(".host-progress-path");
+        await t.until(async () => (await t.text(".host-progress-path")) !== first, "the next worktree");
+        assert.match(await t.focused(), /^button\.button$/);
+        assert.equal(await t.js("document.activeElement.hasAttribute('data-stop-removal')"), true, "the keyboard is still on Stop");
+        await t.press("Enter");
         await t.settled();
         const left = paths.filter((folder) => t.fixture.exists(folder));
         assert.ok(left.length > 0 && left.length < paths.length, `${left.length} of ${paths.length} left`);

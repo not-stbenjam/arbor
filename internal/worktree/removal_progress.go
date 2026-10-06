@@ -202,6 +202,10 @@ func relative(root, path string) string {
 // folder first means nothing is touched and the worktree can be put right.
 func sealed(root string) string {
 	const writeAndEnter = 0x2 | 0x1
+	// The worktree's own folder is taken out of the one that holds it.
+	if parent := filepath.Dir(root); syscall.Access(parent, writeAndEnter) != nil {
+		return parent
+	}
 	checked := map[string]bool{}
 	found := ""
 	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {

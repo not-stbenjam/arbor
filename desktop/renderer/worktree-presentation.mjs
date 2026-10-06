@@ -41,7 +41,7 @@ export function worktreeState(w) {
   // Commits or a repository that would be lost outrank everything else a
   // row could say, a missing folder included: what Git kept for a worktree's
   // submodules outlives the folder and still goes with the registration.
-  const grave = ["nested", "submodules", "operation"].find((name) =>
+  const grave = ["nested", "submodules", "operation", "refs"].find((name) =>
     graveLosses(w).includes(name),
   );
   if (grave)

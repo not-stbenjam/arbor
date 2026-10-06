@@ -32,8 +32,8 @@ scenario({
       const expected = {
         merged: ["Merged", /All commits are in origin\/main\. Clean/],
         shipped: ["Merged", /its branch is kept/],
-        squash: ["Merged", /^All changes are in origin\/main, as one commit \(squashed\)\. Clean/],
-        rebased: ["Merged", /^All commits are in origin\/main, as copies \(rebased or cherry-picked\)\. Clean/],
+        squash: ["Merged", /^Squashed into origin\/main as [0-9a-f]{10}\. Clean/],
+        rebased: ["Merged", /^Every commit was copied into origin\/main \(rebased or cherry-picked\)\. Clean/],
         modified: ["1 changed file", /^Uncommitted or untracked files\. Deleting this worktree discards them\.$/],
         untracked: ["1 changed file", /Deleting this worktree discards them/],
         ignored: ["Ignored files", /discards its ignored files, such as local configuration or build output/],

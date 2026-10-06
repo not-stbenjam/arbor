@@ -56,11 +56,7 @@ func git(ctx context.Context, path string, args ...string) (string, error) {
 	prefix := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false", "-C", path}
 	// A repository's own filter programs are switched off while one of its
 	// worktrees is looked at. See filters.go.
-	var env []string
-	if off, ok := filtersOff.Load(path); ok {
-		env = off.([]string)
-	}
-	return runWith(ctx, 30*time.Second, env, "git", append(prefix, args...)...)
+	return runWith(ctx, 30*time.Second, heldFor(path), "git", append(prefix, args...)...)
 }
 
 func gitText(ctx context.Context, path string, args ...string) string {

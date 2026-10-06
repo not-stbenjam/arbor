@@ -186,7 +186,7 @@ func newRemoveCommand() *cobra.Command {
 	f.StringVar(&flags.head, "head", "", "Require this exact commit before removal")
 	f.BoolVar(&flags.recommended, "recommended-only", false, "Require a fresh clean, merged cleanup recommendation")
 	f.BoolVar(&flags.discardLocal, "discard-local", false, "Discard local files and override a lock (for integrations; see --acknowledge)")
-	f.StringArrayVar(&flags.acknowledge, "acknowledge", nil, "With --discard-local, also accept this loss: submodules, operation or nested. Repeatable (for integrations)")
+	f.StringArrayVar(&flags.acknowledge, "acknowledge", nil, "With --discard-local, also accept this loss: submodules, operation, nested or refs. Repeatable (for integrations)")
 	f.StringVar(&flags.id, "id", "", "Require this worktree identity")
 	f.StringVar(&flags.branch, "branch", "", "Require this branch (empty requires a detached HEAD)")
 	f.StringVar(&flags.statsSession, "stats-session", "", "Group removal statistics into a cleanup session")

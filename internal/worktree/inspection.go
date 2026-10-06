@@ -76,24 +76,20 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 				if unfinished(details.markers) {
 					block(reasonOperation)
 				}
+				// Its own refs outlive its folder too, until it is removed.
+				inspectPrivateRefs(ctx, w, w.CommonDir, []string{"--git-dir=" + admin}, block)
 			}
 		}
 		return
 	}
 	// From here Git compares files with what is committed, and would run
-	// the repository's filter programs to do it.
-	var off []string
-	if defaultCache == nil {
-		off, _ = repositoryFilters(ctx, w.Path)
-	} else {
-		defaultCache.filtersOnce.Do(func() {
-			defaultCache.filters, defaultCache.filterNames = repositoryFilters(ctx, w.Path)
-		})
-		off = defaultCache.filters
-	}
-	if len(off) > 0 {
-		filtersOff.Store(w.Path, off)
-		defer filtersOff.Delete(w.Path)
+	// the filter programs this worktree's configuration names. They are
+	// switched off, and with them off what such a filter rewrites cannot be
+	// checked, so the worktree is not a clean delete.
+	if off, names := repositoryFilters(ctx, w.Path); len(off) > 0 {
+		defer holdFilters(w.Path, off)()
+		defaultCache.noteFilters(names)
+		block(reasonFilterOff)
 	}
 	inspectCommit(ctx, w)
 	inspectStatus(ctx, w, block)

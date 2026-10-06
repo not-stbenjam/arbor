@@ -217,11 +217,13 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 	}
 	if !missing {
 		if folder := sealed(current.Path); folder != "" {
-			where := "it"
-			if rel, err := filepath.Rel(current.Path, folder); err == nil && rel != "." {
+			where, how := "it", "chmod -R u+w on the worktree"
+			if folder == filepath.Dir(current.Path) {
+				where, how = "the folder that holds it", "chmod u+w on that folder"
+			} else if rel, err := filepath.Rel(current.Path, folder); err == nil && rel != "." {
 				where = "the folder " + rel + " inside it"
 			}
-			return fmt.Errorf("not deleted: %s is read-only, so only part of the worktree could be removed. Make it writable (chmod -R u+w on the worktree) and delete again", where)
+			return fmt.Errorf("not deleted: %s is read-only, so only part of the worktree could be removed. Make it writable (%s) and delete again", where, how)
 		}
 	}
 	// Inspection reads every file and can query GitHub, long enough for the

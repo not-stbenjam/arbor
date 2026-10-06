@@ -32,7 +32,7 @@ scenario({
     await t.step("Git alone finds a squash whose changes it can match", async () => {
       const row = await t.row(t.world.squashed.path);
       assert.equal(await t.text(`${row} .worktree-state`), "Merged");
-      assert.match(await t.attribute(`${row} .worktree-state`, "title"), /^All changes are in origin\/main, as one commit \(squashed\)/);
+      assert.match(await t.attribute(`${row} .worktree-state`, "title"), /^Squashed into origin\/main as [0-9a-f]{10}\. Clean/);
       assert.equal(await t.text("#recommended-count"), "1");
     });
     await t.step("a squash changed while merging is withheld until the pull request says so", async () => {
@@ -47,10 +47,9 @@ scenario({
       assert.match(await t.attribute(`${row} .worktree-state`, "title"), /GitHub PR #17 merged this exact commit into main/);
       assert.equal(await t.text("#recommended-count"), "2");
       await t.click("#cleanup-button");
-      assert.deepEqual((await t.texts(".cleanup-reason")).sort(), [
-        "All changes are in origin/main, as one commit (squashed)",
-        "GitHub PR #17 merged this exact commit into main",
-      ]);
+      const reasons = (await t.texts(".cleanup-reason")).sort();
+      assert.equal(reasons[0], "GitHub PR #17 merged this exact commit into main");
+      assert.match(reasons[1], /^Squashed into origin\/main as [0-9a-f]{10}$/);
       await t.click("#cleanup-confirm");
       await gone(t, t.world);
       await gone(t, t.world.squashed);

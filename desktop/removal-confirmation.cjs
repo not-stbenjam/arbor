@@ -118,7 +118,7 @@ function removalConfirmationOptions(trees, discardLocal) {
       `${missing} missing worktree ${missing === 1 ? "registration will" : "registrations will"} also be removed; no folders exist at those paths.`,
     );
   const briefly = (row) => {
-    const gravest = ["nested", "submodules", "operation", "changes", "unchecked", "ignored"]
+    const gravest = ["nested", "submodules", "operation", "refs", "changes", "unchecked", "ignored"]
       .filter((name) => lossesOf(row).includes(name))
       .map((name) => LOSSES[name].brief);
     return gravest.length > 2

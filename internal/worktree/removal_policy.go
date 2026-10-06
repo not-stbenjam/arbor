@@ -36,6 +36,7 @@ const (
 	reasonFiles
 	reasonPathText
 	reasonPrivateRefs
+	reasonFilterOff
 	reasonCount
 )
 
@@ -84,7 +85,10 @@ var reasonDescriptions = [...]reasonDescription{
 	reasonPathText: {message: "Path is not valid text (UTF-8), so Arbor cannot name it reliably; use git worktree remove"},
 	// Refs under refs/worktree belong to one worktree and are deleted with
 	// it. Nothing else may hold the commits they point to.
-	reasonPrivateRefs: {message: "Refs of its own: refs/worktree refs are deleted with this worktree", manual: true, warning: "This worktree's own refs (refs/worktree) will be deleted, and nothing else may keep the commits they point to."},
+	reasonPrivateRefs: {message: "Refs of its own: refs/worktree refs are deleted with this worktree", manual: true, warning: "This worktree's own refs (refs/worktree) will be deleted, and nothing else may keep the commits they point to.", loss: "refs", lossText: "this worktree's own refs (refs/worktree), and any commits only they point to", grave: true},
+	// With a filter program switched off, Git compares a file it would
+	// rewrite as it lies, which can make a changed file look unchanged.
+	reasonFilterOff: {message: "Unchecked files: its repository names a filter program Arbor does not run, so files it rewrites could not be checked for changes", manual: true, warning: "Files a filter program rewrites could not be checked for changes, and are deleted as they are.", loss: "unchecked", lossText: "any changes to files Git was told not to look at"},
 }
 
 type removalFacts struct {

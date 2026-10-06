@@ -1687,6 +1687,23 @@ test("deleting several worktrees chosen by hand shows every one, and what deleti
   assert.deepEqual(deleted, [
     [["merged", "unmerged", "new", "dirty", "locked"], { reviewed: true }],
   ]);
+  // Where history is among what would be lost, the review does not also say
+  // that commits are kept, and names that loss. A worktree's own refs are
+  // one such: they go with it, whatever else is in it.
+  const refs = row("refs", { canRemove: false, losses: ["changes", "refs"], blockers: ["Uncommitted or untracked files"] });
+  assert.deepEqual(deletionMeaning(refs), {
+    tone: "risk",
+    text: "Not a clean delete. Discards uncommitted changes and untracked files; this worktree's own refs (refs/worktree), and any commits only they point to",
+  });
+  // Found only after the review opened, it is a different worktree to agree to.
+  assert.notDeepEqual(deletionMeaning(refs), deletionMeaning({ ...refs, losses: ["changes"] }));
+  review.openFor([rows[0], refs]);
+  assert.match(
+    element("#cleanup-lead").innerHTML,
+    /The branches and commits of the repositories they belong to are kept; what is marked below is not\./,
+  );
+  assert.doesNotMatch(element("#cleanup-lead").innerHTML, /Their branches and commits are kept/);
+  dialog.close();
   // With nothing to discard, agreeing is the whole of it.
   review.openFor(rows.slice(0, 3));
   assert.equal(element("#cleanup-title").textContent, "Delete these 3 worktrees?");
@@ -3025,4 +3042,14 @@ test("worktree rows have one concise name and a separate full-path description",
   assert.match(render({ missing: true }), /Folder missing, branch agent\/cart-badge in storefront, 3 days ago, No folder on disk/);
   assert.match(render({ branch: "", detached: true, recommended: false }), /Detached HEAD in storefront/);
   assert.match(render({ path: '/work/<odd>"', branch: '<topic>"' }), /aria-description="\/work\/&lt;odd&gt;&quot;"/);
+});
+
+test("characters that cannot be seen are shown as a mark, so two names never look the same", async () => {
+  const { plain, shown } = await import("../renderer/presentation.mjs");
+  for (const hidden of ["​", "⁠", "﻿", "­", "‮", "⁦", "\u0007"])
+    assert.equal(plain(`same${hidden}`), "same�", JSON.stringify(hidden));
+  assert.notEqual(plain("same"), plain("same​"));
+  // The joiners that scripts and emoji are written with are left as they are.
+  assert.equal(plain("‍‌"), "‍‌");
+  assert.equal(shown("<b>​"), "&lt;b&gt;�");
 });

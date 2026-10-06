@@ -9,7 +9,7 @@ func TestRemovalPolicyEveryReasonHasExplicitBehavior(t *testing.T) {
 		reasonDefaultBranch: true, reasonProtectedBranch: true,
 		reasonUnchecked: true, reasonSubmodules: true,
 		reasonOperation: true, reasonNested: true,
-		reasonPrivateRefs: true,
+		reasonPrivateRefs: true, reasonFilterOff: true,
 	}
 	protected := []reasonCode{reasonPrimary, reasonBare, reasonOutside, reasonUnverifiedPath,
 		reasonNoCommit, reasonStatus, reasonIndex, reasonSubmoduleInspection,

@@ -113,6 +113,9 @@ export function createWorkspaceView({
       // keyboard focus from a Stop button, so put it back where it was, or
       // on the next thing to do once that scan has ended.
       const stopping = document.activeElement?.dataset?.stopHost;
+      const halting =
+        document.activeElement?.dataset?.stopRemoval !== undefined &&
+        hostList.contains(document.activeElement);
       progressMarkup = progress.markup;
       hostList.innerHTML = progress.markup;
       if (stopping !== undefined) {
@@ -120,6 +123,14 @@ export function createWorkspaceView({
           `[data-stop-host="${CSS.escape(stopping)}"]`,
         );
         (again && !again.disabled ? again : $("#refresh-button")).focus({
+          preventScroll: true,
+        });
+      }
+      // The Stop of a deletion is redrawn with each worktree it moves on
+      // to. Once the deletion has ended, the keyboard goes to the list.
+      if (halting) {
+        const again = hostList.querySelector("[data-stop-removal]");
+        (again && !again.disabled ? again : $("#worktree-grid")).focus({
           preventScroll: true,
         });
       }

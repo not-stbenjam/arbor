@@ -50,7 +50,7 @@ scenario({
         assert.ok(listed.some((text) => text.includes("merged") && text.includes(paths.merged)));
         const why = (name) => listed.find((text) => text.includes(paths[name]));
         assert.match(why("shipped"), /All commits are in origin\/main/);
-        assert.match(why("squashed"), /All changes are in origin\/main, as one commit \(squashed\)/);
+        assert.match(why("squashed"), /Squashed into origin\/main as [0-9a-f]{10}/);
         assert.equal(await t.focused(), "button#cleanup-cancel.button");
       });
 

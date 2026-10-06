@@ -33,6 +33,13 @@ export const LOSSES = {
     brief: "nested repository",
     grave: true,
   },
+  // Refs under refs/worktree are one worktree's own. Git deletes them with
+  // it, and nothing else may hold the commits they point to.
+  refs: {
+    text: "this worktree's own refs (refs/worktree), and any commits only they point to",
+    brief: "refs of its own",
+    grave: true,
+  },
 };
 
 // The losses the last scan found in a row, in the order above. A row from a

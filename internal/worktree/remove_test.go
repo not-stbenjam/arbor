@@ -686,7 +686,7 @@ func TestWorktreeWithRefsOfItsOwnIsNotACleanDelete(t *testing.T) {
 	if got := testGit(t, linked, "rev-parse", "refs/worktree/aside"); got != kept {
 		t.Fatalf("the ref moved: %s", got)
 	}
-	if result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err != nil || !result.Removed {
+	if result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: w.Losses}); err != nil || !result.Removed {
 		t.Fatalf("removal once agreed to: %+v, %v", result, err)
 	}
 }
@@ -750,5 +750,82 @@ func TestNamedTargetThatIsASymbolicLinkIsRefused(t *testing.T) {
 	report, err := Scan(context.Background(), Options{Root: filepath.Join(alias, "sibling"), TargetOnly: true})
 	if err != nil || len(report.Worktrees) != 1 || report.Worktrees[0].Path != sibling {
 		t.Fatalf("a worktree reached through a linked folder: %+v, %v", report.Worktrees, err)
+	}
+}
+
+// Git keeps a worktree's own refs however the repository stores refs, and
+// keeps them after the worktree's folder has gone. Either way they go with
+// the worktree, and that is a loss to be named.
+func TestRefsOfItsOwnAreFoundHoweverTheyAreKept(t *testing.T) {
+	for _, format := range []string{"files", "reftable"} {
+		t.Run(format, func(t *testing.T) {
+			root := t.TempDir()
+			repo := filepath.Join(root, "repo")
+			if err := os.MkdirAll(repo, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := exec.Command("git", "init", "-q", "--initial-branch=main", "--ref-format="+format, repo).CombinedOutput(); err != nil {
+				t.Skipf("this Git does not keep refs as %s: %s", format, out)
+			}
+			testGit(t, repo, "config", "user.name", "Arbor Test")
+			testGit(t, repo, "config", "user.email", "arbor@example.invalid")
+			testWrite(t, filepath.Join(repo, "tracked.txt"), "initial\n")
+			testGit(t, repo, "add", ".")
+			testGit(t, repo, "commit", "-m", "Initial tree")
+			linked := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+			testWrite(t, filepath.Join(linked, "tracked.txt"), "set aside\n")
+			testGit(t, linked, "commit", "-am", "Set aside")
+			testGit(t, linked, "update-ref", "refs/worktree/aside", "HEAD")
+			testGit(t, linked, "reset", "--hard", "main")
+			w := testTree(t, testScan(t, root), linked)
+			if w.Recommended || w.CanRemove || !slices.Contains(w.Losses, "refs") {
+				t.Fatalf("with its folder there: %+v", w)
+			}
+			// With the folder gone, what Git keeps for it still has them.
+			if err := os.RemoveAll(linked); err != nil {
+				t.Fatal(err)
+			}
+			w = testTree(t, testScan(t, root), linked)
+			if !w.Missing || w.CanRemove || !slices.Contains(w.Losses, "refs") {
+				t.Fatalf("with its folder gone: %+v", w)
+			}
+			// Agreeing to discard files is not agreeing to this.
+			if _, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true}); err == nil || !strings.Contains(err.Error(), "refs") {
+				t.Fatalf("removed without its refs being agreed to: %v", err)
+			}
+			if result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, DiscardLocal: true, Acknowledged: []string{"refs"}}); err != nil || !result.Removed {
+				t.Fatalf("removal once agreed to: %+v, %v", result, err)
+			}
+		})
+	}
+}
+
+// A worktree's own folder is taken out of the folder that holds it. When
+// that one cannot be changed, Git would empty the worktree and then fail.
+func TestWorktreeInAReadOnlyFolderIsRefusedWhole(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("the superuser may change a read-only folder")
+	}
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	parent := filepath.Join(root, "held")
+	if err := os.Mkdir(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	linked := testLinked(t, repo, filepath.Join(parent, "linked"), "topic")
+	w := testTree(t, testScan(t, root), linked)
+	if err := os.Chmod(parent, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0700) })
+	result, err := RemoveWorktree(context.Background(), w, RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: true})
+	if err == nil || result.Removed || !strings.Contains(err.Error(), "the folder that holds it is read-only") {
+		t.Fatalf("removal: %+v, %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(linked, "tracked.txt")); err != nil {
+		t.Fatal("the worktree was emptied")
+	}
+	if !strings.Contains(testGit(t, repo, "worktree", "list", "--porcelain"), linked) {
+		t.Fatal("Git no longer knows the worktree that was refused")
 	}
 }
