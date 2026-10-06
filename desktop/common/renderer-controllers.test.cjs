@@ -1573,7 +1573,7 @@ test("Delete recommended counts and describes exactly what the list shows, and a
   const button = element("#cleanup-button");
   // The button lays out both labels and shows one.
   const label = () =>
-    button.innerHTML.match(/data-current="true"><svg.*?<\/svg><span>([^<]*)</)[1];
+    button.innerHTML.match(/data-current="true"><svg.*?<\/svg><span>([^<]*)</s)[1];
   view.render();
   // The ellipsis says it asks first.
   assert.equal(label(), "Delete recommended (2)…");
