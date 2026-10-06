@@ -80,6 +80,21 @@ func inspectWithDefault(ctx context.Context, w *Worktree, options Options, defau
 		}
 		return
 	}
+	// From here Git compares files with what is committed, and would run
+	// the repository's filter programs to do it.
+	var off []string
+	if defaultCache == nil {
+		off, _ = repositoryFilters(ctx, w.Path)
+	} else {
+		defaultCache.filtersOnce.Do(func() {
+			defaultCache.filters, defaultCache.filterNames = repositoryFilters(ctx, w.Path)
+		})
+		off = defaultCache.filters
+	}
+	if len(off) > 0 {
+		filtersOff.Store(w.Path, off)
+		defer filtersOff.Delete(w.Path)
+	}
 	inspectCommit(ctx, w)
 	inspectStatus(ctx, w, block)
 	details.submodules = inspectIndex(ctx, w, block)

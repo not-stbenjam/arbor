@@ -34,6 +34,7 @@ func Scan(ctx context.Context, options Options) (Report, error) {
 		return report, err
 	}
 	report.Warnings = append(report.Warnings, defaultWarnings(defaults)...)
+	report.Warnings = append(report.Warnings, filterWarnings(defaults)...)
 	sort.Slice(report.Worktrees, func(i, j int) bool {
 		a, b := report.Worktrees[i], report.Worktrees[j]
 		if a.Repo != b.Repo {

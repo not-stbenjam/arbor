@@ -107,6 +107,10 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		return errors.New("worktree commit or branch changed; scan again")
 	}
 	details := inspect(ctx, current, Options{GitHub: snapshot.PR != nil && snapshot.PR.Merged})
+	// Git looks at the worktree once more itself before deleting it, and is
+	// to run none of the repository's filter programs then either. Which
+	// those are is read now, so that nothing slow comes after the last checks.
+	quiet, _ := repositoryFilters(ctx, current.Path)
 	if snapshot.Empty && !current.Empty && !current.Missing {
 		return errors.New("checkout is no longer an empty directory; inspect it again")
 	}
@@ -242,7 +246,7 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 		return err
 	}
 	defer watchRemoval(current.Path, files, options.Progress)()
-	err = deleteWithGit(common, args...)
+	err = deleteWithGit(common, quiet, args...)
 	// With no folder there, nothing on disk was deleted: only what Git kept.
 	result.Missing = err == nil && missing
 	return err
@@ -255,10 +259,10 @@ func remove(ctx context.Context, snapshot Worktree, options RemovalOptions, resu
 // Arbor is asked to stop: Arbor finishes the worktree it is on and starts no
 // other. It runs apart from Arbor's terminal for the same reason, so that
 // Ctrl-C reaches Arbor and not Git.
-func deleteWithGit(common string, args ...string) error {
+func deleteWithGit(common string, env []string, args ...string) error {
 	prefix := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false", "-C", common, "--git-dir=" + common}
 	cmd := exec.Command("git", append(prefix, args...)...)
-	cmd.Env = commandEnv()
+	cmd.Env = append(commandEnv(), env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

@@ -48,6 +48,46 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The real application and the real command-line program, on real Git
+  # repositories made for the purpose: every feature through the window with
+  # mouse and keyboard, and the command line interrupted, raced and misused.
+  e2e:
+    name: End to end
+    runs-on: ubuntu-22.04
+    env:
+      TMPDIR: ${{ runner.temp }}/arbor
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Install virtual display
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - run: mkdir -p "$TMPDIR"
+      - name: Drive the application through every feature
+        run: npm run test:e2e -- --jobs 2
+      - name: Stress the command-line program
+        run: npm run test:stress
+        env:
+          STRESS_INTERRUPTS: '80'
+          STRESS_SCALE: '1000'
+      - name: Keep what a failed scenario left
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-failures
+          path: |
+            ${{ runner.temp }}/arbor/arbor-e2e-*/failure-*
+            ${{ runner.temp }}/arbor/arbor-e2e-*/cli-calls.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   desktop:
     name: Desktop (${{ matrix.platform }}, ${{ matrix.arch }})
     strategy:

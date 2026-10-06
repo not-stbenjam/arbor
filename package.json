@@ -17,7 +17,10 @@
     "desktop:dir": "node scripts/build-desktop.cjs --dir",
     "test:desktop": "node --test desktop/*.test.cjs desktop/common/*.test.cjs",
     "pretest:e2e": "node scripts/build-desktop.cjs --prepare",
-    "test:e2e": "node scripts/e2e/run.cjs"
+    "test:e2e": "node scripts/e2e/run.cjs --skip scale-large",
+    "test:e2e:scale": "node scripts/e2e/run.cjs --jobs 1 scale-large",
+    "pretest:stress": "node scripts/build-desktop.cjs --prepare",
+    "test:stress": "node scripts/stress/run.cjs"
   },
   "devDependencies": {
     "electron": "44.5.1",

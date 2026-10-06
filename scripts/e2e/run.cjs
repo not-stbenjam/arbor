@@ -8,7 +8,8 @@
 //   node scripts/e2e/run.cjs review keys  only those whose file name has a word
 //   node scripts/e2e/run.cjs path/to.cjs  that file, wherever it is
 //
-// --jobs N runs that many at once (2). --keep leaves every folder behind;
+// --jobs N runs that many at once (2). --skip WORD leaves out the scenarios
+// with that word in their file name. --keep leaves every folder behind;
 // a failed scenario's folder is always left, with a picture of the window.
 // --show puts the windows on the real display where there is one.
 
@@ -23,6 +24,8 @@ const option = (name, fallback) => {
   return at < 0 ? fallback : args.splice(at, 2)[1];
 };
 const jobs = Math.max(1, Number(option("--jobs", 2)));
+// Leaves out scenarios whose file name has this word: --skip scale-large.
+const skip = option("--skip", "");
 const flag = (name) => args.includes(name) && !!args.splice(args.indexOf(name), 1);
 const keep = flag("--keep"), show = flag("--show");
 // A scenario named by its path is run as given; anything else is a word to
@@ -35,6 +38,7 @@ const scenarios = [
     .readdirSync(__dirname)
     .filter((name) => name.endsWith(".e2e.cjs"))
     .filter((name) => (words.length ? words.some((word) => name.includes(word)) : !named.length))
+    .filter((name) => !skip || !name.includes(skip))
     .sort()
     .map((name) => path.join(__dirname, name)),
 ];

@@ -24,6 +24,11 @@ type repositoryDefault struct {
 	// partial says whether this is a partial clone, asked once.
 	partialOnce sync.Once
 	partial     bool
+	// filters is the environment that switches off the filter programs the
+	// repository's own configuration names, and filterNames their names.
+	filtersOnce sync.Once
+	filters     []string
+	filterNames []string
 }
 
 func inspectPublication(ctx context.Context, w *Worktree) {

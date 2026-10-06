@@ -1,6 +1,6 @@
 "use strict";
-const { main, scenario, assert, fs, path, quote, ok } = require("../helpers.cjs");
-main(() => scenario("bug-filter", async (f) => {
+const { main, scenario, assert, fs, path, quote, ok } = require("./helpers.cjs");
+main(() => scenario("readonly-filter", async (f) => {
   const repo = f.repository("projects/repo", { files: { ".gitattributes": "README.md filter=probe\n" } });
   const w = repo.worktree("target");
   fs.writeFileSync(path.join(w.path, "README.md"), "x".repeat(fs.statSync(path.join(w.path, "README.md")).size));

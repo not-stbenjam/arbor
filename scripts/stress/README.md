@@ -22,28 +22,34 @@ node scripts/stress/fuzz.cjs
 ```
 
 The runner runs topics sequentially and emits one timed PASS/FAIL per topic.
-It keeps running after a failure and exits nonzero if any topic failed. It
-excludes `bugs/` unless explicitly named. Each bug script asserts the desired
-behavior, so confirmed defects fail. All bug scripts create their own empty
-fixture; no manual repository setup or destructive command is needed.
+It keeps running after a failure and exits nonzero if any topic failed. A
+check that fails because the program is wrong goes in `bugs/` until it is
+fixed, where the runner leaves it out unless it is named; each such script
+asserts the behaviour wanted, so a confirmed defect fails. Once fixed it
+moves into a topic. `safety.cjs` holds the ones that were: a symbolic link
+followed to another worktree, a malformed exclusion that crashed, an empty
+`--head`, an emptied folder not put back, a path that is not valid text, and
+refs of a worktree's own.
 
 ```sh
-node scripts/stress/run.cjs bugs/symlink-removal
-node scripts/stress/run.cjs bugs/exclude-panic
+node scripts/stress/run.cjs safety
+node scripts/stress/run.cjs bugs/exit-codes
 ```
 
 `STRESS_INTERRUPTS` defaults to 240, distributed over scan/removal and SIGINT,
 SIGTERM, SIGHUP, SIGKILL. A seed controls delay, not operating-system scheduling.
-The passing topic interrupts scans and pauses before the second Git removal,
-then interrupts at that boundary. The unrestricted mid-removal check lives in
-`bugs/interrupted-removal.cjs`; seed 20261007 exposed a stale registration.
-`bugs/interrupted-delete.cjs` reproduces that failure reliably on Linux using
-a fixture-local C shim that pauses actual Git just after its successful rmdir
-(requires the C compiler already used by Go race tests).
+`interruption.cjs` interrupts scans and pauses before the second Git removal,
+then interrupts at that boundary. `interrupted-removal.cjs` interrupts at any
+moment of a removal, and `interrupted-delete.cjs` at the worst one: it uses a
+fixture-local C shim to pause actual Git just after it has removed the folder
+and before it has removed its record (it needs the C compiler Go's race tests
+already use). Both pass because the command that deletes is not stopped when
+Arbor is: Arbor finishes the worktree it is on and begins no other.
 Each trial checks fsck, registration paths, Git lock files, statistics JSON,
 and completion on retry. A child process group bounds each asynchronous run
 and is killed on timeout or completion to prevent orphan Git/SSH children.
-Statistics loss after SIGKILL is checked separately in `bugs/`.
+Statistics for removals completed before a SIGKILL are not written, since a
+batch records them when it ends; that is accepted, and not tested for.
 
 `STRESS_SCALE` defaults to `1000,5000`. Scale uses 100 worktrees per repository,
 no checkout files, a real index, and ten hard-linked discovery files per
@@ -56,27 +62,33 @@ installed, otherwise Python `wait4().ru_maxrss` on Linux. Both are the maximum
 child-process RSS, not the sum of simultaneously running Git processes.
 
 The fuzz runner uses one worker, `go test -p 2`, and 120 seconds per target.
-Pass target names to run a subset. The known exclusion trailing-escape panic
-is preserved in `testdata/stress/exclusion-panic.txt`, a skipped regular Go
-regression, and an active failing CLI reproducer. Fuzzing skips that known
-input family to continue exploring other inputs; it does not catch or hide
-other panics. Desktop requests are argv, not JSON, in this version. The Go
-request target exercises their actual normalization boundary. Configuration
-JSON is embedded defaults rather than a user-supplied Go configuration file.
+Pass target names to run a subset. The exclusion pattern ending in a lone
+backslash that fuzzing found is kept in `testdata/stress/exclusion-panic.txt`
+and as a regular Go test. Desktop requests are argv, not JSON, in this version.
+The Go request target exercises their actual normalization boundary.
+Configuration JSON is embedded defaults rather than a user-supplied Go
+configuration file.
 
-The read-only topic tests hooks, fsmonitor, pager, editor, aliases, diff,
-textconv, and unchanged-file filters, with a content/mode snapshot of all
-repositories. Both divergent histories and a matching index are exercised. The same-size changed-file clean-filter case is a known failure
-in `bugs/read-only-filter.cjs`; that script reports helper invocations for
-list, cleanup preview, and stats separately.
+The read-only topics test hooks, fsmonitor, pager, editor, aliases, diff,
+textconv and filters, with a content/mode snapshot of all repositories. Both
+divergent histories and a matching index are exercised. `readonly-filter.cjs`
+changes a file without changing its size, which is when Git would run a clean
+filter to compare it, and checks that list, cleanup preview and stats start
+none of the repository's own.
 
 Limits are printed explicitly: no real `/` scan, no macOS GUI launch test
 because of its fixed `/Applications` lookup, and no unseeded CLI SSH download
 because its production HTTPS release URL cannot be replaced through CLI
 configuration. Existing Go provisioning tests use injected HTTP transports.
-Invalid UTF-8 paths have a failing JSON round-trip test in `bugs/`. Git itself
-forbids some branch characters and its `.lock` suffix limits loose branch
-components to 250 bytes; directory-name cases still use 255 bytes.
+Git itself forbids some branch characters and its `.lock` suffix limits loose
+branch components to 250 bytes; directory-name cases still use 255 bytes.
+
+Known and accepted, and so not tested as defects: a preview does not pin what
+a later `--yes` removes (each removal is checked afresh instead); an ignored
+file created in the instant between Arbor's last look and Git's own removal
+goes with the worktree, as it would with `git worktree remove`; cleaning N
+worktrees of one repository lists its registrations N times; and errors in
+`--json` mode are text on stderr with nothing on stdout.
 
 `helpers.cjs` adds process ownership, async CLI execution, deterministic random
 numbers, and repository integrity checks. Those general helpers could move
