@@ -27,11 +27,12 @@ export const recommendationReason = (w) =>
     /\brefs\/(?:heads|remotes)\//g,
     "",
   );
-export function worktreeState(w) {
+function describeState(w) {
   if (w.pending) return null;
   if (!w.canRemove && !w.canDiscard) {
     const reasons = (w.blockers || []).concat(w.problems || []);
     return {
+      kind: "Cannot be deleted",
       tone: "blocked",
       label:
         reasons.length === 1 ? reasons[0].split(":")[0] : "Cannot be deleted",
@@ -69,6 +70,7 @@ export function worktreeState(w) {
   if (w.dirty)
     return {
       tone: "caution",
+      kind: "Changed files",
       label:
         w.changedFiles > 0
           ? `${w.changedFiles} changed ${w.changedFiles === 1 ? "file" : "files"}`
@@ -115,6 +117,19 @@ export function worktreeState(w) {
       detail: `${recommendationReason(w)}. Clean, so Delete recommended includes it; its branch is kept.`,
     };
   return null;
+}
+// Keep the filter's kind beside the very decision that names the row. Quiet
+// rows still need a choice in the filter; detached is named in their branch.
+export function worktreeStateKind(w) {
+  const description = describeState(w);
+  return description?.kind || description?.label ||
+    (w.pending ? "Checking" : w.detached ? "Detached" : "Not merged");
+}
+export function worktreeState(w) {
+  const description = describeState(w);
+  if (!description) return null;
+  const { kind, ...state } = description;
+  return state;
 }
 export function projectRepositories(list, { hostFilter, hosts }) {
   hostFilter = viewHost({ hostFilter, hosts });
@@ -163,6 +178,9 @@ export function projectTree(
     repo,
     view,
     search,
+    stateFilter,
+    ageDays,
+    now = Date.now(),
     sort,
     descending,
     collapsedDirectories,
@@ -181,6 +199,9 @@ export function projectTree(
     repo,
     view,
     query,
+    stateFilter,
+    kind: worktreeStateKind,
+    activityBefore: ageDays ? now - ageDays * 86400000 : undefined,
     state: (row) => worktreeState(row)?.label,
   });
   // Rank a folder by the worktree someone sorting this way is looking for,

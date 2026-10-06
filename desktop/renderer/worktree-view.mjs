@@ -1,5 +1,6 @@
 import {
   projectTree,
+  worktreeStateKind,
   projectRepositories,
   renderTreeRows,
   renderRepositoryList,
@@ -26,6 +27,8 @@ export function createWorktreeView({
   let view = "all",
     repo = "",
     search = "",
+    stateFilter = "",
+    ageDays = "",
     sort = "path",
     descending = false;
   let selection = { ids: new Set(), cursor: "" };
@@ -170,7 +173,36 @@ export function createWorktreeView({
     $("#recommendation-note").hidden = view !== "recommended";
     renderRows();
   }
+  let stateItems, stateScope, stateOptions = "";
+  function renderFilters() {
+    const scope = JSON.stringify([repo, view, stateFilter]);
+    if (stateItems !== items() || stateScope !== scope) {
+      stateItems = items();
+      stateScope = scope;
+      const counts = new Map();
+      for (const row of tree.filter(items(), { repo, view })) {
+        const kind = worktreeStateKind(row);
+        counts.set(kind, (counts.get(kind) || 0) + 1);
+      }
+      // Keep a chosen state even after its last row leaves the report.
+      if (stateFilter && !counts.has(stateFilter)) counts.set(stateFilter, 0);
+      const options = '<option value="">Any state</option>' + [...counts]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([kind, count]) => `<option value="${esc(kind)}">${esc(kind)} (${count})</option>`)
+        .join("");
+      if (options !== stateOptions) {
+        $("#state-filter").innerHTML = stateOptions = options;
+      }
+    }
+    for (const [id, value] of [["state-filter", stateFilter], ["age-filter", ageDays]]) {
+      const select = $(`#${id}`);
+      select.value = value;
+      select.classList.toggle("active", !!value);
+      select.title = `${id === "state-filter" ? "State" : "Last used"}: ${select.selectedOptions?.[0]?.textContent || value}`;
+    }
+  }
   function renderRows() {
+    renderFilters();
     const projection = projectTree(
       items(),
       {
@@ -180,6 +212,8 @@ export function createWorktreeView({
         repo,
         view,
         search,
+        stateFilter,
+        ageDays,
         sort,
         descending,
         collapsedDirectories,
@@ -227,7 +261,7 @@ export function createWorktreeView({
         visible[Math.min(cursorIndex, visible.length - 1)].id;
     // A filter shows part of the list, so its count says part of what.
     $("#visible-count").textContent =
-      filtered.length === items().length
+      filtered.length === items().length && !stateFilter && !ageDays
         ? filtered.length
         : `${filtered.length} of ${items().length}`;
     $("#tree-sort").value = sort;
@@ -280,6 +314,8 @@ export function createWorktreeView({
       descending,
       view,
       search,
+      stateFilter,
+      ageDays,
       repo,
       [...collapsedDirectories],
       workspace.snapshot.busy,
@@ -425,6 +461,21 @@ export function createWorktreeView({
         true,
         "Finding linked worktrees…",
         "Worktree folders appear here as they are discovered.",
+      );
+    if (stateFilter || ageDays)
+      return message(
+        "search",
+        false,
+        "No worktrees match these filters",
+        [
+          stateFilter ? `State: ${esc(stateFilter)}.` : "",
+          ageDays
+            ? `Last used: not for ${{ 7: "a week", 30: "a month", 90: "3 months", 365: "a year" }[ageDays]}. Worktrees with unknown activity are left out.`
+            : "",
+          search.trim() ? `Search: “${esc(search.trim())}”.` : "",
+          "Try different filters, or clear them to see more worktrees.",
+        ].filter(Boolean).join(" "),
+        action("data-clear-filters", "Clear filters"),
       );
     if (items().length && !search.trim() && !repo)
       return message(
@@ -659,6 +710,11 @@ export function createWorktreeView({
     renderActiveRow();
   });
   $("#empty-state").addEventListener("click", (event) => {
+    if (event.target.closest("[data-clear-filters]")) {
+      $("#search").value = "";
+      setFilters("", "", "");
+      $("#state-filter").focus();
+    }
     if (event.target.closest("[data-clear-filter]")) {
       repo = "";
       $("#search").value = "";
@@ -775,35 +831,43 @@ export function createWorktreeView({
       );
     }
   });
-  // A search opens every folder so its matches show. That is a view of the
-  // search, not a change to how the tree was arranged, so the arrangement
-  // comes back when the search is cleared.
+  // Search and filters open every folder so their matches show. The original
+  // arrangement comes back when all of them are cleared.
   let collapsedBeforeSearch = null,
     searchSaid = 0;
-  function setSearch(value) {
-    if (search === value) return;
-    if (!search.trim() && value.trim()) {
+  function setFilters(value, kind = stateFilter, age = ageDays) {
+    if (search === value && stateFilter === kind && ageDays === age) return;
+    const wasFiltering = !!(search.trim() || stateFilter || ageDays),
+      isFiltering = !!(value.trim() || kind || age);
+    if (!wasFiltering && isFiltering) {
       collapsedBeforeSearch = new Set(collapsedDirectories);
       collapsedDirectories.clear();
-    } else if (search.trim() && !value.trim() && collapsedBeforeSearch) {
+    } else if (wasFiltering && !isFiltering && collapsedBeforeSearch) {
       collapsedDirectories.clear();
       collapsedBeforeSearch.forEach((key) => collapsedDirectories.add(key));
       collapsedBeforeSearch = null;
     }
     search = value;
+    stateFilter = kind;
+    ageDays = age;
     render();
-    // Said once typing pauses, not for each letter.
+    // Share the search's pause, so combined changes are read out once.
     clearTimeout(searchSaid);
     searchSaid = setTimeout(() => {
-      const count = visible.length,
+      const count = filtered.length,
         text = search.trim();
-      $("#announcement").textContent = !text
-        ? `Filter cleared. ${count} ${count === 1 ? "worktree" : "worktrees"} shown.`
-        : count
-          ? `${count} ${count === 1 ? "worktree matches" : "worktrees match"} “${text}”.`
-          : `No worktrees match “${text}”.`;
+      $("#announcement").textContent = stateFilter || ageDays
+        ? `${count} ${count === 1 ? "worktree matches" : "worktrees match"}.`
+        : !text
+          ? `Filter cleared. ${count} ${count === 1 ? "worktree" : "worktrees"} shown.`
+          : count
+            ? `${count} ${count === 1 ? "worktree matches" : "worktrees match"} “${text}”.`
+            : `No worktrees match “${text}”.`;
     }, 400);
   }
+  const setSearch = (value) => setFilters(value);
+  $("#state-filter").onchange = (event) => setFilters(search, event.target.value);
+  $("#age-filter").onchange = (event) => setFilters(search, stateFilter, event.target.value);
   $("#search").oninput = (event) => setSearch(event.target.value);
   // From the search, Down goes straight to what it found: the list takes the
   // keyboard, on its first row. Tab still visits the controls in between.
@@ -840,6 +904,7 @@ export function createWorktreeView({
     selection = { ids: new Set(), cursor: "" };
     if (full) {
       search = "";
+      stateFilter = ageDays = "";
       sort = "path";
       descending = false;
       collapsedDirectories.clear();
@@ -888,7 +953,7 @@ export function createWorktreeView({
       return visible;
     },
     get filtering() {
-      return !!repo || !!search.trim();
+      return !!repo || !!search.trim() || !!stateFilter || !!ageDays;
     },
     get selectedCount() {
       return selection.ids.size;
