@@ -348,7 +348,7 @@ app.once("browser-window-created", (_event, win) => {
         assert.deepEqual(await ticked(), {
           boxes: 1,
           rows: 1,
-          bar: "1 worktree selected · 1 not clean",
+          bar: "1 worktree selected · 1 with data to discard",
           all: [false, 0],
         });
         assert.equal(await status(), summary, "the totals stay where they are");
@@ -421,7 +421,7 @@ app.once("browser-window-created", (_event, win) => {
         );
         const folder = await ticked();
         assert.deepEqual(
-          { ...folder, bar: folder.bar.replace(/ · \d+ not clean$/, "") },
+          { ...folder, bar: folder.bar.replace(/ · \d+ with data to discard$/, "") },
           {
             boxes: 20,
             rows: 20,
@@ -429,7 +429,7 @@ app.once("browser-window-created", (_event, win) => {
             all: [false, 0],
           },
         );
-        assert.match(folder.bar, / · \d+ not clean$/);
+        assert.match(folder.bar, / · \d+ with data to discard$/);
         // The folder's own box is ticked now that everything under it is.
         assert.equal(
           await js(
@@ -551,10 +551,10 @@ app.once("browser-window-created", (_event, win) => {
         );
         // The folder holds a worktree with ignored files, so this is not a
         // clean delete, and the dialog leads with exactly what would go.
-        assert.equal(removalDialogs[1].title, "Not a clean delete");
+        assert.equal(removalDialogs[1].title, "Delete worktrees?");
         assert.match(
           removalDialogs[1].detail,
-          /^1 of them holds local work that deleting would destroy\. It permanently discards:\n• ignored files, such as local configuration or build output \(1 worktree\)\nAnything else in the folder that is not committed goes too/,
+          /^Discards ignored files\./,
         );
         assert.ok(listed(removalDialogs[1], "/sessions/old/tree-1"));
         assert.ok(!removalDialogs[1].detail.includes("/sessions/recent/"));

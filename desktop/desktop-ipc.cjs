@@ -3,6 +3,7 @@
 const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { globalID } = require("./workspace-snapshot.cjs");
 const { DEFAULTS, scanOptions } = require("./protocol.cjs");
 const {
   removalConfirmationOptions,
@@ -111,26 +112,36 @@ function registerDesktopIPC({
     });
     handle("arbor:remove", async (selection) => {
       guardInteraction();
+      let showFiles;
       const result = await backend.remove(
         selection,
         async (trees, { discardLocal }) => {
           removalConfirmation = new AbortController();
           try {
+            const options = removalConfirmationOptions(trees, discardLocal);
             const response = await dialog.showMessageBox(getWindow(), {
               signal: removalConfirmation.signal,
               type: "warning",
-              ...removalConfirmationOptions(trees, discardLocal),
+              ...options,
               defaultId: 0,
               cancelId: 0,
               noLink: true,
             });
+            // Show Files is cancellation, never consent to discard. Return
+            // a window identity only after the coordinator settles removal.
+            if (
+              response.response === 2 &&
+              trees.length === 1 &&
+              options.buttons.length === 3
+            )
+              showFiles = globalID(trees[0].host || "", trees[0].id);
             return response.response === 1;
           } finally {
             removalConfirmation = null;
           }
         },
       );
-      return result;
+      return showFiles ? { ...result, showFiles } : result;
     });
     handle("arbor:choose-folder", async () => {
       // The picker always browses this computer, whichever machine is shown.

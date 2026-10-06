@@ -25,6 +25,7 @@ export function createWorkspaceController({
   onHostChange,
   onReset,
   onScanAccepted = () => {},
+  onShowFiles = () => {},
   timers = globalThis,
 }) {
   const state = {
@@ -230,6 +231,7 @@ export function createWorkspaceController({
     clearTimeout(pollTimer);
     pollTimer = setTimeout(poll, 350);
     publish();
+    let showFiles;
     try {
       const result = await api.remove({
         items: list.map((w) => ({ id: w.id, head: w.head })),
@@ -239,6 +241,7 @@ export function createWorkspaceController({
         forceConfirm: options.forceConfirm === true,
         reviewed: options.reviewed === true,
       });
+      showFiles = result.showFiles;
       if (Object.hasOwn(result, "report"))
         state.report = immutableCopy(result.report);
       if (Object.hasOwn(result, "revision")) state.revision = result.revision;
@@ -313,6 +316,8 @@ export function createWorkspaceController({
       publish();
       pollTimer = setTimeout(poll, hasActivity() ? 700 : 3000);
     }
+    const row = showFiles && state.report?.worktrees.find((row) => row.id === showFiles);
+    if (row) onShowFiles(row);
   }
   function explainKept(kept, append = false) {
     if (!kept.length) return;

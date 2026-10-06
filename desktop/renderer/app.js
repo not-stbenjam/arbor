@@ -75,6 +75,7 @@ async function bootstrap() {
     onReset: () => workspace.reset(),
   });
   workspace = createWorkspaceController({
+    onShowFiles: (row) => files.open(row, workspace.snapshot.revision, { deleting: true }),
     api,
     linked: tree.linked,
     onUndo: (ids) => restore.restore(ids),
@@ -176,6 +177,7 @@ async function bootstrap() {
         notify(`Could not save view: ${error.message}`, true),
       ),
     reviewDeletion: (rows) => cleanup.openFor(rows),
+    onShowFiles: (row) => files.open(row),
     // Filtering changes what Delete recommended acts on, and so its count
     // and what an open review of it can still delete.
     onRender: () => {

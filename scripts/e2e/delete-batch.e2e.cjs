@@ -16,7 +16,7 @@ scenario({
     await t.settled();
     await t.step("mixed selection explains counts and Cancel keeps every file", async () => {
       await t.click("#select-all");
-      assert.equal(await t.text("#selection-label"), "3 worktrees selected · 1 not clean");
+      assert.equal(await t.text("#selection-label"), "3 worktrees selected · 1 with data to discard");
       // Several at once are first shown in full: every one, with what
       // deleting it means.
       await t.click("#remove-selected");
@@ -24,9 +24,9 @@ scenario({
       assert.equal(await t.text("#cleanup-title"), "Delete these 3 worktrees?");
       assert.deepEqual(await t.texts(".cleanup-name"), ["a-safe", "b-dirty", "c-stale"]);
       assert.deepEqual(await t.js("[...document.querySelectorAll('.cleanup-item')].map((item) => item.dataset.tone)"), ["safe", "risk", "safe"]);
-      assert.match((await t.texts(".cleanup-reason"))[1], /^Not a clean delete\. Discards uncommitted changes and untracked files$/);
-      assert.match(await t.text("#cleanup-lead"), /not moved to Trash/);
-      assert.match(await t.text("#cleanup-lead"), /1 of them is not a clean delete/);
+      assert.match((await t.texts(".cleanup-reason"))[1], /^Uncommitted changes$/);
+      assert.match(await t.text("#cleanup-lead"), /Branches and commits are kept; uncommitted files are discarded\./);
+      assert.match(await t.text("#cleanup-lead"), /uncommitted files are discarded/);
       assert.equal(await t.text("#cleanup-confirm"), "Delete 3 worktrees…");
       assert.equal(t.messages.length, 0, "nothing is asked until the review is agreed to");
       // Agreeing asks once more, by name, because one of them would lose work.
@@ -34,10 +34,10 @@ scenario({
       await t.click("#cleanup-confirm");
       await t.until(() => t.messages.length === 1, "selection question");
       await t.settled();
-      assert.equal(t.messages[0].title, "Not a clean delete");
-      assert.match(t.messages[0].message, /1 of 3 worktrees is not clean.*delete all 3/);
-      assert.match(t.messages[0].detail, /uncommitted changes and untracked files \(1 worktree\)/);
-      assert.match(t.messages[0].detail, /folder that holds them.*is kept/);
+      assert.equal(t.messages[0].title, "Delete worktrees?");
+      assert.match(t.messages[0].message, /Delete 3 worktrees\?/);
+      assert.match(t.messages[0].detail, /Discards uncommitted changes\./);
+      assert.doesNotMatch(t.messages[0].detail, /folder that holds them/);
       for (const tree of t.world) assert.equal(t.fixture.exists(tree.path), true);
     });
     await t.step("a clean member becoming dirty fails without discarding it; other members finish", async () => {
@@ -58,7 +58,7 @@ scenario({
       assert.equal(await t.text(`${await t.row(stale.path)} .worktree-state`), "1 changed file");
       assert.match(await t.text("#toast-region"), /Deleted 2 worktrees/);
       await selected(t, ["c-stale"]);
-      assert.equal(await t.text("#selection-label"), "1 worktree selected · 1 not clean");
+      assert.equal(await t.text("#selection-label"), "1 worktree selected · 1 with data to discard");
       assert.equal(await t.text("#all-count"), "1");
       assert.equal(t.fixture.statistics().cleanupSessions, 1);
       await statistics(t, 2);

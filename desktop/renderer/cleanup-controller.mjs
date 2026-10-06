@@ -49,28 +49,15 @@ export function deletionMeaning(row) {
     };
   if (row.recommended) return { tone: "safe", text: recommendationReason(row) };
   const lost = lossesOf(row);
-  if (lost.length)
-    return {
-      tone: "risk",
-      text: `Not a clean delete. Discards ${lost.map((name) => LOSSES[name].text).join("; ")}`,
-    };
-  // Deleted only by being told to, though nothing in it is lost: a lock is
-  // overridden, a detached commit is given a branch, a folder is already gone.
-  if (!row.canRemove)
-    return {
-      tone: "note",
-      text: sentence(
-        (row.discardWarnings || []).join(" ") ||
-          (row.blockers || []).join("; ") ||
-          "Deleted only because you ask",
-      ),
-    };
-  return {
-    tone: "safe",
-    text: row.fresh
-      ? "Clean. Created in the last 24 hours, with nothing of its own yet"
-      : `Clean. Not merged${row.defaultRef ? ` into ${row.defaultRef.replace(/^refs\/(?:heads|remotes)\//, "")}` : ""}; its branch keeps its commits`,
-  };
+  const notes = [row.missing && "Registration only; folder gone", row.locked && "Lock overridden"].filter(Boolean);
+  if (lost.length) {
+    const ordinary = lost.filter((name) => !LOSSES[name].grave);
+    const words = ordinary.length === 3 ? "Changes, ignored and unchecked files" : ordinary.map((name) => LOSSES[name].brief).join(" and ");
+    return { tone: "risk", text: words ? words.replace(/^./, (c) => c.toUpperCase()) : "",
+      grave: graveLosses(row).map((name) => `Permanently loses ${LOSSES[name].text}`), notes };
+  }
+  return { tone: notes.length ? "note" : "safe", text: notes.join(" · ") || (row.fresh ? "New; branch kept" : "Branch and commits kept") };
+
 }
 
 // Everything the review says about a worktree. One that no longer matches
@@ -145,12 +132,12 @@ export function createCleanupController({
     $("#cleanup-list").innerHTML = reviewed
       .map((row) => {
         const name = row.path.split("/").filter(Boolean).pop() || row.path;
-        const context = [branchName(row), row.repo, everyHost && hostLabel(row)]
+        const context = [branchName(row), row.repo, (everyHost || row.host) && hostLabel(row)]
           .filter(Boolean)
           .map(named)
           .join(" · ");
         const meaning = deletionMeaning(row);
-        return `<li class="cleanup-item${refused.has(row.id) ? " refused" : ""}" data-review="${esc(row.id)}" data-tone="${meaning.tone}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${row.missing ? "—" : size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(meaning.text)}</span><span class="cleanup-changed">Changed since you opened this list, so it is kept.</span><span class="cleanup-path">${pathed(row.path)}</span>${!row.canRemove ? `<button type="button" class="button cleanup-files" data-files="${esc(row.id)}">Show files</button>` : ""}</li>`;
+        return `<li class="cleanup-item${refused.has(row.id) ? " refused" : ""}" data-review="${esc(row.id)}" data-tone="${meaning.tone}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${row.missing ? "—" : size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(meaning.text)}${(meaning.grave || []).map((text) => `<strong class="cleanup-grave">${named(text)}</strong>`).join("")}${(meaning.notes || []).map((text) => `<span class="cleanup-note">${named(text)}</span>`).join("")}</span><span class="cleanup-changed">Changed; kept.</span><span class="cleanup-path">${pathed(row.path)}</span>${!row.canRemove ? `<button type="button" class="button cleanup-files" data-files="${esc(row.id)}">Show Files…</button>` : ""}</li>`;
       })
       .join("");
   }
@@ -214,9 +201,7 @@ export function createCleanupController({
       : unclean
         ? `Delete ${count}…`
         : `Delete ${count}`;
-    confirm.title = unclean
-      ? `${plural(unclean, "worktree")} here ${unclean === 1 ? "is" : "are"} not a clean delete. You are asked once more before anything is discarded.`
-      : "";
+    confirm.title = "";
     // A disabled button cannot hold the keyboard. It goes to the answer
     // that is still there.
     if ((waiting || !rows.length) && document.activeElement === confirm)
@@ -243,26 +228,11 @@ export function createCleanupController({
   }
   // What the review says above its list, which depends on what is in it.
   function renderLead() {
-    const going = reviewed.filter((row) => !refused.has(row.id)),
-      unclean = going.filter((row) => !row.canRemove && lossesOf(row).length);
+    const going = reviewed.filter((row) => !refused.has(row.id));
     // Where history is among what would be lost, it is not also said to
     // be kept: what is kept is the repository each worktree belongs to.
     const grave = going.some((row) => graveLosses(row).length);
-    const said = [
-      `Deleting these worktrees removes their folders for good: they are not moved to Trash, and Arbor cannot bring them back. ${grave ? "The branches and commits of the repositories they belong to are kept; what is marked below is not." : "Their branches and commits are kept."}`,
-      !chosen
-        ? "Each one has no uncommitted changes, untracked files or ignored files, and its commits are already merged."
-        : unclean.length
-          ? `${unclean.length === going.length ? (going.length === 1 ? "It is" : "All of them are") : `${unclean.length} of them ${unclean.length === 1 ? "is" : "are"}`} not a clean delete. What each would lose is marked, and you are asked once more before anything is discarded.`
-          : "None of them has uncommitted changes, untracked files or ignored files.",
-      refused.size
-        ? `${plural(refused.size, "worktree")} you selected cannot be deleted and ${refused.size === 1 ? "is" : "are"} left alone.`
-        : "",
-    ];
-    $("#cleanup-lead").innerHTML = said
-      .filter(Boolean)
-      .map((text) => `<p>${esc(text)}</p>`)
-      .join("");
+    $("#cleanup-lead").innerHTML = `<p>${grave ? "Parent repository branches are kept; permanent losses are listed below." : going.some((row) => !row.canRemove && !row.missing && !row.empty) ? "Branches and commits are kept; uncommitted files are discarded." : "Branches and commits are kept."}</p>`;
     $("#cleanup-list").setAttribute(
       "aria-label",
       chosen

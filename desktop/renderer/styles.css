@@ -2414,3 +2414,17 @@ th.sorted > button > .icon {
     overflow: visible;
   }
 }
+
+/* File inventory is an action, including when its label is a row's state. */
+.state-files {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.state-files:hover { text-decoration-thickness: 2px; }
+.cleanup-grave { display: block; margin-top: 6px; }
+.cleanup-note { display: block; }

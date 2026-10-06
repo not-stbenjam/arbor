@@ -58,16 +58,16 @@ function describeState(w) {
       tone: "muted",
       label: "Folder missing",
       detail:
-        "The folder is gone. Deleting removes only its leftover Git registration.",
+        "Folder gone; removes only its registration.",
     };
   if (w.empty)
     return {
       tone: "muted",
       label: "Empty folder",
       detail:
-        "The folder is empty. Deleting removes it and its leftover Git registration.",
+        "Removes the empty folder and registration.",
     };
-  if (w.dirty)
+  if (w.dirty || lossesOf(w).includes("changes"))
     return {
       tone: "caution",
       kind: "Changed files",
@@ -76,14 +76,20 @@ function describeState(w) {
           ? `${w.changedFiles} changed ${w.changedFiles === 1 ? "file" : "files"}`
           : "Uncommitted changes",
       detail:
-        "Uncommitted or untracked files. Deleting this worktree discards them.",
+        "Discards uncommitted changes and untracked files.",
     };
-  if (w.ignored)
+  if (w.ignored || lossesOf(w).includes("ignored"))
     return {
       tone: "caution",
       label: "Ignored files",
       detail:
-        "Deleting this worktree discards its ignored files, such as local configuration or build output.",
+        "Discards ignored files.",
+    };
+  if (lossesOf(w).includes("unchecked"))
+    return {
+      tone: "caution",
+      label: "Unchecked files",
+      detail: "Discards changes to unchecked files.",
     };
   if (w.locked)
     return {
@@ -342,7 +348,7 @@ export function renderTreeRows(
       const deleteTitle = refused
         ? ` title="Cannot be deleted: ${shown((w.blockers || []).concat(w.problems || []).join("; ") || "Arbor could not check this folder")}."`
         : lost.length
-          ? ` title="Not a clean delete. It would discard ${esc(lost.map((name) => LOSSES[name].text).join("; "))}. Asks first."`
+          ? ` title="Discards ${esc(lost.map((name) => LOSSES[name].text).join("; "))}."`
           : "";
       const context = w.pending
         ? cancelled
@@ -369,8 +375,8 @@ export function renderTreeRows(
       ].filter(Boolean).join(", ");
       const contextMarkup = w.pending
         ? `<span>${esc(context)}</span>`
-        : `${state ? `<span class="worktree-state" data-tone="${state.tone}" title="${shown(state.detail)}">${shown(state.label)}</span><span> · </span>` : ""}<span class="worktree-branch">${shown(branch)}</span>${w.repo ? `<span> · </span><span class="worktree-repository">${shown(w.repo)}</span>` : ""}`;
-      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-label="${shown(rowName)}" aria-description="${shown(w.path)}" aria-selected="${selected.has(w.id)}"><td class="check-cell"><input type="checkbox" class="row-check" tabindex="-1" data-select="${esc(w.id)}" aria-label="Select ${shown(leaf)}"${selected.has(w.id) ? " checked" : ""} /></td><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${shown(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${shown(context + metrics)}"><span class="worktree-details">${contextMarkup}</span><span class="worktree-metrics">${esc(metrics)}</span></span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${age}</td><td class="size-cell">${bytes}</td><td class="action-cell"><div class="row-actions"><button class="row-action" tabindex="-1" data-delete="${esc(w.id)}" aria-label="Delete ${shown(leaf)}${lost.length ? ", which is not a clean delete" : ""}"${deleteTitle} ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" tabindex="-1" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${shown(leaf)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
+        : `${state ? `${lost.length ? `<button type="button" class="worktree-state state-files" tabindex="-1" data-show-files="${esc(w.id)}" data-tone="${state.tone}" title="Show Files: ${shown(state.detail)}">${shown(state.label)}</button>` : `<span class="worktree-state" data-tone="${state.tone}" title="${shown(state.detail)}">${shown(state.label)}</span>`}<span> · </span>` : ""}<span class="worktree-branch">${shown(branch)}</span>${w.repo ? `<span> · </span><span class="worktree-repository">${shown(w.repo)}</span>` : ""}`;
+      return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-label="${shown(rowName)}" aria-description="${shown(w.path)}" aria-selected="${selected.has(w.id)}"><td class="check-cell"><input type="checkbox" class="row-check" tabindex="-1" data-select="${esc(w.id)}" aria-label="Select ${shown(leaf)}"${selected.has(w.id) ? " checked" : ""} /></td><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${shown(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${shown(context + metrics)}"><span class="worktree-details">${contextMarkup}</span><span class="worktree-metrics">${esc(metrics)}</span></span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${age}</td><td class="size-cell">${bytes}</td><td class="action-cell"><div class="row-actions"><button class="row-action" tabindex="-1" data-delete="${esc(w.id)}" aria-label="Delete ${shown(leaf)}"${deleteTitle} ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" tabindex="-1" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${shown(leaf)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
     })
     .join("");
 }

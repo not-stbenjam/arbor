@@ -8,35 +8,35 @@ export const LOSSES = {
     brief: "uncommitted changes",
   },
   ignored: {
-    text: "ignored files, such as local configuration or build output",
+    text: "ignored files",
     brief: "ignored files",
   },
   unchecked: {
-    text: "any changes to files Git was told not to look at",
+    text: "changes to unchecked files",
     brief: "unchecked files",
   },
   // Grave: more than files in the folder. These are commits or a repository
   // that exist nowhere else, and agreeing to discard local files is not
   // agreeing to them. Each is shown by name and passed on by name.
   submodules: {
-    text: "submodule checkouts, and any commits made inside them that were never pushed",
+    text: "submodules and their unpushed commits",
     brief: "submodules",
     grave: true,
   },
   operation: {
-    text: "the unfinished rebase, merge or other Git operation",
+    text: "unfinished rebase, merge or cherry-pick",
     brief: "unfinished Git operation",
     grave: true,
   },
   nested: {
-    text: "the separate Git repository or worktree inside the folder, with any history kept nowhere else",
+    text: "nested repository, including history kept nowhere else",
     brief: "nested repository",
     grave: true,
   },
   // Refs under refs/worktree are one worktree's own. Git deletes them with
   // it, and nothing else may hold the commits they point to.
   refs: {
-    text: "this worktree's own refs (refs/worktree), and any commits only they point to",
+    text: "worktree refs (refs/worktree) and commits only they hold",
     brief: "refs of its own",
     grave: true,
   },

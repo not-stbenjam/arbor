@@ -46,13 +46,13 @@ scenario({
     });
     await t.step("deleting the shell-like name affects exactly that checkout", async () => {
       const target = t.world.paths.find(p => p.endsWith('$(touch PWNED)'));
-      t.answer("Delete Worktree"); await t.click(`${await t.row(target)} [data-delete]`);
+      t.answer("Delete"); await t.click(`${await t.row(target)} [data-delete]`);
       await t.until(() => !t.fixture.exists(target), "literal target removed"); await t.settled();
       for (const p of t.world.paths.filter(p=>p!==target)) assert.ok(t.fixture.exists(p), p);
     });
     await t.step("discarding a checkout containing a symlink never follows its target", async () => {
       await t.click('.toast button[aria-label="Dismiss notification"]');
-      t.answer(box => { assert.equal(box.buttons[1], "Discard & Delete"); return 1; }); await t.click(`${await t.row(t.world.paths[0])} [data-delete]`);
+      t.answer(box => { assert.equal(box.buttons[1], "Delete"); return 1; }); await t.click(`${await t.row(t.world.paths[0])} [data-delete]`);
       await t.until(() => !t.fixture.exists(t.world.paths[0]), "linked checkout removed"); await t.settled();
       assert.equal(t.fixture.read("outside/sentinel"), "outside survives\n");
       assert.ok(t.fixture.exists(t.world.keep));
@@ -64,7 +64,7 @@ scenario({
       await t.click('.toast button[aria-label="Dismiss notification"]');
       const upper=t.world.paths.find(p=>p.endsWith("/Case"));
       const lower=t.world.paths.find(p=>p.endsWith("/case"));
-      t.answer("Delete Worktree"); await t.click(`${await t.row(upper)} [data-delete]`);
+      t.answer("Delete"); await t.click(`${await t.row(upper)} [data-delete]`);
       await t.until(()=>!t.fixture.exists(upper),"uppercase checkout removed"); await t.settled();
       assert.ok(t.fixture.exists(lower),"case-sensitive neighbour is kept");
       await t.click('.toast button[aria-label="Dismiss notification"]');

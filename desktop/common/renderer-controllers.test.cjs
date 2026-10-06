@@ -169,7 +169,7 @@ test("tree markup escapes metadata and distinguishes missing/pending checkouts",
   assert.ok(markup.includes(`title="${escapedContext} · Unknown · —"`));
   assert.ok(
     markup.includes(
-      '<span class="worktree-state" data-tone="muted" title="The folder is gone. Deleting removes only its leftover Git registration.">Folder missing</span><span> · </span><span class="worktree-branch">&lt;script&gt;',
+      '<span class="worktree-state" data-tone="muted" title="Folder gone; removes only its registration.">Folder missing</span><span> · </span><span class="worktree-branch">&lt;script&gt;',
     ),
   );
   // The row leads with the worktree's name. Its folder rows carry the rest
@@ -1638,10 +1638,10 @@ test("deleting several worktrees chosen by hand shows every one, and what deleti
   ];
   assert.deepEqual(rows.map(deletionMeaning), [
     { tone: "safe", text: "All commits are in origin/main" },
-    { tone: "safe", text: "Clean. Not merged into origin/main; its branch keeps its commits" },
-    { tone: "safe", text: "Clean. Created in the last 24 hours, with nothing of its own yet" },
-    { tone: "risk", text: "Not a clean delete. Discards uncommitted changes and untracked files; ignored files, such as local configuration or build output" },
-    { tone: "note", text: "The Git worktree lock will be overridden" },
+    { tone: "safe", text: "Branch and commits kept" },
+    { tone: "safe", text: "New; branch kept" },
+    { tone: "risk", text: "Uncommitted changes and ignored files", grave: [], notes: [] },
+    { tone: "note", text: "Lock overridden" },
     { tone: "kept", text: "Cannot be deleted: Worktree path could not be verified" },
   ]);
   const deleted = [];
@@ -1673,9 +1673,7 @@ test("deleting several worktrees chosen by hand shows every one, and what deleti
   );
   assert.match(list.innerHTML, /class="cleanup-item refused" data-review="broken"/);
   const lead = element("#cleanup-lead").innerHTML;
-  assert.match(lead, /removes their folders for good: they are not moved to Trash/);
-  assert.match(lead, /1 of them is not a clean delete\. What each would lose is marked, and you are asked once more/);
-  assert.match(lead, /1 worktree you selected cannot be deleted and is left alone/);
+  assert.equal(lead, "<p>Branches and commits are kept; uncommitted files are discarded.</p>");
   assert.equal(
     element("#cleanup-total").textContent,
     "About 5 KB to recover · 3 not shown in the list",
@@ -1693,14 +1691,14 @@ test("deleting several worktrees chosen by hand shows every one, and what deleti
   const refs = row("refs", { canRemove: false, losses: ["changes", "refs"], blockers: ["Uncommitted or untracked files"] });
   assert.deepEqual(deletionMeaning(refs), {
     tone: "risk",
-    text: "Not a clean delete. Discards uncommitted changes and untracked files; this worktree's own refs (refs/worktree), and any commits only they point to",
+    text: "Uncommitted changes", grave: ["Permanently loses worktree refs (refs/worktree) and commits only they hold"], notes: [],
   });
   // Found only after the review opened, it is a different worktree to agree to.
   assert.notDeepEqual(deletionMeaning(refs), deletionMeaning({ ...refs, losses: ["changes"] }));
   review.openFor([rows[0], refs]);
   assert.match(
     element("#cleanup-lead").innerHTML,
-    /The branches and commits of the repositories they belong to are kept; what is marked below is not\./,
+    /Parent repository branches are kept; permanent losses are listed below\./,
   );
   assert.doesNotMatch(element("#cleanup-lead").innerHTML, /Their branches and commits are kept/);
   dialog.close();
@@ -1708,7 +1706,7 @@ test("deleting several worktrees chosen by hand shows every one, and what deleti
   review.openFor(rows.slice(0, 3));
   assert.equal(element("#cleanup-title").textContent, "Delete these 3 worktrees?");
   assert.equal(element("#cleanup-confirm").textContent, "Delete 3 worktrees");
-  assert.match(element("#cleanup-lead").innerHTML, /None of them has uncommitted changes/);
+  assert.match(element("#cleanup-lead").innerHTML, /Branches and commits are kept\./);
   dialog.close();
   // The review of recommendations still says what it always did.
   const recommended = createCleanupController({
@@ -1718,7 +1716,7 @@ test("deleting several worktrees chosen by hand shows every one, and what deleti
   });
   recommended.open();
   assert.equal(element("#cleanup-title").textContent, "Delete this recommended worktree?");
-  assert.match(element("#cleanup-lead").innerHTML, /its commits are already merged/);
+  assert.match(element("#cleanup-lead").innerHTML, /Branches and commits are kept\./);
   fixture.workspace.dispose();
 });
 
@@ -2610,7 +2608,7 @@ test("a row names what only an explicit discard gets past, and colors it by what
       tone: "caution",
       label: "Unchecked files",
       detail:
-        "Unchecked files: Git was told not to look at some tracked files (assume-unchanged or skip-worktree)",
+        "Discards changes to unchecked files.",
     },
   );
   // A protected branch loses nothing by being deleted; it is only named.
@@ -2930,10 +2928,10 @@ test("a row and a selection say when deleting is not a clean delete, before the 
   assert.match(markup, /data-delete="clean" aria-label="Delete clean" >Delete</);
   assert.match(
     markup,
-    /data-delete="vendored" aria-label="Delete vendored, which is not a clean delete" title="Not a clean delete\. It would discard submodule checkouts, and any commits made inside them that were never pushed\. Asks first\."/,
+    /data-delete="vendored" aria-label="Delete vendored" title="Discards submodules and their unpushed commits\."/,
   );
   // Its row names the reason in the colour used for something to lose.
-  assert.match(markup, /<span class="worktree-state" data-tone="caution" title="Deleting this worktree discards submodule checkouts[^"]*">Submodules<\/span>/);
+  assert.match(markup, /<button type="button" class="worktree-state state-files" tabindex="-1" data-show-files="vendored" data-tone="caution" title="Show Files: Deleting this worktree discards submodules[^"]*">Submodules<\/button>/);
   // What Git kept for a missing worktree's submodules outranks its being
   // missing, and its Delete button says so too.
   const gone = row("gone", {
@@ -2949,7 +2947,7 @@ test("a row and a selection say when deleting is not a clean delete, before the 
       disabled: false,
       canDelete: () => true,
     }),
-    /data-delete="gone" aria-label="Delete gone, which is not a clean delete" title="Not a clean delete\./,
+    /data-delete="gone" aria-label="Delete gone" title="Discards/,
   );
   assert.equal(
     worktreeStateOf(row("absent", { canRemove: false, missing: true })).label,
@@ -3003,7 +3001,7 @@ test("a row and a selection say when deleting is not a clean delete, before the 
   tick({});
   assert.equal(
     element("#selection-label").textContent,
-    "4 worktrees selected · 3 not clean",
+    "4 worktrees selected · 3 with data to discard",
   );
   fixture.workspace.dispose();
 });
@@ -3052,4 +3050,42 @@ test("characters that cannot be seen are shown as a mark, so two names never loo
   // The joiners that scripts and emoji are written with are left as they are.
   assert.equal(plain("‍‌"), "‍‌");
   assert.equal(shown("<b>​"), "&lt;b&gt;�");
+});
+
+test("ordinary review reasons stay short and grave losses stay on separate lines", async () => {
+  const { deletionMeaning } = await import("../renderer/cleanup-controller.mjs");
+  const { worktreeState } = await import("../renderer/worktree-presentation.mjs");
+  for (const losses of [["changes"], ["ignored"], ["unchecked"], ["changes", "ignored"], ["changes", "ignored", "unchecked"]]) {
+    const row = { canDiscard: true, losses };
+    const meaning = deletionMeaning(row);
+    assert.ok(meaning.text.split(/\s+/).length <= 6, meaning.text);
+    assert.deepEqual(meaning.grave, []);
+    assert.ok(worktreeState(row), "every ordinary loss has a visible state control");
+  }
+  assert.equal(worktreeState({ canDiscard: true, losses: ["unchecked"] }).detail, "Discards changes to unchecked files.");
+  for (const loss of ["nested", "submodules", "operation", "refs"]) {
+    const meaning = deletionMeaning({ canDiscard: true, losses: ["ignored", loss] });
+    assert.equal(meaning.text, "Ignored files");
+    assert.equal(meaning.grave.length, 1);
+    assert.match(meaning.grave[0], /^Permanently loses /);
+  }
+});
+
+test("Show Files returned by removal opens only after settling and uses the current scoped row", async () => {
+  const { createWorkspaceController } = await import("../renderer/workspace-controller.mjs");
+  const row = { id: "scoped", path: "/work/a", head: "a", canDiscard: true, host: "" };
+  let current = row, called = 0, workspace;
+  workspace = createWorkspaceController({
+    api: {
+      getState: async () => coordinatorState({ report: { worktrees: [current], warnings: [] } }),
+      remove: async () => { current = { ...row, head: "b" }; return { cancelled: true, results: [], showFiles: row.id }; },
+    },
+    linked: (rows) => rows, notify() {}, onChange() {}, onSetup() {}, onHostChange() {}, onReset() {},
+    onShowFiles(shown) { called++; assert.equal(workspace.blocked, false); assert.equal(shown.head, "b"); },
+    timers: { setTimeout() { return 1; }, clearTimeout() {} },
+  });
+  await workspace.initialize();
+  await workspace.deleteWorktrees([row]);
+  assert.equal(called, 1);
+  workspace.dispose();
 });

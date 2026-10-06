@@ -13,7 +13,7 @@ scenario({
   launches: [async t => {
     try {
       await t.settled(); await t.painted();
-      t.answer("Delete Worktree");
+      t.answer("Delete");
       await t.click(`${await t.row(t.world.path)} [data-delete]`);
       await t.until(() => t.visible("#error-banner"), "permission error");
       await t.settled(); await t.painted();
@@ -27,7 +27,7 @@ scenario({
       // Made writable, the same row deletes.
       fs.chmodSync(t.world.path, 0o755);
       await t.click("#dismiss-error");
-      t.answer("Delete Worktree");
+      t.answer("Delete");
       await t.click(`${await t.row(t.world.path)} [data-delete]`);
       await t.until(() => !t.fixture.exists(t.world.path), "the folder goes once it is writable");
       await t.settled();

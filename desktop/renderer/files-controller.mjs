@@ -31,18 +31,25 @@ export function createFilesController({ document, api, workspace }) {
   const $ = (selector) => document.querySelector(selector);
   const dialog = $("#files-dialog");
   let request = 0,
-    opener;
+    opener, deletingRow;
   dialog.addEventListener("close", () => {
     request++;
     if (opener?.isConnected) opener.focus({ preventScroll: true });
   });
   $("#files-close").onclick = () => dialog.close();
-  async function open(row, revision = workspace.snapshot.revision) {
+  $("#files-delete").onclick = () => {
+    const row = workspace.items.find((item) => item.id === deletingRow?.id);
+    dialog.close();
+    if (row) return workspace.deleteWorktrees([row]);
+  };
+  async function open(row, revision = workspace.snapshot.revision, { deleting = false } = {}) {
+    deletingRow = deleting ? row : null;
+    $("#files-delete").hidden = !deleting;
     const current = ++request;
     if (!dialog.open) opener = document.activeElement;
     const name = row.path.split("/").filter(Boolean).pop() || row.path;
-    $("#files-title").textContent = `What ${plain(name)} holds`;
-    $("#files-path").textContent = plain(row.path);
+    $("#files-title").textContent = `Show Files — ${plain(name)}`;
+    $("#files-path").textContent = plain(`${row.host ? `${row.host}: ` : ""}${row.path}`);
     $("#files-content").innerHTML = "";
     $("#files-total").textContent = "";
     $("#files-status").textContent = "Loading what this worktree holds…";
