@@ -67,6 +67,8 @@ function cleanup(worktrees, path) {
     kept: all.filter((w) => w.pending || (!w.canRemove && !w.canDiscard)),
   };
 }
+// Reuse the numeric collation rules across comparisons in a large folder.
+const directoryOrder = new Intl.Collator(undefined, { numeric: true });
 function build(worktrees, scanRoot, host) {
   worktrees = linked(worktrees);
   if (!worktrees.length) return null;
@@ -104,7 +106,7 @@ function build(worktrees, scanRoot, host) {
   }
   function aggregate(node) {
     node.children.sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true }),
+      directoryOrder.compare(a.name, b.name),
     );
     node.descendants = [
       ...node.worktrees,

@@ -29,6 +29,11 @@ export function createWorktreeView({
     sort = "path",
     descending = false;
   let selection = { ids: new Set(), cursor: "" };
+  const rowElements = new Map();
+  let signatureItems,
+    itemsSignature = "",
+    contentVersion = 0,
+    activeRow = null;
   let rowSignature = "",
     emptyMarkup = null,
     repoSignature = "",
@@ -55,9 +60,10 @@ export function createWorktreeView({
       .querySelectorAll("[data-delete], [data-folder-delete]")
       .forEach((button) => {
         const row = rows.get(button.dataset.delete);
-        button.disabled =
+        const disabled =
           unavailable ||
           (!!row && (!workspace.canDelete(row) || (!row.pending && !deletable(row))));
+        if (button.disabled !== disabled) button.disabled = disabled;
       });
   }
   // Whether a row could ever be deleted, as distinct from whether anything
@@ -259,8 +265,17 @@ export function createWorktreeView({
           : "none",
       );
     });
+    // Published rows are immutable. Compare their contents once per new
+    // publication, not once per keystroke or sort of the same snapshot.
+    if (signatureItems !== items()) {
+      signatureItems = items();
+      const next = JSON.stringify(signatureItems);
+      if (next !== itemsSignature) contentVersion++;
+      itemsSignature = next;
+    }
     const signature = JSON.stringify([
-      filtered,
+      contentVersion,
+      filtered.map((row) => row.id),
       sort,
       descending,
       view,
@@ -301,14 +316,77 @@ export function createWorktreeView({
     }
     const scroll = $("#table-scroll").scrollTop;
     const focus = focusedControl();
-    $("#worktree-list").innerHTML = renderTreeRows(directoryRows, {
-      selected: selection.ids,
+    // Selection and availability are applied below. They do not change a
+    // row's content, and must not replace it when an operation starts or ends.
+    const options = {
+      selected: new Set(),
       collapsed: collapsedDirectories,
-      disabled: blocked() || !workspace.snapshot.revision,
-      canDelete: (row) => workspace.canDelete(row),
+      disabled: false,
       cancelled: workspace.snapshot.cancelled,
+    };
+    const list = $("#worktree-list");
+    const rows = directoryRows.map((entry) => {
+      const key = JSON.stringify(
+        entry.kind === "worktree"
+          ? [entry.kind, entry.worktree.id]
+          : [entry.kind, entry.kind === "host" ? entry.key : entry.node.key || entry.node.path],
+      );
+      const source = entry.worktree;
+      const context = source && JSON.stringify([
+        entry.depth, entry.label, ago(source.activityAt), options.cancelled,
+      ]);
+      const cached = rowElements.get(key);
+      return {
+        key,
+        id: source?.id || "",
+        source,
+        context,
+        markup: source && cached?.source === source && cached.context === context
+          ? cached.markup
+          : renderTreeRows([entry], options),
+      };
     });
+    if (!rowElements.size) {
+      list.innerHTML = rows.map((row) => row.markup).join("");
+      list.querySelectorAll("tr").forEach((element, index) => {
+        rowElements.set(rows[index].key, { ...rows[index], element });
+      });
+    } else {
+      const range = document.createRange();
+      range.selectNodeContents(list);
+      const wanted = new Set(rows.map((row) => row.key));
+      for (const [key, row] of rowElements) {
+        if (!wanted.has(key)) row.element.remove();
+        // Keep filtered-out worktrees for clearing the search, but release
+        // registrations that have left the report and unused folder rows.
+        if (!wanted.has(key) && (!row.id || !known.has(row.id)))
+          rowElements.delete(key);
+      }
+      let before = list.firstChild;
+      for (const row of rows) {
+        let cached = rowElements.get(row.key);
+        if (!cached || cached.markup !== row.markup) {
+          const element = range.createContextualFragment(row.markup).firstChild;
+          if (cached?.element === before) before = before.nextSibling;
+          cached?.element.remove();
+          cached = { ...row, element };
+          rowElements.set(row.key, cached);
+        }
+        // A fresh immutable snapshot can describe the same content. Keep
+        // its identity too, so the next keystroke can reuse the markup.
+        cached.source = row.source;
+        cached.context = row.context;
+        // Reordering keeps the same controls and content. Rows that stay in
+        // place need no DOM mutation at all.
+        if (cached.element !== before) {
+          if (cached.element.parentNode === list)
+            list.moveBefore(cached.element, before);
+          else list.insertBefore(cached.element, before);
+        } else before = before.nextSibling;
+      }
+    }
     $("#table-scroll").scrollTop = scroll;
+    renderRowControls();
     renderSelection();
     restoreFocus(focus);
     // With no row left to stay on, the keyboard goes to what can be done next.
@@ -323,16 +401,17 @@ export function createWorktreeView({
     const grid = $("#worktree-grid");
     const index = visible.findIndex((row) => row.id === selection.cursor);
     if (index >= 0) cursorIndex = index;
-    const active =
-      selection.cursor &&
-      document.getElementById(rowElementID(selection.cursor));
-    document
-      .querySelectorAll(".worktree-row.is-current")
-      .forEach((row) => row.classList.remove("is-current"));
-    if (active) {
-      active.classList.add("is-current");
-      grid.setAttribute("aria-activedescendant", active.id);
-    } else grid.removeAttribute("aria-activedescendant");
+    const active = selection.cursor
+      ? document.getElementById(rowElementID(selection.cursor))
+      : null;
+    if (active !== activeRow) {
+      activeRow?.classList.remove("is-current");
+      if (active) {
+        active.classList.add("is-current");
+        grid.setAttribute("aria-activedescendant", active.id);
+      } else grid.removeAttribute("aria-activedescendant");
+      activeRow = active;
+    }
   }
   // Why the list is empty decides what to say and what to offer next.
   function emptyState() {
@@ -410,23 +489,27 @@ export function createWorktreeView({
   }
   function renderSelection() {
     document.querySelectorAll(".worktree-row").forEach((row) => {
-      row.classList.toggle("selected", selection.ids.has(row.dataset.id));
-      row.setAttribute(
-        "aria-selected",
-        String(selection.ids.has(row.dataset.id)),
-      );
+      const selected = selection.ids.has(row.dataset.id);
+      if (row.getAttribute("aria-selected") !== String(selected)) {
+        row.classList.toggle("selected", selected);
+        row.setAttribute("aria-selected", String(selected));
+      }
     });
     // The boxes are the selection, drawn: a row's is ticked when it is
     // selected, and a folder's or the heading's when every row shown under
     // it is. With only some of them ticked it stays empty. A dash there would
     // be a mark on every folder above a row for each tick made in it.
     const tick = (box, ids) => {
-      box.checked = ids.length > 0 && ids.every((id) => selection.ids.has(id));
-      box.hidden = ids.length === 0;
+      const checked = ids.length > 0 && ids.every((id) => selection.ids.has(id));
+      if (box.checked !== checked) box.checked = checked;
+      if (box.hidden !== (ids.length === 0)) box.hidden = ids.length === 0;
     };
     document
       .querySelectorAll("[data-select]")
-      .forEach((box) => (box.checked = selection.ids.has(box.dataset.select)));
+      .forEach((box) => {
+        const checked = selection.ids.has(box.dataset.select);
+        if (box.checked !== checked) box.checked = checked;
+      });
     document
       .querySelectorAll("[data-select-folder]")
       .forEach((box) =>
@@ -678,7 +761,7 @@ export function createWorktreeView({
       event.preventDefault();
       // Everything the list shows, added to whatever is already ticked.
       selection.ids = new Set([...selection.ids, ...visible.map((w) => w.id)]);
-      render();
+      selectionChanged();
     }
     // Deletion always asks first, so the key is as safe as the button. It
     // takes what is ticked, or with nothing ticked, the row the cursor is on.
