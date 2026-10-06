@@ -254,7 +254,7 @@ func status(entry worktree.Worktree) string {
 	switch {
 	case entry.Dirty:
 		return "local changes"
-	case entry.Ignored:
+	case entry.Ignored && !entry.AllIgnoredSafe:
 		return "ignored files"
 	case entry.Locked:
 		return "Git locked"
@@ -268,7 +268,12 @@ func status(entry worktree.Worktree) string {
 	case entry.Fresh:
 		return "new"
 	case entry.Recommended:
+		if entry.AllIgnoredSafe {
+			return "merged; ignored files marked safe"
+		}
 		return "merged"
+	case entry.AllIgnoredSafe:
+		return "ignored files marked safe"
 	}
 	if !entry.Merged {
 		return "not merged"
@@ -372,6 +377,12 @@ func writeListSummary(out io.Writer, r worktreeRequest, report worktree.Report, 
 			command += " --no-default-excludes"
 			for _, exclude := range r.scan.Excludes {
 				command += " --exclude " + shellArgument(exclude)
+			}
+		}
+		if r.scan.SafeIgnored != nil && !slices.Equal(r.scan.SafeIgnored, worktree.DefaultSafeIgnored()) {
+			command += " --no-default-safe-ignored"
+			for _, rule := range r.scan.SafeIgnored {
+				command += " --safe-ignored " + shellArgument(rule)
 			}
 		}
 		if r.scan.Fetch {

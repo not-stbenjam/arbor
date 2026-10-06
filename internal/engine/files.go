@@ -13,6 +13,10 @@ import (
 // Files asks the machine that owns the folder; local paths never interpret a
 // remote checkout and the remote command receives arguments, not shell text.
 func Files(ctx context.Context, host, path, repository string, limit int, progress ...func(worktree.Progress)) (worktree.FilesReport, error) {
+	return FilesWithRules(ctx, host, path, repository, limit, nil, progress...)
+}
+
+func FilesWithRules(ctx context.Context, host, path, repository string, limit int, rules []string, progress ...func(worktree.Progress)) (worktree.FilesReport, error) {
 	if err := ValidateHost(host); err != nil {
 		return worktree.FilesReport{}, err
 	}
@@ -21,7 +25,7 @@ func Files(ctx context.Context, host, path, repository string, limit int, progre
 		callback = progress[0]
 	}
 	if host == "" {
-		return worktree.Files(ctx, path, repository, limit, callback)
+		return worktree.FilesWithRules(ctx, path, repository, limit, rules, callback)
 	}
 	args := []string{"files", "--json", "--watch-stdin", "--limit", strconv.Itoa(limit)}
 	if callback != nil {
@@ -30,6 +34,7 @@ func Files(ctx context.Context, host, path, repository string, limit int, progre
 	if repository != "" {
 		args = append(args, "--repo", repository)
 	}
+	args = safeIgnoredArguments(args, rules)
 	args = append(args, "--", path)
 	data, err := sshProgress(ctx, host, callback, args...)
 	if err != nil {

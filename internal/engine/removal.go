@@ -70,6 +70,7 @@ func RemoveWorktree(ctx context.Context, request RemovalRequest) (result worktre
 	if request.Options.Progress != nil {
 		args = append(args, "--progress")
 	}
+	args = safeIgnoredArguments(args, request.Options.SafeIgnored)
 	args = append(args, "--", w.Path)
 	// The remote reports on its own scan of the target as well; only the
 	// deletion itself is of interest here.

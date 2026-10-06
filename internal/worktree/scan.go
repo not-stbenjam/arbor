@@ -99,6 +99,9 @@ func prepareScan(ctx context.Context, options Options) (scanLocation, error) {
 	if st != nil && !st.IsDir() {
 		return scanLocation{}, errors.New("scan root must be a directory")
 	}
+	if err := ValidateSafeIgnored(options.SafeIgnored); err != nil {
+		return scanLocation{}, err
+	}
 	excluded, err := compileExcludes(root, options.Excludes)
 	if err != nil {
 		return scanLocation{}, err

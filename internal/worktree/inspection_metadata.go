@@ -24,7 +24,17 @@ func inspectCommit(ctx context.Context, w *Worktree) {
 	}
 }
 
-func inspectStatus(ctx context.Context, w *Worktree, block func(reasonCode)) {
+func inspectStatus(ctx context.Context, w *Worktree, block func(reasonCode), rules []string) {
+	match, err := compileSafeIgnored(rules)
+	if err != nil {
+		block(reasonStatus)
+		w.Problems = append(w.Problems, err.Error())
+		return
+	}
+	w.Ignored, w.Dirty, w.ChangedFiles = false, false, 0
+	w.AllIgnoredSafe = false
+	w.MatchedSafeIgnored = []string{}
+	uncovered := false
 	status, err := git(ctx, w.Path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none")
 	if err != nil {
 		block(reasonStatus)
@@ -38,6 +48,12 @@ func inspectStatus(ctx context.Context, w *Worktree, block func(reasonCode)) {
 			}
 			if strings.HasPrefix(item, "!!") {
 				w.Ignored = true
+				rule := match(item[3:])
+				if rule == "" {
+					uncovered = true
+				} else if !slices.Contains(w.MatchedSafeIgnored, rule) {
+					w.MatchedSafeIgnored = append(w.MatchedSafeIgnored, rule)
+				}
 				continue
 			}
 			w.Dirty = true
@@ -50,7 +66,8 @@ func inspectStatus(ctx context.Context, w *Worktree, block func(reasonCode)) {
 	if w.Dirty {
 		block(reasonDirty)
 	}
-	if w.Ignored {
+	w.AllIgnoredSafe = w.Ignored && !uncovered && err == nil
+	if w.Ignored && !w.AllIgnoredSafe {
 		block(reasonIgnored)
 	}
 }

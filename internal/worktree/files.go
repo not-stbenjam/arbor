@@ -31,13 +31,15 @@ type FilesReport struct {
 }
 
 type FileEntry struct {
-	Kind           string `json:"kind"`
-	Path           string `json:"path"`
-	Status         string `json:"status,omitempty"`
-	Directory      bool   `json:"directory"`
-	SizeBytes      int64  `json:"sizeBytes"`
-	Files          int    `json:"files"`
-	SizeLowerBound bool   `json:"sizeLowerBound"`
+	SafeIgnored     bool   `json:"safeIgnored"`
+	SafeIgnoredRule string `json:"safeIgnoredRule,omitempty"`
+	Kind            string `json:"kind"`
+	Path            string `json:"path"`
+	Status          string `json:"status,omitempty"`
+	Directory       bool   `json:"directory"`
+	SizeBytes       int64  `json:"sizeBytes"`
+	Files           int    `json:"files"`
+	SizeLowerBound  bool   `json:"sizeLowerBound"`
 }
 
 var FileKinds = []string{"changes", "ignored", "unchecked", "submodules", "operation", "nested", "refs"}
@@ -45,9 +47,17 @@ var FileKinds = []string{"changes", "ignored", "unchecked", "submodules", "opera
 // Files uses the same exact registration selection as remove, without doing
 // merge, publication or deletion checks that cannot add to this inventory.
 func Files(ctx context.Context, path, repository string, limit int, progress ...func(Progress)) (FilesReport, error) {
+	return FilesWithRules(ctx, path, repository, limit, nil, progress...)
+}
+
+func FilesWithRules(ctx context.Context, path, repository string, limit int, rules []string, progress ...func(Progress)) (FilesReport, error) {
 	result := FilesReport{Counts: map[string]int{}, Bytes: map[string]int64{}, Entries: []FileEntry{}, Warnings: []string{}}
 	if limit < 1 || limit > 10000 {
 		return result, errors.New("limit must be between 1 and 10000")
+	}
+	match, err := compileSafeIgnored(rules)
+	if err != nil {
+		return result, err
 	}
 	var callback func(Progress)
 	if len(progress) > 0 {
@@ -92,7 +102,12 @@ func Files(ctx context.Context, path, repository string, limit int, progress ...
 		name = filepath.ToSlash(strings.TrimSuffix(name, "/"))
 		key := kind + "\x00" + name
 		if !seen[key] {
-			candidates = append(candidates, candidate{FileEntry{Kind: kind, Path: textName(name), Status: status}, disk})
+			entry := FileEntry{Kind: kind, Path: textName(name), Status: status}
+			if kind == "ignored" {
+				entry.SafeIgnoredRule = match(name)
+				entry.SafeIgnored = entry.SafeIgnoredRule != ""
+			}
+			candidates = append(candidates, candidate{entry, disk})
 			seen[key] = true
 		}
 	}

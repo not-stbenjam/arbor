@@ -113,6 +113,10 @@ func normalizeRequest(command string, flags *commandOptions) (r worktreeRequest,
 		}
 		r.scan.Excludes = append(r.scan.Excludes, flags.excludes...)
 	}
+	r.scan.SafeIgnored, err = safeIgnoredRules(flags)
+	if err != nil {
+		return r, err
+	}
 	if err := worktree.ValidateExcludes(r.scan.Excludes); err != nil {
 		return r, err
 	}
@@ -121,4 +125,13 @@ func normalizeRequest(command string, flags *commandOptions) (r worktreeRequest,
 
 func (r worktreeRequest) recommendedRemoval() bool {
 	return r.recommended || r.command == "clean" && !r.all
+}
+
+func safeIgnoredRules(flags *commandOptions) ([]string, error) {
+	rules := []string{}
+	if !flags.noDefaultSafeIgnored {
+		rules = worktree.DefaultSafeIgnored()
+	}
+	rules = append(rules, flags.safeIgnored...)
+	return rules, worktree.ValidateSafeIgnored(rules)
 }

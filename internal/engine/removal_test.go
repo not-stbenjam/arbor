@@ -43,11 +43,14 @@ func TestRemoteTargetAndRemovalPolicyArguments(t *testing.T) {
 		},
 	}
 	for _, linkedOnly := range []bool{false, true} {
-		if _, err := Scan(context.Background(), "fixture-vps", worktree.Options{Root: w.Path, TargetOnly: true, LinkedOnly: linkedOnly, Repository: w.CommonDir}); err != nil {
+		if _, err := Scan(context.Background(), "fixture-vps", worktree.Options{Root: w.Path, TargetOnly: true, LinkedOnly: linkedOnly, Repository: w.CommonDir, SafeIgnored: []string{"custom cache"}}); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(command, "'--target-only'") || !strings.Contains(command, "'--linked-only="+strconv.FormatBool(linkedOnly)+"'") {
 			t.Fatalf("target filtering lost over SSH: %s", command)
+		}
+		if !strings.Contains(command, "'--no-default-safe-ignored'") || !strings.Contains(command, "'--safe-ignored' 'custom cache'") {
+			t.Fatal(command)
 		}
 		if !strings.Contains(command, "'--repo' "+quote(w.CommonDir)) {
 			t.Fatalf("repository hint lost over SSH: %s", command)
@@ -58,7 +61,7 @@ func TestRemoteTargetAndRemovalPolicyArguments(t *testing.T) {
 		if discard {
 			retainedBranch = "arbor/retained/fixture"
 		}
-		result, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "fixture-vps", Worktree: w, Options: worktree.RemovalOptions{ExpectedHead: w.Head, DiscardLocal: discard}})
+		result, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "fixture-vps", Worktree: w, Options: worktree.RemovalOptions{ExpectedHead: w.Head, DiscardLocal: discard, SafeIgnored: []string{"custom cache"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,6 +73,9 @@ func TestRemoteTargetAndRemovalPolicyArguments(t *testing.T) {
 		}
 		if !strings.Contains(command, "'--' '/code/old session'") {
 			t.Fatalf("target path not opaque: %s", command)
+		}
+		if !strings.Contains(command, "'--no-default-safe-ignored'") || !strings.Contains(command, "'--safe-ignored' 'custom cache'") {
+			t.Fatal(command)
 		}
 		if !strings.Contains(command, "'--repo' "+quote(w.CommonDir)) {
 			t.Fatalf("removal repository hint lost over SSH: %s", command)
