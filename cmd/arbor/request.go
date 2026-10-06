@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/stbenjam/arbor/internal/engine"
 	"github.com/stbenjam/arbor/internal/worktree"
@@ -15,6 +16,7 @@ var cleanupSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // worktreeRequest is validated command intent, independent of Cobra and output.
 type worktreeRequest struct {
+	notActiveSince                          time.Time
 	command, host                           string
 	scan                                    worktree.Options
 	preview, all, recommended, discardLocal bool
@@ -35,6 +37,16 @@ func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, e
 		progress: flags.progress, humanProgress: !flags.common.json && !flags.quiet && !flags.progress}
 	if command != "list" && command != "clean" && command != "remove" {
 		return r, fmt.Errorf("unknown worktree command %q", command)
+	}
+	if flags.olderThan > 0 {
+		r.notActiveSince = time.Now().Add(-time.Duration(flags.olderThan))
+	}
+	if flags.notActiveSince != "" {
+		cutoff, err := time.Parse(time.RFC3339Nano, flags.notActiveSince)
+		if err != nil || cutoff.IsZero() {
+			return r, errors.New("--not-active-since needs a nonzero RFC 3339 timestamp")
+		}
+		r.notActiveSince = cutoff
 	}
 	policyFlag := "--discard-local"
 	if flags.force {

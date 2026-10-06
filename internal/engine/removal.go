@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/stbenjam/arbor/internal/worktree"
 )
@@ -38,6 +39,9 @@ func RemoveWorktree(ctx context.Context, request RemovalRequest) (result worktre
 		return result, errors.New("worktree is protected; scan again to see why")
 	}
 	args := []string{"remove", "--json", "--yes", "--head", head, "--id", w.ID, "--branch", w.Branch}
+	if !request.Options.NotActiveSince.IsZero() {
+		args = append(args, "--not-active-since", request.Options.NotActiveSince.Format(time.RFC3339Nano))
+	}
 	if w.Missing {
 		args = append(args, "--expect-missing")
 	} else if w.Empty {

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stbenjam/arbor/internal/worktree"
 )
@@ -163,5 +164,19 @@ func TestRemoteRemovalUsesOnlyBoundStructuredRefusals(t *testing.T) {
 				t.Fatalf("unvalidated output replaced transport diagnostic: %v", err)
 			}
 		})
+	}
+}
+
+func TestRemoteRemovalPreservesActivityCutoff(t *testing.T) {
+	w := worktree.Worktree{Path: "/remote/session", Head: strings.Repeat("a", 40), CanRemove: true}
+	cutoff := time.Date(2026, 1, 2, 3, 4, 5, 123, time.UTC)
+	statsRemoteFixture(t, func(command string) ([]byte, error) {
+		if !strings.Contains(command, "'--not-active-since' "+quote(cutoff.Format(time.RFC3339Nano))) {
+			t.Fatalf("cutoff lost: %s", command)
+		}
+		return json.Marshal(worktree.RemovalResult{Path: w.Path, Removed: true})
+	})
+	if _, err := RemoveWorktree(context.Background(), RemovalRequest{Host: "stats-fixture-vps", Worktree: w, Options: worktree.RemovalOptions{ExpectedHead: w.Head, NotActiveSince: cutoff}}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -20,6 +20,8 @@ func (c commonFlags) options() worktree.Options {
 }
 
 type commandOptions struct {
+	olderThan                                                     ageDuration
+	notActiveSince                                                string
 	common                                                        commonFlags
 	yes, recommended, progress, all, quiet                        bool
 	linkedOnly, noDefaultExcludes, discardLocal, keepLocal, force bool
@@ -119,6 +121,7 @@ func newListCommand() *cobra.Command {
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
+	cmd.Flags().Var(&flags.olderThan, "older-than", "Keep only worktrees inactive for this long (30d, 12h, 2w or a Go duration); unknown activity never matches")
 	f := cmd.Flags()
 	f.BoolVar(&flags.linkedOnly, "linked-only", true, "Show only linked worktrees; use --linked-only=false for all registrations")
 	f.BoolVar(&flags.recommended, "recommended", false, "Show only clean, merged cleanup recommendations")
@@ -135,10 +138,11 @@ func newCleanCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("clean", "Preview or delete worktrees beneath a folder",
 		"Preview clean, merged worktrees that can be removed. Nothing is deleted until\n--yes is supplied. --all also takes clean worktrees that are not merged; their\nbranches keep the commits. Worktrees that are not a clean delete are skipped\nunless --force is added. --force agrees to everything the preview lists for\nthem: local files, and where it says so a submodule's unpushed commits, an\nunfinished rebase or merge, or another repository inside the folder.\nNamed branches and the checked-out commit are kept. Commits reachable only\nthrough a worktree's reflog or private refs are not protected. Nothing is\nsent to Trash.",
-		"  arbor clean -p ~/code\n  arbor clean -p ~/code --yes\n  arbor clean -p ~/old-sessions --all --yes\n  arbor clean -p ~/old-sessions --all --force --yes\n  arbor clean --host my-vps --path '~/projects' --json", flags)
+		"  arbor clean -p ~/code\n  arbor clean -p ~/code --yes\n  arbor clean --path ~/code --older-than 30d --yes\n  arbor clean -p ~/old-sessions --all --yes\n  arbor clean -p ~/old-sessions --all --force --yes\n  arbor clean --host my-vps --path '~/projects' --json", flags)
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
+	cmd.Flags().Var(&flags.olderThan, "older-than", "Keep only worktrees inactive for this long (30d, 12h, 2w or a Go duration); unknown activity never matches")
 	cmd.Flags().BoolVarP(&flags.yes, "yes", "y", false, "Perform removal instead of previewing")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Include clean worktrees that are not merged")
 	cmd.Flags().BoolVarP(&flags.force, "force", "f", false, "With --all, also take worktrees that are not a clean delete, discarding what the preview lists")
@@ -160,6 +164,8 @@ func newRemoveCommand() *cobra.Command {
 	f.BoolVarP(&flags.force, "force", "f", false, "Discard whatever the preview lists, and override a lock; needed for anything that is not a clean delete")
 	f.StringVar(&flags.repository, "repo", "", "Owning repository or Git common directory (for missing checkouts)")
 	_ = cmd.MarkFlagDirname("repo")
+	f.StringVar(&flags.notActiveSince, "not-active-since", "", "Require activity at or before this RFC 3339 cutoff")
+	_ = f.MarkHidden("not-active-since")
 	f.StringVar(&flags.head, "head", "", "Require this exact commit before removal")
 	f.BoolVar(&flags.recommended, "recommended-only", false, "Require a fresh clean, merged cleanup recommendation")
 	f.BoolVar(&flags.discardLocal, "discard-local", false, "Discard local files and override a lock (for integrations; see --acknowledge)")

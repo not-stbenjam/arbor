@@ -14,10 +14,10 @@ import (
 )
 
 func writeList(out io.Writer, r worktreeRequest, report worktree.Report) error {
-	if r.recommended {
+	if r.recommended || !r.notActiveSince.IsZero() {
 		filtered := []worktree.Worktree{}
 		for _, w := range report.Worktrees {
-			if w.Recommended {
+			if (!r.recommended || w.Recommended) && matchesAge(w, r.notActiveSince) {
 				filtered = append(filtered, w)
 			}
 		}

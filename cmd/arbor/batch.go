@@ -25,7 +25,7 @@ func executeBatch(ctx context.Context, r worktreeRequest, targets []worktree.Wor
 			break
 		}
 		result, err := remove(ctx, engine.RemovalRequest{Host: r.host, Worktree: w, SessionID: sessionID,
-			Options: worktree.RemovalOptions{ExpectedHead: w.Head, RecommendedOnly: r.recommendedRemoval(), DiscardLocal: r.discardLocal, Acknowledged: r.acknowledged}})
+			Options: worktree.RemovalOptions{NotActiveSince: r.notActiveSince, ExpectedHead: w.Head, RecommendedOnly: r.recommendedRemoval(), DiscardLocal: r.discardLocal, Acknowledged: r.acknowledged}})
 		if err != nil {
 			result.Error = err.Error()
 			failed = true
