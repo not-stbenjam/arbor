@@ -421,6 +421,7 @@ function deletionEntry(value) {
 module.exports = {
   deletionEntry,
   restoreSelection,
+  parseFiles: require("./worktree-files.cjs").parseFiles,
   DEFAULTS,
   DEFAULT_EXCLUDES,
   MAX_WORKTREES,

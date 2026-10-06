@@ -1,3 +1,4 @@
+import { createFilesController } from "./files-controller.mjs";
 import * as tree from "../common/worktree-tree.mjs";
 import { icon, esc, shown, initializeDOM, viewHost } from "./presentation.mjs";
 import { createCleanupController } from "./cleanup-controller.mjs";
@@ -182,7 +183,9 @@ async function bootstrap() {
       cleanup?.render();
     },
   });
+  const files = createFilesController({ document, api, workspace });
   cleanup = createCleanupController({
+    onShowFiles: (row) => files.open(row),
     document,
     workspace,
     shown: () => trees,
@@ -271,6 +274,10 @@ async function bootstrap() {
     if (typeof action === "string" && document.querySelector("dialog[open]"))
       return;
     if (action && typeof action === "object") {
+      if (action.type === "worktree-files") {
+        const row = workspace.items.find((row) => row.id === action.id);
+        if (row) void files.open(row, action.revision);
+      }
       if (action.type === "worktree-remove") {
         const row = workspace.items.find((row) => row.id === action.id);
         if (row) workspace.deleteWorktrees([row]);

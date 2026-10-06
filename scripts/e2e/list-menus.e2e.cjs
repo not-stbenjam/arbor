@@ -22,7 +22,7 @@ scenario({
       const row = await t.row(local.path);
       await t.click(`${await t.row(remote.path)} .branch-cell`);
       const menu = await t.contextMenu(`${row} .branch-cell`);
-      assert.deepEqual(menu.filter((item) => !item.separator).map((item) => item.label), ["Copy path", ...opening, "Delete “local”…"]);
+      assert.deepEqual(menu.filter((item) => !item.separator).map((item) => item.label), ["Copy path", "Show what it holds…", ...opening, "Delete “local”…"]);
       assert.ok(menu.every((item) => item.enabled));
       await selected(t, ["remote"]);
       await t.chooseMenu("Copy path");

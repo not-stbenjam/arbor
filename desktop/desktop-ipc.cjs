@@ -85,6 +85,7 @@ function registerDesktopIPC({
     handle("arbor:save-view", (value) => preferences.saveView(value));
     handle("arbor:refresh-hosts", (host) => backend.refreshHosts(host));
     handle("arbor:worktree-menu", showWorktreeMenu);
+    handle("arbor:worktree-files", (value) => backend.worktreeFiles(value));
     handle("arbor:cancel-scan", (host) => {
       guardInteraction();
       return backend.cancelScan(host);

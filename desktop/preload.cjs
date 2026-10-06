@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.invoke("arbor:save-preferences", preferences),
     saveView: (value) => ipcRenderer.invoke("arbor:save-view", value),
     resetPreferences: () => ipcRenderer.invoke("arbor:reset-preferences"),
+    worktreeFiles: (selection) => ipcRenderer.invoke("arbor:worktree-files", selection),
     showWorktreeMenu: (selection) =>
       ipcRenderer.invoke("arbor:worktree-menu", selection),
     setMenuAvailability: (commands) =>

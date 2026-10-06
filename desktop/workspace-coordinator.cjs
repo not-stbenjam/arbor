@@ -393,6 +393,14 @@ class WorkspaceCoordinator {
       retryInspection: target.retryInspection && !state.busy,
     };
   }
+  worktreeFiles(value) {
+    this.assertInteractive();
+    this.resolveWorktree(value);
+    const { host, id } = parseGlobalID(value.id);
+    return this.#requireHost(host).backend.worktreeFiles({
+      id, revision: this.#revisions.native(value.revision, host),
+    });
+  }
   inspectWorktree(value) {
     this.assertInteractive();
     const { host, id } = parseGlobalID(value?.id);

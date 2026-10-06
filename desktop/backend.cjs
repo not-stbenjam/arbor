@@ -8,11 +8,14 @@ const { executeCleanupBatch } = require("./cleanup-batch.cjs");
 const {
   scanOptions,
   parseReport,
+  parseFiles,
   progressEvent,
   MAX_WORKTREES,
 } = require("./protocol.cjs");
 const { execute, childEnvironment } = require("./process-runner.cjs");
 const { LiveWorktrees } = require("./live-worktrees.cjs");
+const { displayedRows } = require("./workspace-snapshot.cjs");
+const { menuTarget } = require("./worktree-menu.cjs");
 const { RecentDeletions } = require("./recent-deletions.cjs");
 const { lossesOf } = require("./common/losses.mjs");
 
@@ -215,6 +218,29 @@ class Backend {
     this.#disposed = false;
     if (!activate) return this.getState();
     return this.#activateWorkspace(scanOptions(value));
+  }
+
+  async worktreeFiles(value) {
+    this.assertInteractive();
+    const state = this.getState();
+    // Use the same checked and newly discovered rows as the native menu.
+    const rows = displayedRows(state).map((row) => ({ ...row, id: row.sourceID }));
+    const target = menuTarget({ ...state, report: { worktrees: rows } }, value);
+    const row = rows.find((row) => row.id === target.id);
+    const args = ["files", "--json", "--repo", row.commonDir];
+    if (this.#options.host) args.push("--host", this.#options.host);
+    args.push("--", target.path);
+    const controller = new AbortController();
+    const reading = this.#run(args, { timeout: 60000, signal: controller.signal });
+    this.#readers.set(controller, reading);
+    try {
+      const report = parseFiles(await reading);
+      if (report.path !== target.path)
+        throw new Error("The file inventory belongs to a different worktree");
+      return report;
+    } finally {
+      this.#readers.delete(controller);
+    }
   }
 
   async readStats() {
