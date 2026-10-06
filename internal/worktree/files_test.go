@@ -308,3 +308,20 @@ func TestFilesMeasuresAWorktreeReachedThroughALink(t *testing.T) {
 		t.Fatalf("measured %d through a link, least %v", bytes, lower)
 	}
 }
+
+func TestFilesTellsApartNamesThatAreNotText(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	for _, name := range []string{"bad\xfe", "bad\xff"} {
+		if err := os.WriteFile(filepath.Join(wt, name), []byte("x"), 0600); err != nil {
+			t.Skip("this file system takes only text for names")
+		}
+	}
+	r := fileInventory(t, wt, repo, 200)
+	inventoryEntry(t, r, "changes", `bad\xFE`)
+	inventoryEntry(t, r, "changes", `bad\xFF`)
+	if r.Counts["changes"] != 2 {
+		t.Fatalf("counts = %v", r.Counts)
+	}
+}

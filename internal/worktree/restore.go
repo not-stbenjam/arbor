@@ -111,16 +111,37 @@ func Restore(ctx context.Context, o RestoreOptions) (result RestoreResult, err e
 			}
 		}
 	}
+	byHand := strings.Join(append(append([]string{"git", "-C", ShellArgument(o.CommonDir)}, args...), "--", ShellArgument(target), ShellArgument(o.Branch+o.Detach)), " ")
 	if _, names := repositoryFilters(ctx, o.CommonDir); len(names) > 0 {
-		command := []string{"git", "-C", shellQuote(o.CommonDir)}
-		command = append(command, args...)
-		command = append(command, "--", shellQuote(target), shellQuote(o.Branch+o.Detach))
-		return result, fmt.Errorf("repository filter programs would run (%s). Run this yourself: %s", strings.Join(names, ", "), strings.Join(command, " "))
+		return result, fmt.Errorf("repository filter programs would run (%s). Run this yourself: %s", strings.Join(names, ", "), byHand)
+	}
+	// A partial clone fetches the contents of files when a checkout asks for
+	// them, from wherever and by whatever means its configuration says.
+	// Arbor does not fetch. What was checked out before is usually all there
+	// still; when it is not, that is found out before anything is created.
+	if partialClone(ctx, o.CommonDir) {
+		listed, e := gitCompare(ctx, o.CommonDir, nil, "rev-list", "--objects", "--missing=print", "--no-walk", result.Head)
+		if e != nil || strings.HasPrefix(listed, "?") || strings.Contains(listed, "\n?") {
+			return result, fmt.Errorf("some of its files have not been fetched from the remote this repository takes them from, and Arbor does not fetch. Run this yourself: %s", byHand)
+		}
 	}
 	// Separate registration from writing files: Git otherwise removes a partly
 	// written checkout when a checkout fails. checkout-index refuses overwrites.
 	args = append(args, "--no-checkout", "--", target, o.Branch+o.Detach)
-	if err = gitWriting(ctx, o.CommonDir, args...); err == nil {
+	err = gitWriting(ctx, o.CommonDir, args...)
+	// Git checks a branch out by its short name, and one it would let nobody
+	// create, such as a name that begins with a dash, it takes for a commit:
+	// the worktree is then on no branch. It is put on the one asked for.
+	if err == nil && o.Branch != "" && gitText(ctx, target, "symbolic-ref", "-q", "HEAD") != "refs/heads/"+o.Branch {
+		err = gitWriting(ctx, target, "symbolic-ref", "HEAD", "refs/heads/"+o.Branch)
+	}
+	if err == nil {
+		// Configuration can be taken in for one branch or one folder only, so
+		// what the repository names is asked again from where the files are to
+		// be written, now that there is such a place and it is on its branch.
+		if _, names := repositoryFilters(ctx, target); len(names) > 0 {
+			return result, fmt.Errorf("its files were not written: repository filter programs would run there (%s). The worktree is registered at %s with no files in it. Write them yourself: git -C %s reset --hard", strings.Join(names, ", "), target, ShellArgument(target))
+		}
 		if err = gitWriting(ctx, target, "read-tree", "HEAD"); err == nil {
 			err = gitWriting(ctx, target, "checkout-index", "--all")
 		}
@@ -140,12 +161,12 @@ func Restore(ctx context.Context, o RestoreOptions) (result RestoreResult, err e
 // gitWriting runs a Git command that writes a worktree out. That takes as
 // long as there are files, so nothing ends it but the caller giving up:
 // ended early, it would leave some of the files and not the rest. Hooks are
-// off as they are for inspection.
+// off as they are for inspection, and nothing is fetched.
 func gitWriting(ctx context.Context, path string, args ...string) error {
 	prefix := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-C", path}
 	cmd := exec.CommandContext(ctx, "git", append(prefix, args...)...)
 	cmd.WaitDelay = 2 * time.Second
-	cmd.Env = commandEnv()
+	cmd.Env = append(commandEnv(), "GIT_NO_LAZY_FETCH=1")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -159,9 +180,6 @@ func gitWriting(ctx context.Context, path string, args ...string) error {
 	}
 	return nil
 }
-
-// shellQuote writes one argument as a POSIX shell reads it back unchanged.
-func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 
 func restorePathKind(info os.FileInfo) string {
 	if info.IsDir() {

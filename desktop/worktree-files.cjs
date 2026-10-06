@@ -43,8 +43,7 @@ function parseFiles(data) {
     !value.warnings.every(text)
   )
     invalid();
-  const seen = new Set(),
-    counts = {},
+  const counts = {},
     bytes = {};
   for (const entry of value.entries) {
     if (
@@ -62,9 +61,8 @@ function parseFiles(data) {
         : entry.status !== undefined)
     )
       invalid();
-    const key = `${entry.kind}\0${entry.path}`;
-    if (seen.has(key)) invalid();
-    seen.add(key);
+    // Two entries may read the same: names are written as text, and two
+    // files whose names are not text can come out alike.
     counts[entry.kind] = (counts[entry.kind] || 0) + 1;
     bytes[entry.kind] = (bytes[entry.kind] || 0) + entry.sizeBytes;
     if (entry.sizeLowerBound && !value.sizeLowerBound) invalid();

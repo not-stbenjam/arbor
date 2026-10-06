@@ -22,9 +22,10 @@ func newRestoreCommand() *cobra.Command {
 			"back.\n\n" +
 			"Nothing is overwritten: PATH must not exist, and the folder it is in must.\n" +
 			"The branch is checked out as it is now; with --head, the result says\n" +
-			"whether it has moved since. Git hooks are not run. A repository that names\n" +
-			"its own filter programs is not restored, and the Git command to run\n" +
-			"yourself is given instead; standard Git LFS is allowed.\n\n" +
+			"whether it has moved since. Git hooks are not run and nothing is fetched.\n" +
+			"A repository that names its own filter programs is not restored, nor is a\n" +
+			"worktree of a partial clone whose files are not all there already: the Git\n" +
+			"command to run yourself is given instead. Standard Git LFS is allowed.\n\n" +
 			"remove and clean print the command that puts back what they deleted.",
 		Args: checkedArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {

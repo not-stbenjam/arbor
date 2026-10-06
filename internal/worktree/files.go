@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // FilesReport describes losses, never permission to delete. Categories may
@@ -85,7 +86,7 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 		name = filepath.ToSlash(strings.TrimSuffix(name, "/"))
 		key := kind + "\x00" + name
 		if !seen[key] {
-			candidates = append(candidates, candidate{FileEntry{Kind: kind, Path: name, Status: status}, disk})
+			candidates = append(candidates, candidate{FileEntry{Kind: kind, Path: textName(name), Status: status}, disk})
 			seen[key] = true
 		}
 	}
@@ -302,6 +303,26 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 	}
 	result.Entries = retained
 	return result, nil
+}
+
+// textName is a file's name as it can be written down. A name need not be
+// text, and bytes that are not would all be written as the same mark, so
+// that two files could not be told apart: each such byte is given as \xNN.
+func textName(name string) string {
+	if utf8.ValidString(name) {
+		return name
+	}
+	var text strings.Builder
+	for len(name) > 0 {
+		r, size := utf8.DecodeRuneInString(name)
+		if r == utf8.RuneError && size == 1 {
+			fmt.Fprintf(&text, `\x%02X`, name[0])
+		} else {
+			text.WriteString(name[:size])
+		}
+		name = name[size:]
+	}
+	return text.String()
 }
 
 func fileStatus(xy string) string {

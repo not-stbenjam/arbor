@@ -3,9 +3,11 @@ package worktree
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestRestoreBranchAndDetached(t *testing.T) {
@@ -137,7 +139,7 @@ func TestRestoreRunsNoHooksOrRepositoryFilters(t *testing.T) {
 	testGit(t, repo, "config", "filter.probe.smudge", program)
 	target := filepath.Join(root, "filter target")
 	r, err = Restore(context.Background(), RestoreOptions{Path: target, CommonDir: repo, Branch: "filtered"})
-	if err == nil || r.Restored || !strings.Contains(r.Error, "git -C '"+repo+"' worktree add -- '"+target+"' 'filtered'") {
+	if err == nil || r.Restored || !strings.Contains(r.Error, "git -C "+ShellArgument(repo)+" worktree add -- '"+target+"' filtered") {
 		t.Fatalf("%+v %v", r, err)
 	}
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
@@ -207,5 +209,102 @@ func TestRestoreAllowsStandardLFS(t *testing.T) {
 	}
 	if _, err := os.Stat(ran); err != nil {
 		t.Fatal("standard LFS was not allowed", err)
+	}
+}
+
+func TestRestoreAsksAgainWhereTheFilesAreWritten(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	testWrite(t, filepath.Join(repo, ".gitattributes"), "tracked.txt filter=probe\n")
+	testGit(t, repo, "add", ".")
+	testGit(t, repo, "commit", "-m", "attributes")
+	testGit(t, repo, "branch", "topic")
+	// The filter is named only for a worktree on this branch, so nothing in
+	// the repository as it stands says it would be run.
+	program, ran := testFilter(t, root, "filter")
+	included := filepath.Join(root, "included")
+	testWrite(t, included, "[filter \"probe\"]\n\tsmudge = "+program+"\n")
+	testGit(t, repo, "config", "includeIf.onbranch:topic.path", included)
+	target := filepath.Join(root, "restored")
+	r, err := Restore(context.Background(), RestoreOptions{Path: target, CommonDir: repo, Branch: "topic"})
+	if err == nil || r.Restored || !strings.Contains(r.Error, "git -C "+ShellArgument(target)+" reset --hard") {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := os.Stat(ran); !os.IsNotExist(err) {
+		t.Fatal("filter ran")
+	}
+	// It is registered and on its branch, with no file written.
+	if _, err := os.Stat(filepath.Join(target, "tracked.txt")); !os.IsNotExist(err) {
+		t.Fatal("a file was written")
+	}
+	if got := testGit(t, target, "symbolic-ref", "HEAD"); got != "refs/heads/topic" {
+		t.Fatalf("HEAD = %q", got)
+	}
+	// What it is told to run does write them, and runs the filter.
+	testGit(t, target, "reset", "--hard")
+	if _, err := os.Stat(ran); err != nil {
+		t.Fatal("filter control did not run", err)
+	}
+}
+
+func TestRestorePutsItOnABranchGitWouldNotName(t *testing.T) {
+	root := t.TempDir()
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	testGit(t, repo, "update-ref", "refs/heads/-topic", "HEAD")
+	target := filepath.Join(root, "restored")
+	r, err := Restore(context.Background(), RestoreOptions{Path: target, CommonDir: repo, Branch: "-topic"})
+	if err != nil || !r.Restored || r.Branch != "-topic" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if got := testGit(t, target, "symbolic-ref", "HEAD"); got != "refs/heads/-topic" {
+		t.Fatalf("HEAD = %q", got)
+	}
+	if status := testGit(t, target, "status", "--porcelain"); status != "" {
+		t.Fatalf("status = %q", status)
+	}
+}
+
+func TestRestoreDoesNotFetch(t *testing.T) {
+	root := t.TempDir()
+	source := testRepo(t, filepath.Join(root, "source"))
+	testGit(t, source, "config", "uploadpack.allowFilter", "true")
+	clone := filepath.Join(root, "clone")
+	testGit(t, root, "clone", "--quiet", "--filter=blob:none", "--no-checkout", "file://"+source, clone)
+	testGit(t, clone, "branch", "topic", "HEAD")
+	target := filepath.Join(root, "restored")
+	// No file's contents were ever fetched, and a checkout would fetch them.
+	r, err := Restore(context.Background(), RestoreOptions{Path: target, CommonDir: clone, Branch: "topic"})
+	if err == nil || r.Restored || !strings.Contains(r.Error, "Arbor does not fetch") || !strings.Contains(r.Error, "worktree add -- "+ShellArgument(target)+" topic") {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatal("refusal created a folder")
+	}
+	if out := testGit(t, clone, "rev-list", "--objects", "--missing=print", "--no-walk", "HEAD"); !strings.Contains(out, "?") {
+		t.Fatalf("contents were fetched: %s", out)
+	}
+	// With them there, as they are for a worktree that was checked out
+	// before, it is put back.
+	testGit(t, clone, "checkout", "--quiet", "HEAD", "--", ".")
+	r, err = Restore(context.Background(), RestoreOptions{Path: target, CommonDir: clone, Branch: "topic"})
+	if err != nil || !r.Restored {
+		t.Fatalf("%+v %v", r, err)
+	}
+}
+
+func TestShellArgumentIsReadBackExactly(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("no bash to read them back")
+	}
+	for _, value := range []string{"plain/path-1.0", "", "two words", "it's", "-topic", "$HOME `id` \"quoted\"", "back\\slash", "caf\u00e9 \u2615", "line\nbreak", "tab\there", "\x1b[31mred", "quote'\nand a break", "bad\xfe\xffbytes", "\x01\x7f"} {
+		written := ShellArgument(value)
+		out, err := exec.Command(bash, "-c", "printf %s "+written).Output()
+		if err != nil || string(out) != value {
+			t.Errorf("%q written as %s was read back as %q (%v)", value, written, out, err)
+		}
+		if !utf8.ValidString(written) || strings.IndexFunc(written, func(r rune) bool { return r < 32 || r == 127 }) >= 0 {
+			t.Errorf("%q is written with something that cannot be printed: %q", value, written)
+		}
 	}
 }

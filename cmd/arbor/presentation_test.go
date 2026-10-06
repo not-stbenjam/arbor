@@ -38,6 +38,12 @@ func TestRemovalsSayHowToPutThemBack(t *testing.T) {
 	if strings.Contains(many, "/w/tree 0' --repo") || !strings.Contains(many, "arbor restore PATH --repo REPOSITORY --branch BRANCH") {
 		t.Fatalf("many removals: %q", many)
 	}
+	// A name with a line break in it is still the name that is restored.
+	broken := removed(1)
+	broken.removed[0].Path = "/w/topic\nline"
+	if text := said(worktreeRequest{}, broken); !strings.Contains(text, `arbor restore $'/w/topic\nline' --repo`) {
+		t.Fatalf("line break: %q", text)
+	}
 	// A commit with no branch goes back as it was, and a registration whose
 	// folder was already gone had nothing to put back.
 	detached := removed(1)

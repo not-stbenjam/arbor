@@ -55,6 +55,12 @@ test("file inventory validates kinds, counts, sizes, and text before crossing th
       /invalid file inventory/,
     );
   }
+  // Names are written as text, so two that are not text can read alike.
+  const alike = fixture();
+  alike.entries.push({ ...alike.entries[0] });
+  alike.counts.changes = 2;
+  alike.bytes.changes = 24;
+  assert.equal(parseFiles(JSON.stringify(alike)).entries.length, 2);
   const limited = fixture();
   limited.truncated = true;
   limited.counts.changes = 3;

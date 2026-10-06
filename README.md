@@ -15,7 +15,7 @@ The desktop app uses Electron with a native window, system typography, compact c
 
 ## Download
 
-Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.2.0`.
+Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.3.0`.
 
 | Platform             | Desktop app                          | Standalone CLI                      |
 | -------------------- | ------------------------------------ | ----------------------------------- |
@@ -82,8 +82,8 @@ For an `arbor` command on your shell's `PATH`, install the standalone CLI as des
 Make the AppImage executable and open it:
 
 ```sh
-chmod +x arbor_v0.2.0_linux_amd64.AppImage
-./arbor_v0.2.0_linux_amd64.AppImage
+chmod +x arbor_v0.3.0_linux_amd64.AppImage
+./arbor_v0.3.0_linux_amd64.AppImage
 ```
 
 Use the ARM64 asset on ARM hardware. If AppImage cannot mount on your distribution, use the `.desktop.tar.gz` download, extract it, and run `./arbor-desktop` from that folder. Keep its `resources/` directory alongside the executable. Linux desktop builds depend on the standard desktop libraries provided by supported distributions.
@@ -94,8 +94,8 @@ Extract the matching CLI archive. It contains a versioned directory; enter
 that directory before installing. For example, on Linux x86-64:
 
 ```sh
-tar -xzf arbor_v0.2.0_linux_amd64.tar.gz
-cd arbor_v0.2.0_linux_amd64
+tar -xzf arbor_v0.3.0_linux_amd64.tar.gz
+cd arbor_v0.3.0_linux_amd64
 ```
 
 Use `darwin` for macOS and `arm64` for Apple Silicon or Linux ARM64. Run the
@@ -396,7 +396,7 @@ A worktree with a read-only folder in it, such as a Go module cache, or inside a
 
 A deleted worktree is not moved to Trash, but it can be put back: deleting keeps its branch, so every commit is still there. After a deletion in the desktop app, the notice has an **Undo** for 12 seconds, which puts each worktree back where it was, on its branch. **Recently deleted**, beside Statistics and in the File menu, lists what this app deleted in the last 30 days, up to 200 worktrees, on this computer and on SSH hosts, and has a **Restore** for each; the list is kept across restarts in `recent-deletions.json` beside the desktop scan cache (statistics remain totals only). A registration whose folder was already gone is not listed, there being nothing to put back. Files that were never committed, untracked and ignored files among them, do not come back, and the app says so when it restores a worktree that had some.
 
-From the terminal, `remove` and `clean` print the command that puts back what they deleted: `arbor restore PATH --repo REPOSITORY --branch BRANCH`, or `--detach COMMIT` for a worktree that was on no branch. `--repo` is the repository's folder or its `.git` folder. Nothing is overwritten: the path must not exist, the folder it is in must, and the branch must exist and not be checked out somewhere else. The branch is checked out as it is now; with `--head COMMIT`, the result says whether it has moved since. Hooks are not run. A repository that names its own filter programs is not restored, and the `git worktree add` command to run yourself is given instead; standard Git LFS is allowed. If writing the files fails part-way, what was written is left where it is and the message says so. What comes back is the committed files: not discarded work, the worktree's own configuration, or its lock.
+From the terminal, `remove` and `clean` print the command that puts back what they deleted: `arbor restore PATH --repo REPOSITORY --branch BRANCH`, or `--detach COMMIT` for a worktree that was on no branch. `--repo` is the repository's folder or its `.git` folder. Nothing is overwritten: the path must not exist, the folder it is in must, and the branch must exist and not be checked out somewhere else. The branch is checked out as it is now; with `--head COMMIT`, the result says whether it has moved since. Hooks are not run and nothing is fetched. A repository that names its own filter programs is not restored, and neither is a worktree of a partial clone whose files are not all there already; the `git worktree add` command to run yourself is given instead. Standard Git LFS is allowed. If writing the files fails part-way, what was written is left where it is and the message says so. What comes back is the committed files: not discarded work, the worktree's own configuration, or its lock.
 
 Looking at a worktree runs nothing that its repository names. Hooks and the file-system monitor are switched off for Arbor's Git commands, and so is every filter program named in the configuration of a repository or of one of its worktrees, which Git would otherwise run to compare a changed file with what is committed. Git LFS, named as `git lfs install` names it, and filters from your own Git configuration outside the repository still run. With a filter off, Git compares a file it would have rewritten as it lies, and a changed file can look unchanged as easily as the other way about. So a worktree whose configuration names such a filter is shown as **Unchecked files** and is never a clean delete, and the scan says which filters it left off. A submodule's own filters are beyond this: Git runs them itself when it looks inside a submodule.
 
@@ -422,13 +422,13 @@ make build                            # standalone Go CLI in bin/arbor
 make install                          # install CLI into ~/.local/bin
 make check                            # Go vet and race tests
 npm run test:desktop                  # backend/desktop bridge tests
-make package VERSION=v0.2.0            # standalone CLI archives, all 4 platforms
-make desktop-package VERSION=v0.2.0    # desktop app for this OS + architecture
+make package VERSION=v0.3.0            # standalone CLI archives, all 4 platforms
+make desktop-package VERSION=v0.3.0    # desktop app for this OS + architecture
 ```
 
 CLI packaging needs Go and `tar`, can cross-compile all four targets from either OS, and keeps `CGO_ENABLED=0`. Desktop packaging uses pinned Electron/electron-builder dependencies, builds the matching Go companion, and produces a macOS `.app.zip` or Linux AppImage and desktop archive. Build macOS packages on macOS. Outputs go into `dist/`.
 
-The release tag is embedded in the backend (for example `v0.2.0`) and the corresponding numeric version in the desktop app (`0.2.0`). Set `ARBOR_VERSION=v0.2.0` for direct npm packaging commands; otherwise the version comes from `package.json`.
+The release tag is embedded in the backend (for example `v0.3.0`) and the corresponding numeric version in the desktop app (`0.3.0`). Set `ARBOR_VERSION=v0.3.0` for direct npm packaging commands; otherwise the version comes from `package.json`.
 
 ## Code organization
 
