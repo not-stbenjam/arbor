@@ -91,6 +91,13 @@ function createWorktreeContextMenu({
         click: click((row) => clipboard.writeText(row.path)),
       },
       { type: "separator" },
+      {
+        label: "Show what it holds…",
+        click: click((row) => sendAction({
+          type: "worktree-files", id: row.id, revision: row.revision,
+        })),
+      },
+      { type: "separator" },
       // Said once, rather than on each of the three actions it explains.
       ...(target.host
         ? [{ label: "Available on this computer only", enabled: false }]

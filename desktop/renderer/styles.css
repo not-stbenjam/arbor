@@ -2276,3 +2276,24 @@ th.sorted > button > .icon {
     visibility: hidden;
   }
 }
+
+/* The inventory can sit above a deletion review without changing its choice. */
+.files-dialog { width: min(680px, calc(100vw - 32px)); }
+#files-title { overflow-wrap: anywhere; }
+#files-body { min-height: 0; overflow: auto; }
+.files-path { overflow-wrap: anywhere; unicode-bidi: plaintext; }
+#files-path, .files-note, .files-detail { color: var(--secondary); font-size: 12px; }
+.files-group { margin: 20px 0; }
+.files-group h3 { font-size: 13px; margin: 0 0 8px; }
+.files-group ul { list-style: none; margin: 0; padding: 0; }
+.files-group li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; padding: 6px 0; }
+.files-detail { grid-column: 1 / -1; }
+.files-size { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.files-footer { flex-wrap: wrap; }
+#files-total { margin-right: auto; }
+.cleanup-files { grid-column: 2 / -1; justify-self: start; font-size: 12px; padding: 3px 8px; }
+
+@media (max-height: 360px) {
+  .files-dialog { overflow-y: auto; }
+  #files-body { flex: none; overflow: visible; }
+}

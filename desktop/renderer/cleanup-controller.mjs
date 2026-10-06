@@ -101,6 +101,7 @@ export function createCleanupController({
   workspace,
   shown,
   onDeleting = () => {},
+  onShowFiles = () => {},
 }) {
   const $ = (selector) => document.querySelector(selector);
   const dialog = $("#cleanup-dialog");
@@ -149,7 +150,7 @@ export function createCleanupController({
           .map(named)
           .join(" · ");
         const meaning = deletionMeaning(row);
-        return `<li class="cleanup-item${refused.has(row.id) ? " refused" : ""}" data-review="${esc(row.id)}" data-tone="${meaning.tone}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${row.missing ? "—" : size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(meaning.text)}</span><span class="cleanup-changed">Changed since you opened this list, so it is kept.</span><span class="cleanup-path">${pathed(row.path)}</span></li>`;
+        return `<li class="cleanup-item${refused.has(row.id) ? " refused" : ""}" data-review="${esc(row.id)}" data-tone="${meaning.tone}">${icon("branch")}<span class="cleanup-name">${named(name)}</span><span class="cleanup-size">${row.missing ? "—" : size(row.sizeBytes)}</span><span class="cleanup-kept">Kept</span><span class="cleanup-context">${context}</span><span class="cleanup-reason">${named(meaning.text)}</span><span class="cleanup-changed">Changed since you opened this list, so it is kept.</span><span class="cleanup-path">${pathed(row.path)}</span>${!row.canRemove ? `<button type="button" class="button cleanup-files" data-files="${esc(row.id)}">Show files</button>` : ""}</li>`;
       })
       .join("");
   }
@@ -297,6 +298,11 @@ export function createCleanupController({
   const open = () => begin(recommendedShown(shown), false);
   // The same review, of rows chosen by hand: ticked, or under one folder.
   const openFor = (rows) => begin([...rows], true);
+  $("#cleanup-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-files]");
+    const row = button && reviewed.find((row) => row.id === button.dataset.files);
+    if (row) onShowFiles(row);
+  });
   $("#cleanup-cancel").onclick = () => dialog.close();
   $("#cleanup-confirm").onclick = () => {
     const rows = standing();

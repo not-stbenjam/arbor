@@ -384,6 +384,7 @@ function loadPreferences(value) {
 }
 
 module.exports = {
+  parseFiles: require("./worktree-files.cjs").parseFiles,
   DEFAULTS,
   DEFAULT_EXCLUDES,
   MAX_WORKTREES,

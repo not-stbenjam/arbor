@@ -645,6 +645,17 @@
       ></div>
       <div class="statistics-footer"></div>
     </dialog>
+    <dialog id="files-dialog" class="files-dialog" aria-labelledby="files-title" aria-describedby="files-lead">
+      <div class="dialog-header"><h2 id="files-title" tabindex="-1">What this worktree holds</h2></div>
+      <div id="files-body" class="dialog-body" tabindex="0">
+        <p id="files-lead">Deleting this worktree permanently discards the items below. Nothing is moved to Trash.</p>
+        <p id="files-path" class="files-path"></p>
+        <p id="files-status" role="status"></p>
+        <div id="files-content"></div>
+        <p class="files-note">Categories can overlap. Sizes count files on disk, not commits or space recovered. Submodule metadata may be outside this folder.</p>
+      </div>
+      <div class="dialog-footer files-footer"><span id="files-total"></span><button type="button" class="button" id="files-close">Close</button></div>
+    </dialog>
     <dialog
       id="cleanup-dialog"
       class="cleanup-dialog"
