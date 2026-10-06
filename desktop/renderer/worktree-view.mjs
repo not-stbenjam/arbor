@@ -17,6 +17,9 @@ export function createWorktreeView({
   tree,
   showWorktreeMenu,
   onRender = () => {},
+  // Shows several worktrees chosen for deletion, each with what deleting it
+  // means, before anything is asked.
+  reviewDeletion = (rows) => workspace.deleteWorktrees(rows),
 }) {
   const $ = (selector) => document.querySelector(selector);
   let view = "all",
@@ -84,8 +87,12 @@ export function createWorktreeView({
     const unclean = rows.filter(
       (row) => deletable(row) && lossesOf(row).length,
     ).length;
+    // A tick outlasts a search or a closed folder that takes its row out
+    // of the list, so the bar says how many of them cannot be seen.
+    const inList = new Set(visible.map((row) => row.id)),
+      unseen = rows.filter((row) => !inList.has(row.id)).length;
     $("#selection-label").textContent =
-      `${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"} selected${unclean ? ` · ${unclean} not clean` : ""}${kept ? ` · ${kept} cannot be deleted` : ""}`;
+      `${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"} selected${unseen ? ` · ${unseen} not shown` : ""}${unclean ? ` · ${unclean} not clean` : ""}${kept ? ` · ${kept} cannot be deleted` : ""}`;
     $("#remove-selected").disabled =
       blocked() ||
       !workspace.snapshot.revision ||
@@ -190,17 +197,19 @@ export function createWorktreeView({
             .map((row) => row.id),
         ]),
     );
-    // Only a row on screen can be selected or hold the keyboard cursor. No
-    // key or button may reach a worktree that a filter or a collapsed folder
-    // has hidden.
+    // Only a row on screen can hold the keyboard cursor. A tick is kept
+    // when a search or a closed folder takes its row out of the list, so a
+    // selection can be gathered over several searches; the selection bar
+    // counts what is not shown, and deleting several shows every one first.
     const onScreen = new Set(visible.map((row) => row.id));
+    const known = new Set(items().map((row) => row.id));
     const gridFocused = document.activeElement === $("#worktree-grid");
     const lostCursor =
       cursorVanished ||
       (!!selection.cursor && !onScreen.has(selection.cursor));
     cursorVanished = false;
     selection = {
-      ids: new Set([...selection.ids].filter((id) => onScreen.has(id))),
+      ids: new Set([...selection.ids].filter((id) => known.has(id))),
       cursor: onScreen.has(selection.cursor) ? selection.cursor : "",
     };
     // The row under the keyboard went away, deleted or rescanned. The list
@@ -454,6 +463,15 @@ export function createWorktreeView({
     event.detail > 0 &&
     !!pressed &&
     Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 4;
+  // One worktree in plain view is asked about by name. Several, or one a
+  // search or a closed folder has taken out of the list, are shown in full
+  // first: nothing is deleted that was not in front of whoever agreed to it.
+  function deleteRows(rows) {
+    const inList = new Set(visible.map((row) => row.id));
+    if (rows.length === 1 && inList.has(rows[0].id))
+      return workspace.deleteWorktrees(rows);
+    if (rows.length) reviewDeletion(rows);
+  }
   function selectRow(id, how) {
     selection = chooseRow(selection, visible, id, how);
     selectionChanged();
@@ -478,13 +496,11 @@ export function createWorktreeView({
       if (button.dataset.view) {
         view = button.dataset.view;
         repo = "";
-        selection.ids.clear();
         render();
       }
       if (button.dataset.repo !== undefined) {
         repo = repo === button.dataset.repo ? "" : button.dataset.repo;
         view = "all";
-        selection.ids.clear();
         render();
       }
       if (button.dataset.sort) {
@@ -505,7 +521,7 @@ export function createWorktreeView({
           ?.focus({ preventScroll: true });
       }
       if (button.dataset.folderDelete)
-        workspace.deleteWorktrees(
+        deleteRows(
           tree.folderWorktrees(directoryRows, button.dataset.folderDelete),
         );
       if (button.dataset.delete) {
@@ -657,7 +673,8 @@ export function createWorktreeView({
     }
     if ((event.metaKey || event.ctrlKey) && event.key === "a") {
       event.preventDefault();
-      selection.ids = new Set(visible.map((w) => w.id));
+      // Everything the list shows, added to whatever is already ticked.
+      selection.ids = new Set([...selection.ids, ...visible.map((w) => w.id)]);
       render();
     }
     // Deletion always asks first, so the key is as safe as the button. It
@@ -665,7 +682,7 @@ export function createWorktreeView({
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
       const ticked = selected();
-      workspace.deleteWorktrees(
+      deleteRows(
         ticked.length
           ? ticked
           : visible.filter((row) => row.id === selection.cursor),
@@ -688,7 +705,6 @@ export function createWorktreeView({
       collapsedBeforeSearch = null;
     }
     search = value;
-    selection.ids.clear();
     render();
     // Said once typing pauses, not for each letter.
     clearTimeout(searchSaid);
@@ -703,6 +719,16 @@ export function createWorktreeView({
     }, 400);
   }
   $("#search").oninput = (event) => setSearch(event.target.value);
+  // From the search, Down goes straight to what it found: the list takes the
+  // keyboard, on its first row. Tab still visits the controls in between.
+  $("#search").addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" || !visible.length) return;
+    event.preventDefault();
+    selection = { ...selection, cursor: visible[0].id };
+    $("#worktree-grid").focus({ preventScroll: true });
+    renderActiveRow();
+    $("#table-scroll").scrollTop = 0;
+  });
   $("#tree-sort").onchange = (event) => {
     sort = event.target.value;
     descending = ["activity", "size"].includes(sort);
@@ -719,7 +745,7 @@ export function createWorktreeView({
     clearSelection();
   });
 
-  $("#remove-selected").onclick = () => workspace.deleteWorktrees(selected());
+  $("#remove-selected").onclick = () => deleteRows(selected());
   function resetView(full = false) {
     view = "all";
     repo = "";
@@ -764,6 +790,10 @@ export function createWorktreeView({
     // filters, including rows inside collapsed folders.
     get filtered() {
       return filtered;
+    },
+    // The rows the list is drawing now: those, less any in closed folders.
+    get visible() {
+      return visible;
     },
     get filtering() {
       return !!repo || !!search.trim();

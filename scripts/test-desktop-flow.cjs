@@ -101,6 +101,16 @@ app.once("browser-window-created", (_event, win) => {
   if (process.env.ARBOR_FLOW_COMPACT === "1") win.setSize(850, 560);
   win.webContents.once("did-finish-load", async () => {
     const js = (source) => win.webContents.executeJavaScript(source);
+    // Deleting several at once first shows every one of them; agreeing
+    // there is what goes on to the deletion, or to the question about
+    // anything that would be discarded.
+    const agreeToReview = async () => {
+      await until(
+        () => js("document.querySelector('#cleanup-dialog').open"),
+        "the review of what would be deleted",
+      );
+      await js("document.querySelector('#cleanup-confirm').click()");
+    };
     try {
       await until(() => js("!!window.arbor"), "preload bridge");
       if (!resumed) {
@@ -496,6 +506,7 @@ app.once("browser-window-created", (_event, win) => {
         await js(
           `document.querySelector('[data-folder-delete="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
+        await agreeToReview();
         await until(
           () => removalDialogs.length === 1,
           "filtered folder confirmation",
@@ -529,6 +540,7 @@ app.once("browser-window-created", (_event, win) => {
         await js(
           `document.querySelector('[data-folder-delete="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
+        await agreeToReview();
         await until(
           () => removalDialogs.length === 2,
           "folder delete confirmation",
@@ -556,6 +568,7 @@ app.once("browser-window-created", (_event, win) => {
         await js(
           `document.querySelector('[data-folder-delete="' + CSS.escape(${JSON.stringify(oldFolderKey)}) + '"]').click()`,
         );
+        await agreeToReview();
         await until(
           () =>
             js(

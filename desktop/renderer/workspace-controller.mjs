@@ -235,6 +235,7 @@ export function createWorkspaceController({
         revision,
         discardLocal: options.discardLocal === true,
         forceConfirm: options.forceConfirm === true,
+        reviewed: options.reviewed === true,
       });
       if (Object.hasOwn(result, "report"))
         state.report = immutableCopy(result.report);
@@ -319,7 +320,10 @@ export function createWorkspaceController({
       append && clientError ? `${clientError}\n${explanation}` : explanation,
     );
   }
-  async function deleteWorktrees(selected) {
+  // `reviewed` says every one of these was shown, with what deleting it
+  // means, and agreed to. Nothing more is then asked about those that are a
+  // clean delete; discarding anything is still asked about by name.
+  async function deleteWorktrees(selected, { reviewed = false } = {}) {
     if (blocked() || !state.revision || !selected.length) return;
     const kept = selected.filter(
       (w) => !canDelete(w) || (!w.canRemove && !w.canDiscard),
@@ -332,7 +336,8 @@ export function createWorkspaceController({
       return;
     }
     await remove(eligible, false, {
-      forceConfirm: true,
+      forceConfirm: !reviewed,
+      reviewed,
       discardLocal: eligible.some((w) => !w.canRemove && w.canDiscard),
     });
     explainKept(kept, true);

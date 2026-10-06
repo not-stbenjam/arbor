@@ -39,8 +39,10 @@ scenario({
     });
     await t.step("search name, branch, repository and path; no matches and clear", async () => {
       await t.click(`${await t.row(t.world[0].path)} .branch-cell`);
-      await search(t, "z-topic"); await shown(t, ["a"]); await selected(t, []);
+      // A tick outlasts the search that takes its row out of the list.
+      await search(t, "z-topic"); await shown(t, ["a"]); await selected(t, ["a"]);
       await search(t, "ALPHA"); await shown(t, ["c", "b"]);
+      assert.equal(await t.text("#selection-label"), "1 worktree selected · 1 not shown");
       await search(t, t.world[1].path); await shown(t, ["b"]);
       await search(t, "projects/c"); await shown(t, ["c"]);
       await search(t, "nothing-matches"); await shown(t, []);

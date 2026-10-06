@@ -171,7 +171,12 @@ export function projectTree(
   tree,
 ) {
   const query = search.trim().toLowerCase();
-  const filtered = tree.filter(list, { repo, view, query });
+  const filtered = tree.filter(list, {
+    repo,
+    view,
+    query,
+    state: (row) => worktreeState(row)?.label,
+  });
   const value = (descendants) =>
     sort === "size"
       ? sizeOf(descendants)

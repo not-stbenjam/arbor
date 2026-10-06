@@ -1085,6 +1085,26 @@ dialog::backdrop {
 .cleanup-reason {
   color: var(--green);
 }
+/* What deleting a worktree chosen by hand means: something is lost, or it
+   is deleted only because it was asked for, or it cannot be deleted. */
+.cleanup-item[data-tone="risk"] .cleanup-reason {
+  color: var(--red);
+}
+.cleanup-item[data-tone="note"] .cleanup-reason {
+  color: var(--orange);
+}
+.cleanup-item.refused .cleanup-reason {
+  color: var(--secondary);
+}
+.cleanup-item.refused .cleanup-size {
+  display: none;
+}
+.cleanup-item.refused .cleanup-kept {
+  display: block;
+}
+.cleanup-item.refused .cleanup-name {
+  color: var(--secondary);
+}
 .cleanup-size,
 .cleanup-kept {
   grid-row: 1;

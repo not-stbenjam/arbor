@@ -154,6 +154,7 @@ async function bootstrap() {
     workspace,
     tree,
     showWorktreeMenu,
+    reviewDeletion: (rows) => cleanup.openFor(rows),
     // Filtering changes what Delete recommended acts on, and so its count
     // and what an open review of it can still delete.
     onRender: () => {

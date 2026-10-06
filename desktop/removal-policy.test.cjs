@@ -57,6 +57,51 @@ test("removal plan validates every identity but consents to each physical path o
   );
 });
 
+test("a selection reviewed in the window is asked about again only when something would be discarded", () => {
+  const clean = { ...first, recommended: false };
+  const dirty = {
+    ...first,
+    id: "dirty",
+    path: "/work/dirty",
+    recommended: false,
+    canRemove: false,
+    canDiscard: true,
+    losses: ["changes"],
+  };
+  const state = {
+    revision: "snapshot",
+    report: { worktrees: [first, { ...clean, id: "clean", path: "/work/clean" }, dirty] },
+  };
+  const items = [first, { ...clean, id: "clean" }];
+  // Unreviewed, a clean worktree that is not a recommendation is asked about.
+  assert.deepEqual(
+    planRemoval(state, { revision: "snapshot", items }).confirmation.map((row) => row.id),
+    ["clean"],
+  );
+  // Reviewed, nothing more is asked: none of them has anything to lose.
+  assert.deepEqual(
+    planRemoval(state, { revision: "snapshot", items, reviewed: true }).confirmation,
+    [],
+  );
+  // Discarding is asked about whatever the window says it showed.
+  assert.deepEqual(
+    planRemoval(state, {
+      revision: "snapshot",
+      items: [...items, dirty],
+      reviewed: true,
+      discardLocal: true,
+    }).confirmation.map((row) => row.id),
+    ["first", "clean", "dirty"],
+  );
+  // And a reviewed selection cannot take a worktree that is not clean
+  // without that consent.
+  assert.throws(
+    () =>
+      planRemoval(state, { revision: "snapshot", items: [dirty], reviewed: true }),
+    /changed or is protected/,
+  );
+});
+
 test("removal argv binds repository, identity, consent and stats session without shell interpolation", () => {
   const row = {
     ...first,

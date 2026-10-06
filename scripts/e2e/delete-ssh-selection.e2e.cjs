@@ -20,8 +20,14 @@ scenario({
       assert.equal(await t.text("#all-count"), "3");
       await t.click("#select-all");
       assert.equal(await t.text("#selection-label"), "3 worktrees selected · 1 not clean");
-      t.answer(0);
+      // The review names each one's host, and what deleting each means.
       await t.click("#remove-selected");
+      await t.until(() => t.js("document.querySelector('#cleanup-dialog').open"), "the review of the selection");
+      assert.deepEqual(await t.texts(".cleanup-context"), ["local · local-repo · This computer", "remote-dirty · remote-repo · Test host", "remote-missing · remote-repo · Test host"]);
+      assert.deepEqual(await t.js("[...document.querySelectorAll('.cleanup-item')].map((item) => item.dataset.tone)"), ["safe", "risk", "note"]);
+      assert.match((await t.texts(".cleanup-reason"))[2], /The folder is already gone\. Only what Git still keeps for this worktree will be removed; its branches are retained/);
+      t.answer(0);
+      await t.click("#cleanup-confirm");
       await t.until(() => t.messages.length === 1, "cross-host question");
       await t.settled();
       assert.match(t.messages[0].message, /1 of 3 worktrees on 2 hosts is not clean/);
@@ -31,6 +37,8 @@ scenario({
       assert.equal(t.fixture.exists(t.world.trees[0].path), true);
       t.answer(1);
       await t.click("#remove-selected");
+      await t.until(() => t.js("document.querySelector('#cleanup-dialog').open"), "the review of the selection");
+      await t.click("#cleanup-confirm");
       for (const tree of t.world.trees) await gone(t, tree);
       assert.match(await t.text("#empty-state"), /No linked worktrees here/);
       assert.equal(t.fixture.statistics().removedWorktrees, 1);

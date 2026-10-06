@@ -62,10 +62,16 @@ function planRemoval(state, request) {
     selected,
     discardLocal,
     recommendedOnly,
+    // Recommended worktrees, and any clean ones the window says were
+    // shown and agreed to in its own review, are asked about nowhere else:
+    // none is deleted with anything in it but what is committed, and Git
+    // itself refuses one that has more. Discarding is always asked here.
     confirmation:
       discardLocal || request.forceConfirm === true
         ? selected
-        : selected.filter((row) => !row.recommended),
+        : request.reviewed === true
+          ? []
+          : selected.filter((row) => !row.recommended),
   };
 }
 

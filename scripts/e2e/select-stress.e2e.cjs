@@ -22,17 +22,25 @@ scenario({
         await t.click("#sort-direction");
         assert.equal(await t.count(".worktree-row.selected"), 48);
         const folder = `tr[data-directory-path=${JSON.stringify(t.fixture.path(`projects/group-${i}`))}] [data-toggle-directory]`;
+        // A closed folder and a search each take rows out of the list
+        // without taking them out of the selection.
         await t.click(folder);
         assert.equal(await t.count(".worktree-row.selected"), 40);
+        assert.equal(await t.text("#selection-label"), "48 worktrees selected · 8 not shown");
         await t.click(folder);
         assert.equal(await t.count(".worktree-row"), 48);
-        assert.equal(await t.count(".worktree-row.selected"), 40, "expanding does not restore hidden ticks");
+        assert.equal(await t.count(".worktree-row.selected"), 48, "its ticks are there when the folder opens again");
         await search(t, `group-${i}`);
         assert.equal(await t.count(".worktree-row"), 8);
-        assert.equal(await t.visible("#selection-bar"), false);
+        assert.equal(await t.text("#selection-label"), "48 worktrees selected · 40 not shown");
+        // The heading's box unticks what is shown, and only that.
         await t.click("#select-all");
-        assert.equal(await t.text("#selection-label"), "8 worktrees selected");
+        assert.equal(await t.text("#selection-label"), "40 worktrees selected · 40 not shown");
+        await t.click("#select-all");
+        assert.equal(await t.text("#selection-label"), "48 worktrees selected · 40 not shown");
         await search(t, "");
+        assert.equal(await t.text("#selection-label"), "48 worktrees selected");
+        await t.click("#clear-selection");
       }
       await t.click("#cleanup-button");
       assert.equal(await t.count(".cleanup-item"), 48);

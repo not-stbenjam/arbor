@@ -1612,6 +1612,99 @@ test("Delete recommended counts and describes exactly what the list shows, and a
   fixture.workspace.dispose();
 });
 
+test("deleting several worktrees chosen by hand shows every one, and what deleting it means, first", async () => {
+  const { createCleanupController, deletionMeaning } = await import(
+    "../renderer/cleanup-controller.mjs"
+  );
+  const row = (id, facts = {}) => ({
+    id,
+    path: `/local/trees/${id}`,
+    head: id,
+    branch: `topic/${id}`,
+    repo: "api",
+    canRemove: true,
+    canDiscard: true,
+    sizeBytes: 1024,
+    defaultRef: "refs/remotes/origin/main",
+    ...facts,
+  });
+  const rows = [
+    row("merged", { recommended: true, mergeReason: "All commits are in refs/remotes/origin/main" }),
+    row("unmerged"),
+    row("new", { fresh: true }),
+    row("dirty", { canRemove: false, losses: ["changes", "ignored"], blockers: ["Uncommitted or untracked files"] }),
+    row("locked", { canRemove: false, locked: true, losses: [], blockers: ["Locked worktree"], discardWarnings: ["The Git worktree lock will be overridden."] }),
+    row("broken", { canRemove: false, canDiscard: false, blockers: ["Worktree path could not be verified"] }),
+  ];
+  assert.deepEqual(rows.map(deletionMeaning), [
+    { tone: "safe", text: "All commits are in origin/main" },
+    { tone: "safe", text: "Clean. Not merged into origin/main; its branch keeps its commits" },
+    { tone: "safe", text: "Clean. Created in the last 24 hours, with nothing of its own yet" },
+    { tone: "risk", text: "Not a clean delete. Discards uncommitted changes and untracked files; ignored files, such as local configuration or build output" },
+    { tone: "note", text: "The Git worktree lock will be overridden" },
+    { tone: "kept", text: "Cannot be deleted: Worktree path could not be verified" },
+  ]);
+  const deleted = [];
+  const fixture = await workspaceFixture({
+    getState: async () =>
+      coordinatorState({ report: { worktrees: rows, warnings: [] } }),
+  });
+  fixture.workspace.deleteWorktrees = (list, options) =>
+    deleted.push([list.map((entry) => entry.id), options]);
+  const { document, element } = preferenceDocument();
+  const dialog = element("#cleanup-dialog"),
+    list = element("#cleanup-list");
+  list.querySelectorAll = () => [];
+  // Only two of the six are in the list just now: the rest were ticked
+  // under an earlier search.
+  const review = createCleanupController({
+    document,
+    workspace: fixture.workspace,
+    shown: () => ({ filtered: rows.slice(0, 2), visible: rows.slice(0, 2), filtering: true }),
+  });
+  review.openFor(rows);
+  assert.equal(dialog.open, true);
+  assert.equal(element("#cleanup-title").textContent, "Delete 5 of these 6 worktrees?");
+  // Every one is listed, in or out of view, deletable or not.
+  assert.equal([...list.innerHTML.matchAll(/data-review="/g)].length, 6);
+  assert.deepEqual(
+    [...list.innerHTML.matchAll(/data-tone="(\w+)"/g)].map(([, tone]) => tone),
+    ["safe", "safe", "safe", "risk", "note", "kept"],
+  );
+  assert.match(list.innerHTML, /class="cleanup-item refused" data-review="broken"/);
+  const lead = element("#cleanup-lead").innerHTML;
+  assert.match(lead, /removes their folders for good: they are not moved to Trash/);
+  assert.match(lead, /1 of them is not a clean delete\. What each would lose is marked, and you are asked once more/);
+  assert.match(lead, /1 worktree you selected cannot be deleted and is left alone/);
+  assert.equal(
+    element("#cleanup-total").textContent,
+    "About 5 KB to recover · 3 not shown in the list",
+  );
+  // The button says more will be asked, because something would be discarded.
+  assert.equal(element("#cleanup-confirm").textContent, "Delete 5 worktrees…");
+  await element("#cleanup-confirm").onclick();
+  assert.equal(dialog.open, false);
+  assert.deepEqual(deleted, [
+    [["merged", "unmerged", "new", "dirty", "locked"], { reviewed: true }],
+  ]);
+  // With nothing to discard, agreeing is the whole of it.
+  review.openFor(rows.slice(0, 3));
+  assert.equal(element("#cleanup-title").textContent, "Delete these 3 worktrees?");
+  assert.equal(element("#cleanup-confirm").textContent, "Delete 3 worktrees");
+  assert.match(element("#cleanup-lead").innerHTML, /None of them has uncommitted changes/);
+  dialog.close();
+  // The review of recommendations still says what it always did.
+  const recommended = createCleanupController({
+    document,
+    workspace: fixture.workspace,
+    shown: () => ({ filtered: rows, visible: rows, filtering: false }),
+  });
+  recommended.open();
+  assert.equal(element("#cleanup-title").textContent, "Delete this recommended worktree?");
+  assert.match(element("#cleanup-lead").innerHTML, /its commits are already merged/);
+  fixture.workspace.dispose();
+});
+
 test("the review lists what Delete recommended would delete and why, and deletes only what it showed", async () => {
   const { createCleanupController } = await import(
     "../renderer/cleanup-controller.mjs"
@@ -1979,7 +2072,7 @@ test("the review waits for an operation that holds a worktree, and says every ho
   fixture.workspace.dispose();
 });
 
-test("selection and the keyboard cursor never outlive a row's place on screen", async (t) => {
+test("a tick outlives a filter, the keyboard cursor does not, and nothing out of view is deleted unseen", async (t) => {
   const { createWorktreeView } = await import("../renderer/worktree-view.mjs");
   // The view quotes identities into selectors with the browser's CSS.escape.
   globalThis.CSS = { escape: String };
@@ -1993,6 +2086,7 @@ test("selection and the keyboard cursor never outlive a row's place on screen", 
     canRemove: true,
   });
   const deleted = [],
+    reviewed = [],
     menus = [];
   const fixture = await workspaceFixture({
     getState: async () =>
@@ -2013,6 +2107,7 @@ test("selection and the keyboard cursor never outlive a row's place on screen", 
     workspace: fixture.workspace,
     tree: require("./worktree-tree.mjs"),
     showWorktreeMenu: (id) => menus.push(id),
+    reviewDeletion: (rows) => reviewed.push(rows.map((entry) => entry.id)),
   });
   trees.render();
   const click = (id) =>
@@ -2037,22 +2132,39 @@ test("selection and the keyboard cursor never outlive a row's place on screen", 
     deleted.map((rows) => rows.map((entry) => entry.id)),
     [["alpha"]],
   );
-  // Filtering alpha away must not leave Enter or Delete aimed at it.
+  // Filtering alpha away keeps its tick, and says it is not shown. Enter
+  // has no row to act on. Delete still means what is ticked, but a row out
+  // of view is never asked about by name alone: it goes to the review,
+  // which lists it.
   element("#search").oninput({ target: { value: "beta" } });
   assert.deepEqual(
     trees.filtered.map((entry) => entry.id),
     ["beta"],
   );
+  assert.equal(trees.selectedCount, 1, "the tick outlives the filter");
+  assert.equal(
+    element("#selection-label").textContent,
+    "1 worktree selected · 1 not shown",
+  );
   press("Enter");
   press("Delete");
   assert.deepEqual(menus, ["alpha"], "no menu for a hidden worktree");
-  assert.deepEqual(deleted.at(-1), [], "nothing hidden is selected");
-  // Nor does clearing the filter quietly restore the old target.
-  element("#search").oninput({ target: { value: "" } });
-  press("Enter");
-  assert.deepEqual(menus, ["alpha"]);
-  // A collapsed folder hides its rows in the same way.
+  assert.equal(deleted.length, 1, "nothing out of view is deleted unseen");
+  assert.deepEqual(reviewed, [["alpha"]]);
+  // A second search adds to what the first gathered.
   click("beta");
+  assert.equal(trees.selectedCount, 2);
+  assert.equal(
+    element("#selection-label").textContent,
+    "2 worktrees selected · 1 not shown",
+  );
+  // Clearing the filter shows both again, and does not put the cursor back
+  // on a row it had left.
+  element("#search").oninput({ target: { value: "" } });
+  assert.equal(element("#selection-label").textContent, "2 worktrees selected");
+  press("Delete");
+  assert.deepEqual(reviewed.at(-1), ["alpha", "beta"], "several are reviewed");
+  // A collapsed folder takes its rows out of the list in the same way.
   listeners["#table-scroll click"]({
     target: {
       closest: (selector) =>
@@ -2065,10 +2177,19 @@ test("selection and the keyboard cursor never outlive a row's place on screen", 
           : null,
     },
   });
+  assert.equal(
+    element("#selection-label").textContent,
+    "2 worktrees selected · 2 not shown",
+  );
+  menus.length = 0;
   press("Enter");
   press("Delete");
-  assert.deepEqual(menus, ["alpha"]);
-  assert.deepEqual(deleted.at(-1), []);
+  assert.deepEqual(menus, [], "no menu for a row in a closed folder");
+  assert.equal(deleted.length, 1);
+  assert.deepEqual(reviewed.at(-1), ["alpha", "beta"]);
+  // Escape lets go of every tick, seen or not.
+  press("Escape");
+  assert.equal(trees.selectedCount, 0);
   fixture.workspace.dispose();
 });
 

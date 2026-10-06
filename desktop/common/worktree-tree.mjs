@@ -39,10 +39,13 @@ function filter(worktrees, options = {}) {
       (!options.repo || repositoryKey(w) === options.repo) &&
       (options.view !== "recommended" || w.recommended) &&
       (!query ||
-        [w.path, w.branch, w.repo, w.head, w.subject, w.host].some((value) =>
-          String(value || "")
-            .toLowerCase()
-            .includes(query),
+        // What the row shows as its state is searchable with the rest, so
+        // "ignored" or "merged" finds the rows that say so.
+        [w.path, w.branch, w.repo, w.head, w.subject, w.host, options.state?.(w)].some(
+          (value) =>
+            String(value || "")
+              .toLowerCase()
+              .includes(query),
         )),
   );
 }

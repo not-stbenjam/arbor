@@ -16,8 +16,11 @@ scenario({
   launches: [async (t) => {
     await t.settled();
     await t.click("#select-all");
-    t.answer(1);
+    // All three are clean, so the review of them is the only question.
     await t.click("#remove-selected");
+    await t.until(() => t.js("document.querySelector('#cleanup-dialog').open"), "the review of the selection");
+    assert.equal(await t.text("#cleanup-confirm"), "Delete 3 worktrees");
+    await t.click("#cleanup-confirm");
     await t.until(() => t.fixture.exists("gate-entered"), "first Git deletion held");
     await t.until(() => t.visible(".host-progress-bar"), "deletion progress");
     t.answer(async (question) => {

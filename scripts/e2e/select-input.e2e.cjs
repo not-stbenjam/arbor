@@ -47,24 +47,30 @@ scenario({
       assert.equal(await t.checked("#select-all"), true);
       await t.click("#select-all"); await selected(t, []);
       await t.click("#select-all"); await selected(t, ["a", "b", "c", "d"]);
+      // Closing the folder takes the rows out of the list, not out of the
+      // selection, and the bar says how many it no longer shows.
       await t.click("[data-directory-path] [data-toggle-directory]");
-      await selected(t, []);
+      assert.equal(await t.count(".worktree-row"), 0);
+      assert.equal(await t.text("#selection-label"), "4 worktrees selected · 4 not shown");
       assert.equal(await t.visible("[data-directory-path] [data-select-folder]"), false);
       await t.click("[data-directory-path] [data-toggle-directory]");
-      await click(0); await t.press("Control+a");
       await selected(t, ["a", "b", "c", "d"]);
-      await t.press("Escape");
+      await click(0); await selected(t, ["b", "c", "d"]);
+      await t.press("Control+a");
+      await selected(t, ["a", "b", "c", "d"]);
+      await t.press("Escape"); await selected(t, []);
     });
-    await t.step("switching sidebar views clears ticks but retains a visible cursor", async () => {
+    await t.step("switching sidebar views keeps ticks and a visible cursor", async () => {
       await click(1);
       await t.click('[data-view="recommended"]');
-      await selected(t, []);
+      await selected(t, ["b"]);
       assert.equal((await leaves(t)).find((row) => row.current).id, (await t.worktree(t.world[1].path)).id);
       await t.click("#repo-list .repo-item");
       assert.match(await t.text("#view-title"), /repo/);
-      await selected(t, []);
+      await selected(t, ["b"]);
       await t.click("#repo-list .repo-item");
       assert.equal(await t.text("#view-title"), "All worktrees");
+      await selected(t, ["b"]);
       for (const tree of t.world) assert.equal(t.fixture.exists(tree.path), true);
       assert.equal(t.fixture.statistics(), null);
     });

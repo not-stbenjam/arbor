@@ -273,14 +273,23 @@ setTimeout(()=>process.stdout.write(JSON.stringify({root,worktrees,warnings:[],s
             2,
             "cached deletion does not rescan or resurrect the removed row",
           );
-          responses.push(0);
+          // Several at once are shown in the window's own review, every
+          // one of them, which a native dialog has no room to do.
           await js("document.querySelector('[data-folder-delete]').click()");
-          await until(() => prompts.length === 2, "bounded group confirmation");
-          assert.ok(
-            prompts[1].detail.length < 1800,
-            "bulk deletion prompt stays bounded",
+          await until(
+            () => js("document.querySelector('#cleanup-dialog').open"),
+            "the review of the folder's worktrees",
           );
-          assert.match(prompts[1].message, /11/);
+          assert.equal(
+            await js("document.querySelectorAll('#cleanup-list .cleanup-item').length"),
+            11,
+          );
+          assert.match(
+            await js("document.querySelector('#cleanup-title').textContent"),
+            /these 11 worktrees/,
+          );
+          assert.equal(prompts.length, 1, "nothing is asked natively for a review");
+          await js("document.querySelector('#cleanup-cancel').click()");
           await until(
             async () => !(await state()).busy,
             "cancelled group deletion",

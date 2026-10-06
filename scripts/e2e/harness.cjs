@@ -204,7 +204,10 @@ function replaceNative() {
     let answer = native.answers.shift();
     if (typeof answer === "function") answer = await answer(record);
     if (typeof answer === "string") {
-      const at = record.buttons.findIndex((button) => button.replace(/&/g, "") === answer);
+      // A label is matched as written, or with the "&" that marks its
+      // keyboard letter left out of both.
+      const bare = (label) => label.replace(/&(?=\S)/g, "");
+      const at = record.buttons.findIndex((button) => button === answer || bare(button) === bare(answer));
       assert.ok(at >= 0, `no "${answer}" button among ${JSON.stringify(record.buttons)}`);
       answer = at;
     }
