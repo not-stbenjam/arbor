@@ -24,6 +24,13 @@ scenario({
     await t.click('#sort-direction');
     assert.equal(await retained(), true, 'sorting moves the same controls');
     await tabTo(t, '#worktree-grid');
+    await t.press('Control+a');
+    assert.equal(await t.count('.worktree-row[aria-selected="true"]'), 100);
+    await t.click('#sort-direction');
+    assert.equal(await retained(), true, 'selection does not invalidate cached row content');
+    assert.equal(await t.count('.worktree-row[aria-selected="true"]'), 100);
+    assert.equal(await t.count('[data-select]:checked'), 100);
+    await tabTo(t, '#worktree-grid');
     await t.press('End');
     await focus(t, '#worktree-grid');
     assert.equal(await t.js(`(() => { const grid = document.querySelector('#worktree-grid'), row = document.getElementById(grid.getAttribute('aria-activedescendant')); return row === document.querySelector('.worktree-row:last-child') && row.classList.contains('is-current'); })()`), true);
