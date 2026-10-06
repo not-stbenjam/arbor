@@ -21,10 +21,12 @@
     "test:e2e:scale": "node scripts/e2e/run.cjs --jobs 1 scale-large",
     "pretest:stress": "node scripts/build-desktop.cjs --prepare",
     "test:stress": "node scripts/stress/run.cjs",
-    "test:scripts": "node --test scripts/*.test.cjs"
+    "test:scripts": "node --test scripts/*.test.cjs",
+    "icons": "node scripts/icons.cjs"
   },
   "devDependencies": {
     "electron": "44.5.1",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "lucide-static": "1.52.0"
   }
 }
