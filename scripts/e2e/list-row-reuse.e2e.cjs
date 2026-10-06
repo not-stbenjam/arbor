@@ -1,6 +1,6 @@
 "use strict";
-const { scenario, assert } = require("../e2e/harness.cjs");
-const { scaleFixture, tabTo, focus } = require("../e2e/stress-helpers.cjs");
+const { scenario, assert } = require("./harness.cjs");
+const { scaleFixture, tabTo, focus } = require("./stress-helpers.cjs");
 
 scenario({
   name: "filter and sort retain worktree controls", timeout: 120,
