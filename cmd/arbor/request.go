@@ -16,6 +16,7 @@ var cleanupSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // worktreeRequest is validated command intent, independent of Cobra and output.
 type worktreeRequest struct {
+	strict                                  bool
 	olderThan                               ageDuration
 	sortOrder                               string
 	notActiveSince                          time.Time
@@ -45,6 +46,7 @@ func normalizeRequest(command string, flags *commandOptions) (r worktreeRequest,
 	if command != "list" && command != "clean" && command != "remove" {
 		return r, fmt.Errorf("unknown worktree command %q", command)
 	}
+	r.strict = flags.strict
 	r.olderThan = flags.olderThan
 	r.sortOrder = flags.sortOrder
 	switch r.sortOrder {

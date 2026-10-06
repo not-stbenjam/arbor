@@ -48,4 +48,12 @@ main(() => scenario("commands", async (f) => {
     assert.notEqual(r.status, 0); assert.match(r.stderr, /native Arbor app not found/);
   } else console.log("SKIP gui launch: macOS has a fixed /Applications lookup");
   assert.equal(json(f.cli("stats", "--json")).removedWorktrees, 0);
+  repo.git("remote", "add", "upstream", f.path("unfetched.git"));
+  for (const command of ["list", "clean"]) {
+    const args = [command, "--path", f.root, "--older-than=100w", "--json"];
+    assert.equal(f.cli(...args).status, 0);
+    const strict = f.cli(...args, "--strict");
+    assert.equal(strict.status, 3);
+    assert.ok(JSON.parse(strict.stdout).warnings.length);
+  }
 }));

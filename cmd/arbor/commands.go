@@ -20,6 +20,7 @@ func (c commonFlags) options() worktree.Options {
 }
 
 type commandOptions struct {
+	strict                                                        bool
 	sortOrder                                                     string
 	olderThan                                                     ageDuration
 	notActiveSince                                                string
@@ -132,6 +133,7 @@ func newListCommand() *cobra.Command {
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
+	cmd.Flags().BoolVar(&flags.strict, "strict", false, "Exit with status 3 after output if the scan has warnings or incomplete inspections")
 	cmd.Flags().StringVar(&flags.sortOrder, "sort", "name", "Order by name, size (largest first), or activity (oldest first; unknown last)")
 	cmd.Flags().Var(&flags.olderThan, "older-than", "Keep only worktrees inactive for this long (30d, 12h, 2w or a Go duration); unknown activity never matches")
 	f := cmd.Flags()
@@ -154,6 +156,7 @@ func newCleanCommand() *cobra.Command {
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)
+	cmd.Flags().BoolVar(&flags.strict, "strict", false, "Exit with status 3 after output if the scan has warnings or incomplete inspections")
 	cmd.Flags().StringVar(&flags.sortOrder, "sort", "name", "Order by name, size (largest first), or activity (oldest first; unknown last)")
 	cmd.Flags().Var(&flags.olderThan, "older-than", "Keep only worktrees inactive for this long (30d, 12h, 2w or a Go duration); unknown activity never matches")
 	cmd.Flags().BoolVarP(&flags.yes, "yes", "y", false, "Perform removal instead of previewing")

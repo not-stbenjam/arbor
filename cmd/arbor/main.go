@@ -49,6 +49,8 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	return root.ExecuteContext(ctx)
 }
 
+var errIncompleteScan = errors.New("scan has warnings or incomplete inspections")
+
 type usageFailure struct{ error }
 
 func (e *usageFailure) Unwrap() error { return e.error }
@@ -63,6 +65,9 @@ func exitStatus(err error) int {
 	var usage *usageFailure
 	if errors.As(err, &usage) {
 		return 2
+	}
+	if errors.Is(err, errIncompleteScan) {
+		return 3
 	}
 	return 1
 }
