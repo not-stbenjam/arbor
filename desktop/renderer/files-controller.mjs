@@ -2,24 +2,36 @@ import { shown, plain, size } from "./presentation.mjs";
 import { LOSSES } from "../common/losses.mjs";
 
 const measured = (bytes, lower) => `${lower ? "at least " : ""}${size(bytes)}`;
-const heading = (kind) => LOSSES[kind].brief.replace(/^./, (letter) => letter.toUpperCase());
+const heading = (kind) =>
+  LOSSES[kind].brief.replace(/^./, (letter) => letter.toUpperCase());
 
 export function filesContent(report) {
   const groups = Object.keys(LOSSES).filter((kind) => report.counts[kind]);
-  return groups.map((kind) => {
-    const entries = report.entries.filter((entry) => entry.kind === kind);
-    const more = report.counts[kind] - entries.length;
-    return `<section class="files-group"><h3>${heading(kind)} <span>(${report.counts[kind]})</span></h3><ul>${entries.map((entry) =>
-      `<li><bdi class="files-path">${shown(entry.path)}</bdi><span class="files-size">${measured(entry.sizeBytes, entry.sizeLowerBound)}</span>${entry.status || entry.directory ? `<span class="files-detail">${entry.status ? shown(entry.status) : ""}${entry.status && entry.directory ? " · " : ""}${entry.directory ? `${entry.sizeLowerBound ? "at least " : ""}${entry.files || 0} files` : ""}</span>` : ""}</li>`
-    ).join("")}</ul>${more ? `<p>and ${more} more</p>` : ""}</section>`;
-  }).join("") + (!groups.length ? "<p>No files or worktree metadata to discard were found.</p>" : "") +
-    report.warnings.map((warning) => `<p>${shown(warning)}</p>`).join("");
+  return (
+    groups
+      .map((kind) => {
+        const entries = report.entries.filter((entry) => entry.kind === kind);
+        const more = report.counts[kind] - entries.length;
+        return `<section class="files-group"><h3>${heading(kind)} <span>(${report.counts[kind]})</span></h3><ul>${entries
+          .map(
+            (entry) =>
+              `<li><bdi class="files-path">${shown(entry.path)}</bdi><span class="files-size">${measured(entry.sizeBytes, entry.sizeLowerBound)}</span>${entry.status || entry.directory ? `<span class="files-detail">${entry.status ? shown(entry.status) : ""}${entry.status && entry.directory ? " · " : ""}${entry.directory ? `${entry.sizeLowerBound ? "at least " : ""}${entry.files || 0} files` : ""}</span>` : ""}</li>`,
+          )
+          .join("")}</ul>${more ? `<p>and ${more} more</p>` : ""}</section>`;
+      })
+      .join("") +
+    (!groups.length
+      ? "<p>No files or worktree metadata to discard were found.</p>"
+      : "") +
+    report.warnings.map((warning) => `<p>${shown(warning)}</p>`).join("")
+  );
 }
 
 export function createFilesController({ document, api, workspace }) {
   const $ = (selector) => document.querySelector(selector);
   const dialog = $("#files-dialog");
-  let request = 0, opener;
+  let request = 0,
+    opener;
   dialog.addEventListener("close", () => {
     request++;
     if (opener?.isConnected) opener.focus({ preventScroll: true });
@@ -45,11 +57,16 @@ export function createFilesController({ document, api, workspace }) {
       $("#files-content").innerHTML = filesContent(report);
       // A count and no size: a folder can be under more than one heading,
       // and adding the headings up would count it twice.
-      const count = Object.values(report.counts).reduce((sum, value) => sum + value, 0);
-      $("#files-total").textContent = `${count} ${count === 1 ? "item" : "items"}`;
+      const count = Object.values(report.counts).reduce(
+        (sum, value) => sum + value,
+        0,
+      );
+      $("#files-total").textContent =
+        `${count} ${count === 1 ? "item" : "items"}`;
     } catch (error) {
       if (current !== request || !dialog.open) return;
-      $("#files-status").textContent = `Could not show what this worktree holds: ${plain(error.message)}`;
+      $("#files-status").textContent =
+        `Could not show what this worktree holds: ${plain(error.message)}`;
     }
   }
   return { open };

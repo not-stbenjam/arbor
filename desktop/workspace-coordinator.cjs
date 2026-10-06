@@ -398,7 +398,8 @@ class WorkspaceCoordinator {
     this.resolveWorktree(value);
     const { host, id } = parseGlobalID(value.id);
     return this.#requireHost(host).backend.worktreeFiles({
-      id, revision: this.#revisions.native(value.revision, host),
+      id,
+      revision: this.#revisions.native(value.revision, host),
     });
   }
   inspectWorktree(value) {
@@ -416,7 +417,8 @@ class WorkspaceCoordinator {
   }
   async remove(value, confirm) {
     this.assertInteractive();
-    if (this.#removing || this.#restoring) throw new Error("An operation is already running");
+    if (this.#removing || this.#restoring)
+      throw new Error("An operation is already running");
     if (!Array.isArray(value?.items) || !value.items.length)
       throw new Error("Choose at least one worktree");
     // Each host's share is bounded like its scan when it is planned below.
@@ -503,7 +505,9 @@ class WorkspaceCoordinator {
         }
         // A batch can exceed the history bound. Undo is offered only while
         // every successful deletion still has its own saved entry.
-        const remembered = new Set(this.#deletions.list().map(entry => entry.id));
+        const remembered = new Set(
+          this.#deletions.list().map((entry) => entry.id),
+        );
         for (const result of results)
           if (!remembered.has(result.restoreID)) delete result.restoreID;
         return {
@@ -529,27 +533,38 @@ class WorkspaceCoordinator {
   async restore(value) {
     this.assertInteractive();
     const ids = restoreSelection(value);
-    if (this.#restoring || this.#removing) throw new Error("An operation is already running");
+    if (this.#restoring || this.#removing)
+      throw new Error("An operation is already running");
     const entries = this.listDeletions();
-    const selected = ids.map(id => {
-      const item = entries.find(e => e.id === id);
-      if (!item) throw new Error("This deletion is no longer in the recent list");
+    const selected = ids.map((id) => {
+      const item = entries.find((e) => e.id === id);
+      if (!item)
+        throw new Error("This deletion is no longer in the recent list");
       const host = this.#requireHost(item.host);
-      if (this.#configuring.has(item.host) || this.#scheduler.queued(item.host) || host.backend.getState().busy)
+      if (
+        this.#configuring.has(item.host) ||
+        this.#scheduler.queued(item.host) ||
+        host.backend.getState().busy
+      )
         throw new Error("An operation is already running on this host");
       return item;
     });
     this.#restoring = true;
-    this.#cleanupHosts = new Set(selected.map(e => e.host));
+    this.#cleanupHosts = new Set(selected.map((e) => e.host));
     this.#cleanupPending = (async () => {
       const results = [];
       try {
         for (const item of selected) {
           if (this.#closed) break;
-          results.push(await this.#requireHost(item.host).backend.restore(item));
+          results.push(
+            await this.#requireHost(item.host).backend.restore(item),
+          );
         }
         return { results, ...this.#resultState() };
-      } finally { this.#restoring = false; this.#cleanupHosts.clear(); }
+      } finally {
+        this.#restoring = false;
+        this.#cleanupHosts.clear();
+      }
     })();
     return this.#cleanupPending;
   }

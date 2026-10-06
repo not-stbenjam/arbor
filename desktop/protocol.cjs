@@ -384,14 +384,18 @@ function loadPreferences(value) {
 }
 
 // Restore accepts history IDs only: paths and commands never come from the window.
-const deletionID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+const deletionID =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const validDeletionID = (value) =>
   typeof value === "string" && value.length === 36 && deletionID.test(value);
 
 function restoreSelection(value) {
   if (
-    !Array.isArray(value) || !value.length || value.length > 200 ||
-    !value.every(validDeletionID) || new Set(value).size !== value.length
+    !Array.isArray(value) ||
+    !value.length ||
+    value.length > 200 ||
+    !value.every(validDeletionID) ||
+    new Set(value).size !== value.length
   )
     throw new Error("Choose valid recent deletions");
   return [...value];
@@ -399,22 +403,41 @@ function restoreSelection(value) {
 
 function deletionEntry(value) {
   if (
-    !value || typeof value !== "object" || !validDeletionID(value.id) ||
+    !value ||
+    typeof value !== "object" ||
+    !validDeletionID(value.id) ||
     !isValidSSHHost(value.host, { allowLocal: true }) ||
     !["path", "repo", "commonDir", "branch", "head", "retainedBranch"].every(
       (key) => boundedText(value[key]),
     ) ||
-    !value.path.startsWith("/") || !value.commonDir.startsWith("/") ||
-    ![40, 64].includes(value.head.length) || !/^[a-fA-F0-9]+$/.test(value.head) ||
-    typeof value.detached !== "boolean" || typeof value.clean !== "boolean" ||
+    !value.path.startsWith("/") ||
+    !value.commonDir.startsWith("/") ||
+    ![40, 64].includes(value.head.length) ||
+    !/^[a-fA-F0-9]+$/.test(value.head) ||
+    typeof value.detached !== "boolean" ||
+    typeof value.clean !== "boolean" ||
     (value.detached ? value.branch !== "" : !value.branch) ||
-    !Number.isSafeInteger(value.sizeBytes) || value.sizeBytes < 0 ||
-    !Number.isSafeInteger(value.deletedAt) || value.deletedAt <= 0
+    !Number.isSafeInteger(value.sizeBytes) ||
+    value.sizeBytes < 0 ||
+    !Number.isSafeInteger(value.deletedAt) ||
+    value.deletedAt <= 0
   )
     throw new Error("Invalid recent deletion");
   return Object.fromEntries(
-    ["id", "host", "path", "repo", "commonDir", "branch", "head", "detached",
-      "retainedBranch", "sizeBytes", "deletedAt", "clean"].map((key) => [key, value[key]]),
+    [
+      "id",
+      "host",
+      "path",
+      "repo",
+      "commonDir",
+      "branch",
+      "head",
+      "detached",
+      "retainedBranch",
+      "sizeBytes",
+      "deletedAt",
+      "clean",
+    ].map((key) => [key, value[key]]),
   );
 }
 

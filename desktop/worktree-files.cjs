@@ -3,7 +3,12 @@
 const { LOSSES } = require("./common/losses.mjs");
 const kinds = Object.keys(LOSSES);
 const statuses = [
-  "modified", "added", "deleted", "renamed", "untracked", "conflicted",
+  "modified",
+  "added",
+  "deleted",
+  "renamed",
+  "untracked",
+  "conflicted",
 ];
 const text = (value) =>
   typeof value === "string" && value.length <= 4096 && !value.includes("\0");
@@ -29,16 +34,24 @@ function parseFiles(data) {
     !value.path ||
     typeof value.truncated !== "boolean" ||
     typeof value.sizeLowerBound !== "boolean" ||
-    !totals(value.counts) || !totals(value.bytes) ||
-    !Array.isArray(value.entries) || value.entries.length > 70000 ||
-    !Array.isArray(value.warnings) || value.warnings.length > 100 ||
+    !totals(value.counts) ||
+    !totals(value.bytes) ||
+    !Array.isArray(value.entries) ||
+    value.entries.length > 70000 ||
+    !Array.isArray(value.warnings) ||
+    value.warnings.length > 100 ||
     !value.warnings.every(text)
-  ) invalid();
-  const seen = new Set(), counts = {}, bytes = {};
+  )
+    invalid();
+  const seen = new Set(),
+    counts = {},
+    bytes = {};
   for (const entry of value.entries) {
     if (
-      !object(entry) || !kinds.includes(entry.kind) ||
-      !text(entry.path) || !entry.path ||
+      !object(entry) ||
+      !kinds.includes(entry.kind) ||
+      !text(entry.path) ||
+      !entry.path ||
       typeof entry.directory !== "boolean" ||
       typeof entry.sizeLowerBound !== "boolean" ||
       !count(entry.sizeBytes) ||
@@ -47,7 +60,8 @@ function parseFiles(data) {
       (entry.kind === "changes"
         ? !statuses.includes(entry.status)
         : entry.status !== undefined)
-    ) invalid();
+    )
+      invalid();
     const key = `${entry.kind}\0${entry.path}`;
     if (seen.has(key)) invalid();
     seen.add(key);
@@ -60,7 +74,8 @@ function parseFiles(data) {
     if (
       (counts[kind] || 0) > value.counts[kind] ||
       (bytes[kind] || 0) > value.bytes[kind]
-    ) invalid();
+    )
+      invalid();
     if ((counts[kind] || 0) < value.counts[kind]) cut = true;
     else if ((bytes[kind] || 0) !== value.bytes[kind]) invalid();
   }

@@ -1,31 +1,49 @@
 import { shown, plain, size, ago, fullDate } from "./presentation.mjs";
 
 export function undoAction(results, restore) {
-  if (!results.length || results.some(r => !r.restoreID || r.missing)) return undefined;
-  const ids = results.map(r => r.restoreID);
+  if (!results.length || results.some((r) => !r.restoreID || r.missing))
+    return undefined;
+  const ids = results.map((r) => r.restoreID);
   return { label: "Undo", run: () => restore(ids) };
 }
 export function restoreNotice(results) {
-  const restored = results.filter(r => r.restored);
-  const failed = results.filter(r => !r.restored);
+  const restored = results.filter((r) => r.restored);
+  const failed = results.filter((r) => !r.restored);
   const n = restored.length;
-  let message = n ? `Put back ${n} worktree${n === 1 ? "" : "s"}.` : "No worktrees were put back.";
-  if (restored.some(r => !r.clean))
-    message += n === 1
-      ? " The uncommitted files it had were discarded and are not back."
-      : " Uncommitted files discarded during deletion are not back.";
-  if (restored.some(r => r.moved)) message += " A branch has moved since deletion; its current commit was restored.";
-  for (const r of failed) message += ` ${plain(r.path)}: ${plain(r.error || "Could not restore")}`;
-  for (const r of restored.filter(r => r.warning)) message += ` ${plain(r.warning)}`;
-  return { message, error: failed.length > 0 || restored.some(r => r.warning) };
+  let message = n
+    ? `Put back ${n} worktree${n === 1 ? "" : "s"}.`
+    : "No worktrees were put back.";
+  if (restored.some((r) => !r.clean))
+    message +=
+      n === 1
+        ? " The uncommitted files it had were discarded and are not back."
+        : " Uncommitted files discarded during deletion are not back.";
+  if (restored.some((r) => r.moved))
+    message +=
+      " A branch has moved since deletion; its current commit was restored.";
+  for (const r of failed)
+    message += ` ${plain(r.path)}: ${plain(r.error || "Could not restore")}`;
+  for (const r of restored.filter((r) => r.warning))
+    message += ` ${plain(r.warning)}`;
+  return {
+    message,
+    error: failed.length > 0 || restored.some((r) => r.warning),
+  };
 }
 
 export function createRestoreController({ document, api, notify, reload }) {
   const dialog = document.querySelector("#restore-dialog");
   const content = document.querySelector("#restore-content");
-  let entries = [], errors = new Map(), busy = false, generation = 0, opener;
+  let entries = [],
+    errors = new Map(),
+    busy = false,
+    generation = 0,
+    opener;
   function render() {
-    content.innerHTML = entries.length ? entries.map(entry => `
+    content.innerHTML = entries.length
+      ? entries
+          .map(
+            (entry) => `
       <article class="restore-entry" data-restore-entry="${shown(entry.id)}">
         <div><h3>${shown(entry.path.split("/").filter(Boolean).pop())}</h3>
         <p>${shown(entry.branch || "Detached HEAD")} · ${shown(entry.repo)} · ${shown(entry.host || "This computer")}</p>
@@ -34,7 +52,10 @@ export function createRestoreController({ document, api, notify, reload }) {
         ${entry.clean ? "" : '<p class="restore-loss">Uncommitted files and other work discarded during deletion are not restored.</p>'}
         ${errors.has(entry.id) ? `<p class="restore-error" role="status">${shown(errors.get(entry.id))}</p>` : ""}</div>
         <button class="button" data-restore="${shown(entry.id)}" ${busy ? "disabled" : ""}>Restore</button>
-      </article>`).join("") : '<p>Nothing deleted in the last 30 days.</p>';
+      </article>`,
+          )
+          .join("")
+      : "<p>Nothing deleted in the last 30 days.</p>";
   }
   async function restore(ids) {
     if (busy) return;
@@ -62,7 +83,7 @@ export function createRestoreController({ document, api, notify, reload }) {
       }
     }
   }
-  content.addEventListener("click", event => {
+  content.addEventListener("click", (event) => {
     const button = event.target.closest("[data-restore]");
     if (button && !busy) restore([button.dataset.restore]);
   });
@@ -82,9 +103,11 @@ export function createRestoreController({ document, api, notify, reload }) {
       try {
         const found = await api.listDeletions();
         if (current !== generation || !dialog.open) return;
-        entries = found; render();
+        entries = found;
+        render();
       } catch (error) {
-        if (current === generation && dialog.open) content.textContent = plain(error.message);
+        if (current === generation && dialog.open)
+          content.textContent = plain(error.message);
       }
     },
   };
