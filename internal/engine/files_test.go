@@ -44,6 +44,22 @@ func TestFilesRemoteArgumentsAndResponse(t *testing.T) {
 	if result, err := Files(context.Background(), "fixture-host", "~/worktree", repo, 7); err != nil || result.Path != report.Path {
 		t.Fatalf("remote path resolution: %+v, %v", result, err)
 	}
+	var events []worktree.Progress
+	managed.stream = func(_ context.Context, host, value string, _ io.Reader, reportProgress func(worktree.Progress)) ([]byte, error) {
+		if !strings.Contains(value, "'--progress'") || !strings.Contains(value, "'--watch-stdin'") {
+			t.Fatal(value)
+		}
+		for _, stage := range []string{"files-git", "files-search", "files-measure"} {
+			reportProgress(worktree.Progress{Stage: stage, Path: path})
+		}
+		return json.Marshal(report)
+	}
+	if _, err := Files(context.Background(), "fixture-host", path, repo, 7, func(p worktree.Progress) { events = append(events, p) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 4 || events[0].Stage != "connecting" || events[3].Stage != "files-measure" {
+		t.Fatal(events)
+	}
 	report.Entries = nil
 	if _, err := Files(context.Background(), "fixture-host", path, repo, 7); err == nil {
 		t.Fatal("accepted incomplete result")

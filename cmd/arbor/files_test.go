@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,5 +24,38 @@ func TestFilesHumanOutputQuotesPathsAndExplainsBounds(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "bad\n") || strings.Contains(out.String(), "\x1b") {
 		t.Fatal("unsafe path output")
+	}
+}
+
+func TestFilesFramedProgressLeavesStdoutUnchanged(t *testing.T) {
+	root, repo := cliTestRepository(t)
+	target := filepath.Join(root, "topic")
+	cliTestGit(t, repo, "worktree", "add", "-b", "topic", target)
+	if err := os.WriteFile(filepath.Join(target, "notes"), []byte("notes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plain, quiet, err := commandOutput(t, "files", target, "--json")
+	if err != nil || quiet != "" {
+		t.Fatal(err, quiet)
+	}
+	out, framed, err := commandOutput(t, "files", target, "--json", "--progress")
+	if err != nil || plain != out {
+		t.Fatal("stdout changed", err, plain, out)
+	}
+	lines := strings.Split(strings.TrimSpace(framed), "\n")
+	if len(lines) < 3 {
+		t.Fatal(framed)
+	}
+	for _, line := range lines {
+		if !strings.HasPrefix(line, worktree.ProgressPrefix) {
+			t.Fatal(line)
+		}
+		var event worktree.Progress
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, worktree.ProgressPrefix)), &event); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(event.Stage, "files-") {
+			t.Fatal(event)
+		}
 	}
 }

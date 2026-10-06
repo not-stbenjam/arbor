@@ -44,11 +44,17 @@ var FileKinds = []string{"changes", "ignored", "unchecked", "submodules", "opera
 
 // Files uses the same exact registration selection as remove, without doing
 // merge, publication or deletion checks that cannot add to this inventory.
-func Files(ctx context.Context, path, repository string, limit int) (FilesReport, error) {
+func Files(ctx context.Context, path, repository string, limit int, progress ...func(Progress)) (FilesReport, error) {
 	result := FilesReport{Counts: map[string]int{}, Bytes: map[string]int64{}, Entries: []FileEntry{}, Warnings: []string{}}
 	if limit < 1 || limit > 10000 {
 		return result, errors.New("limit must be between 1 and 10000")
 	}
+	var callback func(Progress)
+	if len(progress) > 0 {
+		callback = progress[0]
+	}
+	emit := filesReporter(ctx, path, callback)
+	emit("files-git", 0, 0, 0, true)
 	options := Options{Root: path, Repository: repository, TargetOnly: true, LinkedOnly: true, Excludes: []string{}}
 	location, err := prepareScan(ctx, options)
 	if err != nil {
@@ -90,6 +96,7 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 			seen[key] = true
 		}
 	}
+	visited := 0
 	var submodules []string
 	if where == inspectionCheckout {
 		off, names := repositoryFilters(ctx, w.Path)
@@ -189,9 +196,18 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 		}
 		// A repository inside holds history that is nowhere else, so what could
 		// not be looked through is said: a count of none would hide it.
+		emit("files-search", 0, 0, 0, true)
 		search, cancel := context.WithTimeout(ctx, filesSearchBudget)
 		unread := 0
 		err = walkFiles(search, w.Path, func(string, error) error { unread++; return nil }, func(disk string, d fs.DirEntry) error {
+			if !d.IsDir() {
+				visited++
+				// Amortize the clock check across directory-read-sized batches.
+				// Counting never needs another stat or another walk.
+				if visited%128 == 0 {
+					emit("files-search", visited, 0, 0, false)
+				}
+			}
 			if d.Name() == ".git" {
 				parent := filepath.Dir(disk)
 				if parent != w.Path && !slices.Contains(submodules, parent) {
@@ -263,9 +279,13 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 			add("refs", ref, "", "")
 		}
 	}
+	emit("files-measure", visited, 0, len(candidates), true)
 	measuring, cancel := context.WithTimeout(ctx, filesMeasureBudget)
 	defer cancel()
-	for _, item := range candidates {
+	for i, item := range candidates {
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
 		entry := item.entry
 		if item.disk != "" {
 			entry.SizeBytes, entry.Files, entry.Directory, entry.SizeLowerBound = measureFiles(measuring, w.Path, item.disk)
@@ -277,6 +297,7 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 		result.Counts[entry.Kind]++
 		result.Bytes[entry.Kind] += entry.SizeBytes
 		result.Entries = append(result.Entries, entry)
+		emit("files-measure", visited, i+1, len(candidates), false)
 	}
 	if ctx.Err() != nil {
 		return result, ctx.Err()
@@ -302,6 +323,7 @@ func Files(ctx context.Context, path, repository string, limit int) (FilesReport
 		}
 	}
 	result.Entries = retained
+	emit("files-measure", visited, len(candidates), len(candidates), true)
 	return result, nil
 }
 
@@ -449,4 +471,26 @@ func measureFiles(ctx context.Context, root, path string) (bytes int64, files in
 	})
 	lower = lower || err != nil
 	return
+}
+
+// Stage boundaries and the final count are immediate; intermediate counts are
+// limited to ten per second. No timer, extra walk, or goroutine does reporting.
+func filesReporter(ctx context.Context, path string, callback func(Progress)) func(string, int, int, int, bool) {
+	var last time.Time
+	var previous Progress
+	return func(stage string, discovered, completed, total int, boundary bool) {
+		if callback == nil || ctx.Err() != nil {
+			return
+		}
+		now := time.Now()
+		if !boundary && now.Sub(last) < 100*time.Millisecond {
+			return
+		}
+		event := Progress{Stage: stage, Path: path, Discovered: discovered, Completed: completed, Total: total}
+		if event == previous {
+			return
+		}
+		last, previous = now, event
+		callback(event)
+	}
 }

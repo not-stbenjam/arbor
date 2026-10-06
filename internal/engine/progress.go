@@ -73,6 +73,10 @@ func validProgress(event worktree.Progress) bool {
 		return false
 	}
 	switch event.Stage {
+	case "files-git", "files-search":
+		return event.Total == 0 && event.Completed == 0
+	case "files-measure":
+		return event.Completed <= event.Total
 	case "discovery", "fetch", "inspect", "connecting", "remove":
 		return true
 	}

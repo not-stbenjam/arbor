@@ -336,3 +336,65 @@ func TestFilesTellsApartNamesThatAreNotText(t *testing.T) {
 		t.Fatalf("counts = %v", r.Counts)
 	}
 }
+
+func TestFilesProgress(t *testing.T) {
+	root := testRoot(t)
+	repo := testRepo(t, filepath.Join(root, "repo"))
+	wt := testLinked(t, repo, filepath.Join(root, "linked"), "topic")
+	testWrite(t, filepath.Join(wt, "one"), "one")
+	testWrite(t, filepath.Join(wt, "two"), "two")
+	var events []Progress
+	result, err := Files(context.Background(), wt, repo, 1, func(p Progress) { events = append(events, p) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stages []string
+	var previous Progress
+	for _, event := range events {
+		if event.Stage != previous.Stage {
+			stages = append(stages, event.Stage)
+		}
+		if event.Discovered < previous.Discovered || event.Completed < previous.Completed {
+			t.Fatal("counts went backwards", events)
+		}
+		if event.Stage != "files-measure" && event.Total != 0 {
+			t.Fatal("invented total", event)
+		}
+		if event.Completed > event.Total {
+			t.Fatal("exceeded total", event)
+		}
+		previous = event
+	}
+	if !reflect.DeepEqual(stages, []string{"files-git", "files-search", "files-measure"}) {
+		t.Fatal(stages)
+	}
+	total := 0
+	for _, n := range result.Counts {
+		total += n
+	}
+	if previous.Total != total || previous.Completed != total {
+		t.Fatal(previous, result.Counts)
+	}
+	quiet, err := Files(context.Background(), wt, repo, 1)
+	if err != nil || !reflect.DeepEqual(result, quiet) {
+		t.Fatal("reporting changed result", err)
+	}
+	for _, stopAt := range stages {
+		ctx, cancel := context.WithCancel(context.Background())
+		_, err = Files(ctx, wt, repo, 1, func(p Progress) {
+			if ctx.Err() != nil {
+				t.Fatal("reported after cancellation", p)
+			}
+			if p.Stage == stopAt {
+				cancel()
+			}
+		})
+		cancel()
+		if err == nil {
+			t.Fatal("continued after cancellation at", stopAt)
+		}
+		_, _ = Files(ctx, wt, repo, 1, func(p Progress) { t.Fatal("reported on cancelled context") })
+	}
+	// No callback is required even at a stage boundary.
+	filesReporter(context.Background(), wt, nil)("files-git", 0, 0, 0, true)
+}

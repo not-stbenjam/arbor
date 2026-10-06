@@ -22,6 +22,9 @@ type Options struct {
 const ProgressPrefix = "@arbor-progress "
 
 // Progress reports actual completed work. Total is zero while it is unknown.
+// Files uses files-git, files-search, and files-measure. Discovered counts
+// non-directory entries visited during the search; Completed and Total count
+// inventory entries processed during measurement, including lower bounds.
 type Progress struct {
 	Stage      string    `json:"stage"`
 	Path       string    `json:"path"`
