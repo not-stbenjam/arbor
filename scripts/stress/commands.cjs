@@ -48,6 +48,7 @@ main(() => scenario("commands", async (f) => {
     assert.notEqual(r.status, 0); assert.match(r.stderr, /native Arbor app not found/);
   } else console.log("SKIP gui launch: macOS has a fixed /Applications lookup");
   assert.equal(json(f.cli("stats", "--json")).removedWorktrees, 0);
+  await scriptingExamples(f);
   repo.git("remote", "add", "upstream", f.path("unfetched.git"));
   for (const command of ["list", "clean"]) {
     const args = [command, "--path", f.root, "--older-than=100w", "--json"];
@@ -57,3 +58,26 @@ main(() => scenario("commands", async (f) => {
     assert.ok(JSON.parse(strict.stdout).warnings.length);
   }
 }));
+
+// README scripting examples run locally and through a fixture-only SSH host.
+async function scriptingExamples(f) {
+  for (const remote of [false, true]) {
+    const host = remote ? f.host("scripting-host") : null;
+    const root = host ? host.root : f.path("scripting");
+    const repo = f.repository(path.relative(f.directory, path.join(root, "repo")), { hoursOld: 2000 });
+    const old = repo.worktree("old", { at: path.relative(f.directory, path.join(root, "old")), hoursOld: 1000 });
+    const recent = repo.worktree("recent", { at: path.relative(f.directory, path.join(root, "recent")), hoursOld: 72 });
+    const connection = host ? ["--host", host.name] : [];
+    for (const command of ["list", "clean"]) {
+      const result = json(f.cli(command, "--path", root, "--older-than", "30d", "--sort", "activity", "--strict", "--json", ...connection));
+      assert.deepEqual(result.worktrees.map((w) => w.path), [old.path]);
+    }
+    const sizes = json(f.cli("list", "--path", root, "--sort", "size", "--strict", "--json", ...connection)).worktrees.map((w) => w.sizeBytes);
+    assert.deepEqual(sizes, [...sizes].sort((a, b) => b - a));
+    const removed = json(f.cli("clean", "--path", root, "--older-than", "30d", "--yes", "--json", ...connection));
+    assert.deepEqual(removed.map((w) => w.path), [old.path]);
+    assert.equal(removed[0].removed, true);
+    assert.ok(f.exists(recent.path));
+    assert.ok(f.exists(repo.path));
+  }
+}

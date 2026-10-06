@@ -130,7 +130,7 @@ func newListCommand() *cobra.Command {
 	flags := &commandOptions{linkedOnly: true}
 	cmd := worktreeCommand("list", "Find and inspect linked worktrees",
 		"Find linked worktrees under a folder, with paths, branches, activity, and status.\nPrimary checkouts are omitted. Use --linked-only=false to include them for\ndiagnostics. Fetch and GitHub checks are opt-in. JSON stdout remains clean;\nhuman progress and --progress events go to stderr.",
-		"  arbor list -p ~/code\n  arbor list --host my-vps --json\n  arbor list --exclude '~/.codex*/.tmp'\n  arbor list --recommended --fetch --github", flags)
+		"  arbor list -p ~/code\n  arbor list --path ~/code --older-than 30d --sort activity\n  arbor list --path ~/code --sort size --strict --json\n  arbor list --host my-vps --json\n  arbor list --exclude '~/.codex*/.tmp'\n  arbor list --recommended --fetch --github", flags)
 	addConnectionFlags(cmd, flags, true)
 	addOutputFlags(cmd, flags)
 	addDiscoveryFlags(cmd, flags)

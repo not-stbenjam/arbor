@@ -22,7 +22,12 @@ node scripts/stress/fuzz.cjs
 ```
 
 The runner runs topics sequentially and emits one timed PASS/FAIL per topic.
-It keeps running after a failure and exits nonzero if any topic failed. It
+It keeps running after a failure and exits nonzero if any topic failed.
+The `commands` topic checks CLI status 2 for usage errors, 1 for refused
+removals, 3 for incomplete scans with `--strict`, and 130 for interruption.
+Successful previews and no-match scans return 0. The former
+`bugs/exit-codes.cjs` regression is now part of `commands.cjs`, alongside the
+age-filter, sort, and strict scripting examples. The runner
 excludes `bugs/` unless explicitly named. Each bug script asserts the desired
 behavior, so confirmed defects fail. All bug scripts create their own empty
 fixture; no manual repository setup or destructive command is needed.
