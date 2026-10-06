@@ -29,10 +29,24 @@ jobs:
         run: |
           set -euo pipefail
           # Asked with the job's own token: unnamed callers share a small
-          # allowance, and GitHub's machines use it up between them.
+          # allowance, and GitHub's machines use it up between them. A release
+          # is published some minutes before its files are all there, so the
+          # one taken is the newest that has every file the recipes name.
           tag=$(curl --fail --silent --show-error --location \
             --header "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/repos/stbenjam/arbor/releases/latest | jq -er .tag_name)
+            'https://api.github.com/repos/stbenjam/arbor/releases?per_page=10' | jq -er '
+              [ .[]
+                | select((.draft or .prerelease) | not)
+                | . as $release
+                | select(
+                    ["checksums.txt", "darwin_arm64.tar.gz", "darwin_amd64.tar.gz",
+                     "linux_arm64.tar.gz", "linux_amd64.tar.gz",
+                     "darwin_arm64.app.zip", "darwin_amd64.app.zip"]
+                    | all(. as $suffix
+                          | any($release.assets[];
+                                .name == "arbor_\($release.tag_name)_\($suffix)"
+                                and .state == "uploaded")))
+              ][0].tag_name')
           curl --fail --silent --show-error --location \
             "https://github.com/stbenjam/arbor/releases/download/$tag/arbor_${tag}_checksums.txt" \
             --output "$RUNNER_TEMP/checksums.txt"
