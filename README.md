@@ -15,7 +15,7 @@ The desktop app uses Electron with a native window, system typography, compact c
 
 ## Download
 
-Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.1.19`.
+Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.2.0`.
 
 | Platform             | Desktop app                          | Standalone CLI                      |
 | -------------------- | ------------------------------------ | ----------------------------------- |
@@ -47,8 +47,8 @@ For an `arbor` command on your shell's `PATH`, install the standalone CLI as des
 Make the AppImage executable and open it:
 
 ```sh
-chmod +x arbor_v0.1.19_linux_amd64.AppImage
-./arbor_v0.1.19_linux_amd64.AppImage
+chmod +x arbor_v0.2.0_linux_amd64.AppImage
+./arbor_v0.2.0_linux_amd64.AppImage
 ```
 
 Use the ARM64 asset on ARM hardware. If AppImage cannot mount on your distribution, use the `.desktop.tar.gz` download, extract it, and run `./arbor-desktop` from that folder. Keep its `resources/` directory alongside the executable. Linux desktop builds depend on the standard desktop libraries provided by supported distributions.
@@ -59,8 +59,8 @@ Extract the matching CLI archive. It contains a versioned directory; enter
 that directory before installing. For example, on Linux x86-64:
 
 ```sh
-tar -xzf arbor_v0.1.19_linux_amd64.tar.gz
-cd arbor_v0.1.19_linux_amd64
+tar -xzf arbor_v0.2.0_linux_amd64.tar.gz
+cd arbor_v0.2.0_linux_amd64
 ```
 
 Use `darwin` for macOS and `arm64` for Apple Silicon or Linux ARM64. Run the
@@ -109,7 +109,7 @@ Arbor discovers Git repositories beneath your chosen folder and lists their link
 
 The desktop groups worktrees by their actual directories. Each row leads with the worktree's name, then its branch and repository, last activity, and size; the folder rows above it give the rest of its path, which is also its tooltip and one **Copy path** away. A row names the one fact that most affects cleanup, when there is one: **Merged**, **New**, **Locked**, changed files, ignored files, a missing folder, or the reason it cannot be deleted. Green **Merged** marks exactly the rows **Delete recommended** removes. Delete a row, or point at a folder row for its **Delete…**, which deletes the worktrees shown beneath it and keeps the folder itself and anything else in it. To pick your own set, click the rows you want, or the boxes down their left edge, and choose **Delete selected…**. Clicking a row ticks it and leaves the others as they are, and clicking it again unticks it; a folder's box ticks every worktree shown under it, and the box in the heading ticks everything shown. A tick stays when a search, another view or a closed folder takes its row out of the list, so a selection can be gathered over several searches; the selection bar says how many of them are not shown. Deleting several at once, from the selection bar or a folder, first opens a review of every one of them, shown in the list or not: its full path and size, and what deleting it means, whether that is why it is recommended, that its branch keeps what is not merged, what would be discarded, or that it cannot be deleted and is left alone. Where nothing would be discarded, agreeing there is the only question; where something would, the question about discarding is asked once more by name. Right-click a row, or press Enter on it, to copy its path, open it in Finder or a file manager, or open a terminal there. Opening actions are unavailable for SSH worktrees.
 
-Arrow keys move through the list without ticking anything, and Enter opens a row's actions. Space ticks or unticks the row the cursor is on, as clicking it does, and Shift with an arrow key or a click ticks every row from the one the cursor is on. Ticking a row never unticks another; Escape unticks everything. Delete removes what is ticked, or the row the cursor is on when nothing is, after confirmation. Tab moves between the list and its folders rather than through every row's buttons, and when a row is deleted the keyboard stays on the row that takes its place. Page Up and Page Down move by a screenful. `/` or Ctrl/Cmd+F focuses the filter, which also finds rows by what they say their state is, such as "ignored"; Down from the filter goes to its first result. The sort menu's arrow button reverses the order, as clicking a column heading does.
+Arrow keys move through the list without ticking anything, and Enter opens a row's actions. Space ticks or unticks the row the cursor is on, as clicking it does, and Shift with an arrow key or a click ticks every row from the one the cursor is on. Ticking a row never unticks another; Escape unticks everything. Delete removes what is ticked, or the row the cursor is on when nothing is, after confirmation. Tab moves between the list and its folders rather than through every row's buttons, and when a row is deleted the keyboard stays on the row that takes its place. Page Up and Page Down move by a screenful. `/` or Ctrl/Cmd+F focuses the filter, which also finds rows by what they say their state is, such as "ignored"; Down from the filter goes to its first result. The sort menu's arrow button reverses the order, as clicking a column heading does. Sorting by size or by last activity orders the folders as well as the rows in them, by the largest or the longest-idle worktree anywhere beneath each, so the first row is the largest or the stalest there is. In a window too narrow for the **Last active** and **Size** columns, each row's second line ends with them.
 
 The desktop scans in the background, with independent progress and **Stop** controls for each host. Previously checked worktrees remain usable during a refresh; newly discovered rows show pending checks until their scan completes. Deleting a checked worktree stops and settles a refresh on that host before removing the selected target. Scans on other hosts continue. Stopping a scan keeps its previous checked results and any incomplete discoveries visible; incomplete discoveries cannot be deleted until checked.
 
@@ -121,7 +121,7 @@ Skipped folders also omit registered worktrees inside them. They only affect wha
 
 **Settings** stays pinned below the scrolling repository list. Scan settings apply with **Save & scan**, for the host shown; edits to one host are kept while you look at another's, and a host still holding unsaved edits is shown next rather than dropped. Settings stays open until the scan has been taken up, so one that is refused is put right where it was typed, and a folder on this computer that does not exist is refused before anything is saved. While the host being edited is still scanning, Settings has its own **Stop scan**, and keeps what was changed. Appearance applies as soon as it is chosen, there or with the toggle beside the version. To start over, choose **Settings → Reset to defaults…** and confirm. Arbor stops any active scan, clears its saved settings and scan results, and reopens setup. It does not delete repositories, worktrees, SSH configuration, or cleanup statistics. Reset is unavailable while worktree cleanup is running.
 
-Arbor remembers each host's last scan across host switches and app restarts. **All hosts** combines them into a host → directory → worktree tree; the host picker filters it without scanning or cancelling background work. Saved results appear immediately, marked with the time they were scanned, and unscanned hosts scan in the background (up to three at a time). A saved list from an earlier day says so above its rows, with **Refresh** beside it; it is not scanned again behind your back. **Refresh** scans the selected host, or all idle hosts in the combined view. Settings has its own host selector for editing one host's scan options. A host that cannot be reached is reported once, in the banner, and counted in the status bar; the other hosts' results stay usable. Deletion always rechecks the selected worktree before touching it.
+Arbor remembers each host's last scan across host switches and app restarts, and with it how the list was sorted and which machine was showing; a search and a selection are not carried over. With no SSH host added there is only this computer: the switcher says **This computer**, and the list starts at its folders. Once a host is added, **All hosts** combines them into a host → directory → worktree tree; the host picker filters it without scanning or cancelling background work. Saved results appear immediately, marked with the time they were scanned, and unscanned hosts scan in the background (up to three at a time). A saved list from an earlier day says so above its rows, with **Refresh** beside it; it is not scanned again behind your back. **Refresh** scans the selected host, or all idle hosts in the combined view. Settings has its own host selector for editing one host's scan options. A host that cannot be reached is reported once, in the banner, and counted in the status bar; the other hosts' results stay usable. Deletion always rechecks the selected worktree before touching it.
 
 ## Statistics
 
@@ -371,13 +371,13 @@ make build                            # standalone Go CLI in bin/arbor
 make install                          # install CLI into ~/.local/bin
 make check                            # Go vet and race tests
 npm run test:desktop                  # backend/desktop bridge tests
-make package VERSION=v0.1.19           # standalone CLI archives, all 4 platforms
-make desktop-package VERSION=v0.1.19   # desktop app for this OS + architecture
+make package VERSION=v0.2.0            # standalone CLI archives, all 4 platforms
+make desktop-package VERSION=v0.2.0    # desktop app for this OS + architecture
 ```
 
 CLI packaging needs Go and `tar`, can cross-compile all four targets from either OS, and keeps `CGO_ENABLED=0`. Desktop packaging uses pinned Electron/electron-builder dependencies, builds the matching Go companion, and produces a macOS `.app.zip` or Linux AppImage and desktop archive. Build macOS packages on macOS. Outputs go into `dist/`.
 
-The release tag is embedded in the backend (for example `v0.1.19`) and the corresponding numeric version in the desktop app (`0.1.19`). Set `ARBOR_VERSION=v0.1.19` for direct npm packaging commands; otherwise the version comes from `package.json`.
+The release tag is embedded in the backend (for example `v0.2.0`) and the corresponding numeric version in the desktop app (`0.2.0`). Set `ARBOR_VERSION=v0.2.0` for direct npm packaging commands; otherwise the version comes from `package.json`.
 
 ## Code organization
 
