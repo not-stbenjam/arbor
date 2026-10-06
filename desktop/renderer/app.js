@@ -155,7 +155,7 @@ async function bootstrap() {
     tree,
     showWorktreeMenu,
     onSortChange: (value) =>
-      api.saveView(value).catch((error) =>
+      api.saveView?.(value)?.catch((error) =>
         notify(`Could not save view: ${error.message}`, true),
       ),
     reviewDeletion: (rows) => cleanup.openFor(rows),

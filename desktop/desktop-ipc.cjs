@@ -74,10 +74,9 @@ function registerDesktopIPC({
       await preferences.saveView({ hostFilter: host });
       return state;
     });
-    handle("arbor:save-view", (value) => {
-      guardInteraction();
-      return preferences.saveView(value);
-    });
+    // How the list is sorted is remembered whatever else is going on: it
+    // changes nothing but what is shown.
+    handle("arbor:save-view", (value) => preferences.saveView(value));
     handle("arbor:refresh-hosts", (host) => backend.refreshHosts(host));
     handle("arbor:worktree-menu", showWorktreeMenu);
     handle("arbor:cancel-scan", (host) => {
