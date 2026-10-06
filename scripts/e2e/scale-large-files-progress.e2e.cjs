@@ -45,11 +45,15 @@ scenario({
     });
     // Real files make the work observable without any product delay. Create
     // them after scanning so only the requested inventory walks this workload.
+    // They are empty: it is their number that takes the time, and nearly half
+    // a million of them with a byte each took two gigabytes of a temporary
+    // folder kept in memory. For the same reason this runs with the other
+    // large scenarios, one at a time, and not with the everyday ones.
     for (const tree of t.world.trees) {
       for (let folder = 0; folder < 120; folder++) {
         const dir = path.join(tree.path, `build-${String(folder).padStart(3, "0")}`);
         fs.mkdirSync(dir);
-        for (let file = 0; file < 2000; file++) fs.writeFileSync(path.join(dir, String(file)), "x");
+        for (let file = 0; file < 2000; file++) fs.writeFileSync(path.join(dir, String(file)), "");
       }
     }
     t.page.debugger.attach("1.3");

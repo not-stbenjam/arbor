@@ -112,7 +112,7 @@ export function createFilesController({ document, api, workspace }) {
     }, 150);
     if (!dialog.open) dialog.showModal();
     $("#files-title").focus({ preventScroll: true });
-    $("#files-body").scrollTop = dialog.scrollTop = 0;
+    $(".files-results").scrollTop = dialog.scrollTop = 0;
     try {
       const report = await api.worktreeFiles({
         id: row.id,

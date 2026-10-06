@@ -2347,15 +2347,21 @@ th.sorted > button > .icon {
 }
 
 /* The inventory can sit above a deletion review without changing its choice. */
+/* It is one size while the list loads and once it has, so nothing moves
+   when the list arrives, and the list has all the room the window allows. */
 .files-dialog {
   width: min(680px, calc(100vw - 32px));
+  height: min(600px, calc(100vh - 60px));
 }
 #files-title {
   overflow-wrap: anywhere;
 }
 #files-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 .files-path {
   overflow-wrap: anywhere;
@@ -2405,10 +2411,15 @@ th.sorted > button > .icon {
 
 @media (max-height: 360px) {
   .files-dialog {
+    height: auto;
     overflow-y: auto;
   }
   #files-body {
+    display: block;
     flex: none;
+    overflow: visible;
+  }
+  .files-dialog .files-results {
     overflow: visible;
   }
 }
@@ -2427,10 +2438,12 @@ th.sorted > button > .icon {
 .cleanup-grave { display: block; margin-top: 6px; }
 .cleanup-note { display: block; }
 
-/* Reserve the same space for loading and results. A quick result is shown
-   immediately; only revealing the loading indicator has a short delay. */
+/* The list, or the progress of loading it, takes what the dialog has left.
+   A quick result is shown immediately; only revealing the loading indicator
+   has a short delay. */
 .files-results {
-  height: clamp(120px, 32vh, 280px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 #files-loading {
