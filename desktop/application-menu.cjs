@@ -88,6 +88,8 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
     {
       label: "View",
       submenu: [
+        { id: "toggle-sidebar", label: "Toggle Sidebar", accelerator: "CmdOrCtrl+B", click: () => sendAction("toggle-sidebar") },
+        { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },
         { role: "zoomOut" },
@@ -132,6 +134,7 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
 // The commands of Arbor's own that the window can say are unavailable just
 // now: during setup, behind a dialog, or while it is deleting.
 const COMMANDS = [
+  "toggle-sidebar",
   "refresh",
   "add-host",
   "statistics",

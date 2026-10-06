@@ -347,6 +347,8 @@ test("input validation and preference schema are bounded and match renderer cont
       setupCompleted: false,
       sort: "path",
       descending: false,
+      sidebarWidth: null,
+      sidebarHidden: false,
       hostFilter: null,
       exclusionDefaultsVersion: 2,
       scans: [scanOptions({ root: "/work" })],

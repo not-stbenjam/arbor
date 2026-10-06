@@ -274,10 +274,12 @@ body {
 }
 .views {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   flex-shrink: 0;
 }
 .nav-item {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2490,5 +2492,22 @@ th.sorted > button > .icon {
 #host-menu [aria-checked="true"] { color: var(--accent); background: var(--selected); }
 #host-menu [data-manage] { margin-top: 4px; border-top: 1px solid var(--line); }
 
+.workspace { position: relative; }
+.workspace > main { grid-column: 2; }
+.sidebar[hidden], #sidebar-resizer[hidden] { display: none; }
+#sidebar-resizer {
+  position: absolute;
+  z-index: 4;
+  left: calc(var(--sidebar-width) - 3px);
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+#sidebar-resizer:hover, #sidebar-resizer:focus-visible { background: var(--accent); }
+#sidebar-resizer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.toolbar, .toolbar-actions { flex-wrap: wrap; }
+.toolbar-actions { margin-left: auto; }
 
 .machine-row .host-name { width: 130px; min-width: 0; font-size: 12px; }

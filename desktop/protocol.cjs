@@ -354,6 +354,8 @@ function validatePreferences(value) {
       ? value.sort
       : "path",
     descending: value.descending === true,
+    sidebarWidth: require("./common/sidebar-layout.mjs").sidebarWidth(value.sidebarWidth),
+    sidebarHidden: value.sidebarHidden === true,
     hostFilter:
       typeof value.hostFilter === "string" &&
       isValidSSHHost(value.hostFilter, { allowLocal: true })

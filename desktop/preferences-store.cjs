@@ -68,7 +68,7 @@ class PreferencesStore {
     return this.#write((current) => ({
       ...current,
       ...Object.fromEntries(
-        ["sort", "descending", "hostFilter"]
+        ["sort", "descending", "hostFilter", "sidebarWidth", "sidebarHidden"]
           .filter((key) => Object.hasOwn(value, key))
           .map((key) => [key, value[key]]),
       ),
