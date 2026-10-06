@@ -188,9 +188,14 @@ jobs:
           echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
           echo "/home/linuxbrew/.linuxbrew/sbin" >> "$GITHUB_PATH"
       - name: Generate a temporary tap from the latest release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Asked with the job's own token: unnamed callers share a small
+          # allowance, and GitHub's machines use it up between them.
           tag=$(curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
             https://api.github.com/repos/stbenjam/arbor/releases/latest | jq -er .tag_name)
           echo "ARBOR_RELEASE=$tag" >> "$GITHUB_ENV"
           curl --fail --silent --show-error --location \

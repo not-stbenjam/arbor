@@ -24,9 +24,14 @@ jobs:
           node-version: '24'
       - name: Generate recipes from the latest published release
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Asked with the job's own token: unnamed callers share a small
+          # allowance, and GitHub's machines use it up between them.
           tag=$(curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
             https://api.github.com/repos/stbenjam/arbor/releases/latest | jq -er .tag_name)
           curl --fail --silent --show-error --location \
             "https://github.com/stbenjam/arbor/releases/download/$tag/arbor_${tag}_checksums.txt" \
