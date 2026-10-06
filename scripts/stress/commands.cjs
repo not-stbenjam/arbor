@@ -16,8 +16,12 @@ main(() => scenario("commands", async (f) => {
   assert.equal(list(f, "--no-default-excludes", "--exclude", "a,b").worktrees.length, 2);
   assert.equal(json(f.cli("list", "--path=", "--json")).root, f.home);
   for (const args of [["nonsense"], ["list", "--unknown"], ["clean", "--force"], ["remove"], ["remove", a.path, b.path], ["list", "--path"], ["list", "--json=bad"], ["list", "--", "--json"], ["remove", a.path, "--force", "--recommended-only"], ["remove", a.path, "--force", "--keep-local"], ["remove", a.path, "--acknowledge=unknown"], ["remove", a.path, "--expect-empty", "--expect-missing"]]) {
-    const r = f.cli(...args); assert.notEqual(r.status, 0, args.join(" ")); assert.ok(r.stderr);
+    const r = f.cli(...args); assert.equal(r.status, 2, args.join(" ")); assert.ok(r.stderr);
   }
+  assert.equal(f.cli("remove", b.path, "--yes").status, 1, "refused removal is an operational failure");
+  assert.equal(f.cli("remove", a.path, "--head=").status, 2);
+  assert.equal(f.cli("list", "--sort=invalid").status, 2);
+  assert.equal(f.cli("list", "--older-than=invalid").status, 2);
   for (const flags of [[], ["--all"], ["--all", "--force"], ["--yes=false"], ["--yes", "--yes=false"]]) {
     assert.equal(json(f.cli("clean", "-p", f.root, "--json", ...flags)).dryRun, true);
     assert.ok(f.exists(a.path)); assert.ok(f.exists(b.path));
@@ -28,7 +32,7 @@ main(() => scenario("commands", async (f) => {
   json(f.cli("remove", b.path, "--json", "--discard-local", "--acknowledge=operation", "--acknowledge=nested", "--acknowledge=submodules"));
   assert.equal(json(f.cli("list", "--path", a.path, "--target-only", "--repo", repo.path, "--json")).worktrees.length, 1);
   for (const extra of [["--head=wrong"], ["--id=wrong"], ["--branch="], ["--stats-session=bad space"], ["--expect-missing"], ["--expect-empty"], ["--repo=-missing"]]) assert.notEqual(f.cli("remove", a.path, "--yes", ...extra).status, 0);
-  for (const exclude of ["", ".", "..", "["]) assert.notEqual(f.cli("list", "--path", f.root, "--exclude", exclude).status, 0);
+  for (const exclude of ["", ".", "..", "["]) assert.equal(f.cli("list", "--path", f.root, "--exclude", exclude).status, 2);
   const dashRepo = f.repository("-scan", { remote: false });
   dashRepo.worktree("dash-inside", { at: "-scan/linked" });
   assert.equal(json(f.cli("list", "--path=-scan", "--json")).worktrees.length, 1);

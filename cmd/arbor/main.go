@@ -36,12 +36,33 @@ func main() {
 			os.Exit(130)
 		}
 		fmt.Fprintln(os.Stderr, "arbor:", err)
-		os.Exit(1)
+		os.Exit(exitStatus(err))
 	}
 }
 
 func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	root := newRootCommand(stdout, stderr)
+	if cmd, _, err := root.Find(args); err != nil {
+		return usageError(cmd, err)
+	}
 	root.SetArgs(args)
 	return root.ExecuteContext(ctx)
+}
+
+type usageFailure struct{ error }
+
+func (e *usageFailure) Unwrap() error { return e.error }
+
+func exitStatus(err error) int {
+	if err == nil {
+		return 0
+	}
+	if errors.Is(err, context.Canceled) {
+		return 130
+	}
+	var usage *usageFailure
+	if errors.As(err, &usage) {
+		return 2
+	}
+	return 1
 }

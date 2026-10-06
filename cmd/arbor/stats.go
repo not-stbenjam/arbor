@@ -23,7 +23,7 @@ func newStatsCommand() *cobra.Command {
 		Args:    checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := engine.ValidateHost(host); err != nil {
-				return err
+				return usageError(cmd, err)
 			}
 			report, err := engine.ReadStats(cmd.Context(), host)
 			if err != nil {

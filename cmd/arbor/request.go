@@ -30,8 +30,13 @@ type worktreeRequest struct {
 	watchStdin, json, progress, humanProgress bool
 }
 
-func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, error) {
-	r := worktreeRequest{command: command, host: flags.common.host, scan: flags.common.options(), preview: !flags.yes,
+func normalizeRequest(command string, flags *commandOptions) (r worktreeRequest, err error) {
+	defer func() {
+		if err != nil {
+			err = &usageFailure{err}
+		}
+	}()
+	r = worktreeRequest{command: command, host: flags.common.host, scan: flags.common.options(), preview: !flags.yes,
 		all: flags.all, recommended: flags.recommended, discardLocal: flags.discardLocal || flags.force,
 		expectMissing: flags.expectMissing, expectEmpty: flags.expectEmpty, expectBranch: flags.expectBranch,
 		head: flags.head, id: flags.id, branch: flags.branch,
@@ -105,6 +110,9 @@ func normalizeRequest(command string, flags *commandOptions) (worktreeRequest, e
 			r.scan.Excludes = append(r.scan.Excludes, worktree.DefaultExcludes()...)
 		}
 		r.scan.Excludes = append(r.scan.Excludes, flags.excludes...)
+	}
+	if err := worktree.ValidateExcludes(r.scan.Excludes); err != nil {
+		return r, err
 	}
 	return r, nil
 }

@@ -55,11 +55,18 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 			return err
 		},
 	})
+	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	checkCommandArgs(root)
 	return root
 }
 
 func usageError(cmd *cobra.Command, err error) error {
-	return fmt.Errorf("%w\nRun '%s --help' for usage", err, cmd.CommandPath())
+	var usage *usageFailure
+	if errors.As(err, &usage) {
+		return err
+	}
+	return &usageFailure{fmt.Errorf("%w\nRun '%s --help' for usage", err, cmd.CommandPath())}
 }
 
 func checkedArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
@@ -100,10 +107,13 @@ func worktreeCommand(use, short, long, example string, flags *commandOptions) *c
 		Use: use, Short: short, Long: long, Example: example,
 		Args: checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("sort") && flags.sortOrder == "" {
+				return usageError(cmd, errors.New("--sort accepts name, size or activity"))
+			}
 			if cmd.Name() == "remove" {
 				// Given and left empty, it would require nothing at all.
 				if cmd.Flags().Changed("head") && flags.head == "" {
-					return errors.New("--head needs the commit to require; leave the flag out to require none")
+					return usageError(cmd, errors.New("--head needs the commit to require; leave the flag out to require none"))
 				}
 				flags.common.root = args[0]
 				// An empty branch is itself an expectation: the checkout was detached.
@@ -193,7 +203,7 @@ func newGUICommand() *cobra.Command {
 		Args:    checkedArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := engine.ValidateHost(flags.common.host); err != nil {
-				return err
+				return usageError(cmd, err)
 			}
 			if err := launchDesktop(flags.common); err != nil {
 				return err
@@ -204,4 +214,19 @@ func newGUICommand() *cobra.Command {
 	}
 	addConnectionFlags(cmd, flags, true)
 	return cmd
+}
+
+// Cobra creates completion commands too; their argument checks need the same status.
+func checkCommandArgs(cmd *cobra.Command) {
+	// A non-runnable command prints help before Cobra validates its arguments.
+	if !cmd.Runnable() {
+		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
+	}
+
+	if cmd.Args != nil {
+		cmd.Args = checkedArgs(cmd.Args)
+	}
+	for _, child := range cmd.Commands() {
+		checkCommandArgs(child)
+	}
 }
