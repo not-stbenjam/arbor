@@ -45,7 +45,8 @@ function registerDesktopIPC({
   setMenuAvailability = () => true,
   stat = fsp.stat,
 }) {
-  let removalConfirmation;
+  let removalConfirmation,
+    filesRequest;
   const guardInteraction = () => backend.assertInteractive();
   function trusted(event) {
     const window = getWindow();
@@ -85,7 +86,34 @@ function registerDesktopIPC({
     handle("arbor:save-view", (value) => preferences.saveView(value));
     handle("arbor:refresh-hosts", (host) => backend.refreshHosts(host));
     handle("arbor:worktree-menu", showWorktreeMenu);
-    handle("arbor:worktree-files", (value) => backend.worktreeFiles(value));
+    handle("arbor:worktree-files", async (value) => {
+      if (!Number.isSafeInteger(value?.request) || value.request < 1)
+        throw new Error("Invalid file request");
+      filesRequest?.controller.abort();
+      const current = {
+        request: value.request,
+        controller: new AbortController(),
+      };
+      filesRequest = current;
+      try {
+        return await backend.worktreeFiles(value, {
+          signal: current.controller.signal,
+          onProgress: (progress) => {
+            const window = getWindow();
+            if (filesRequest === current && window && !window.isDestroyed())
+              window.webContents.send("arbor:files-progress", {
+                request: current.request,
+                ...progress,
+              });
+          },
+        });
+      } finally {
+        if (filesRequest === current) filesRequest = null;
+      }
+    });
+    handle("arbor:cancel-files", (request) => {
+      if (filesRequest?.request === request) filesRequest.controller.abort();
+    });
     handle("arbor:cancel-scan", (host) => {
       guardInteraction();
       return backend.cancelScan(host);

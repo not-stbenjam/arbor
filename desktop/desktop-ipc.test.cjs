@@ -51,6 +51,7 @@ test("the renderer bridge exposes only channels the interface uses", () => {
   assert.deepEqual(
     [...handlers.keys()].sort(),
     [
+      "arbor:cancel-files",
       "arbor:cancel-scan",
       "arbor:choose-folder",
       "arbor:complete-setup",
@@ -365,4 +366,23 @@ test("the window says which menu commands can be used", () => {
   );
   assert.throws(() => call("menu-availability", null), /Invalid menu state/);
   assert.throws(() => call("menu-availability", ["refresh"]), /Invalid menu state/);
+});
+
+test("file requests cancel across hosts and stale cancellation cannot stop the next request", async () => {
+  const requests = [];
+  const { call } = adapter({ backend: {
+    worktreeFiles(value, options) {
+      return new Promise((resolve) => requests.push({value, ...options, resolve}));
+    },
+  } });
+  const first = call("worktree-files", {request: 1});
+  const second = call("worktree-files", {request: 2});
+  assert.equal(requests[0].signal.aborted, true);
+  call("cancel-files", 1);
+  assert.equal(requests[1].signal.aborted, false);
+  requests[0].resolve({}); await first;
+  call("cancel-files", 2);
+  assert.equal(requests[1].signal.aborted, true);
+  requests[1].resolve({}); await second;
+  await assert.rejects(call("worktree-files", {request: "bad"}), /Invalid/);
 });

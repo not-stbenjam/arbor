@@ -220,7 +220,7 @@ class Backend {
     return this.#activateWorkspace(scanOptions(value));
   }
 
-  async worktreeFiles(value) {
+  async worktreeFiles(value, { signal, onProgress } = {}) {
     this.assertInteractive();
     const state = this.getState();
     // Use the same checked and newly discovered rows as the native menu.
@@ -230,14 +230,26 @@ class Backend {
     }));
     const target = menuTarget({ ...state, report: { worktrees: rows } }, value);
     const row = rows.find((row) => row.id === target.id);
-    const args = ["files", "--json"];
+    const args = ["files", "--json", "--progress"];
     if (row.commonDir) args.push("--repo", row.commonDir);
     if (this.#options.host) args.push("--host", this.#options.host);
     args.push("--", target.path);
     const controller = new AbortController();
     const reading = this.#run(args, {
       timeout: 60000,
-      signal: controller.signal,
+      signal: signal
+        ? AbortSignal.any([signal, controller.signal])
+        : controller.signal,
+      onProgress: (value) => {
+        const event = progressEvent(value);
+        if (
+          !signal?.aborted &&
+          !controller.signal.aborted &&
+          event &&
+          (event.stage === "connecting" || event.stage.startsWith("files-"))
+        )
+          onProgress?.(event);
+      },
     });
     this.#readers.set(controller, reading);
     try {

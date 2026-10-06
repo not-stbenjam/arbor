@@ -2414,3 +2414,29 @@ th.sorted > button > .icon {
     overflow: visible;
   }
 }
+
+/* Reserve the same space for loading and results. A quick result is shown
+   immediately; only revealing the loading indicator has a short delay. */
+.files-results {
+  height: clamp(120px, 32vh, 280px);
+  overflow: auto;
+}
+#files-loading {
+  color: var(--secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+#files-progress {
+  width: 100%;
+  margin: 8px 0;
+}
+#files-progress:indeterminate {
+  background: linear-gradient(90deg, var(--line) 0 35%, var(--accent) 50%, var(--line) 65% 100%);
+  background-size: 200% 100%;
+  animation: files-working 1.5s linear infinite;
+}
+#files-progress:indeterminate::-webkit-progress-bar { background: transparent; }
+@keyframes files-working { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  #files-progress:indeterminate { animation: none; }
+}

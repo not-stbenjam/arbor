@@ -29,6 +29,14 @@ contextBridge.exposeInMainWorld(
     resetPreferences: () => ipcRenderer.invoke("arbor:reset-preferences"),
     worktreeFiles: (selection) =>
       ipcRenderer.invoke("arbor:worktree-files", selection),
+    cancelFiles: (request) => ipcRenderer.invoke("arbor:cancel-files", request),
+    onFilesProgress: (callback) => {
+      if (typeof callback !== "function")
+        throw new TypeError("Progress callback must be a function");
+      const listener = (_event, progress) => callback(progress);
+      ipcRenderer.on("arbor:files-progress", listener);
+      return () => ipcRenderer.removeListener("arbor:files-progress", listener);
+    },
     showWorktreeMenu: (selection) =>
       ipcRenderer.invoke("arbor:worktree-menu", selection),
     setMenuAvailability: (commands) =>

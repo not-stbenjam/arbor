@@ -222,6 +222,15 @@ function progressEvent(value) {
     return null;
   for (const key of ["discovered", "completed", "total"])
     if (!Number.isSafeInteger(value[key]) || value[key] < 0) return null;
+  if (value.stage.startsWith("files-")) {
+    if (
+      !["files-git", "files-search", "files-measure"].includes(value.stage) ||
+      value.path.includes("\0") ||
+      value.completed > value.total ||
+      (value.stage !== "files-measure" && (value.total !== 0 || value.completed !== 0))
+    )
+      return null;
+  }
   const result = {
     stage: value.stage,
     path: value.path,
