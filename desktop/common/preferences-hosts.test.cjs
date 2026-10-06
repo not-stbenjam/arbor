@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-async function fixture() {
+async function fixture(dark = false) {
   const { createPreferencesController } = await import(
     "../renderer/preferences-controller.mjs"
   );
@@ -39,7 +39,7 @@ async function fixture() {
     return elements.get(selector);
   };
   const controller = createPreferencesController({
-    document: { querySelector: element, documentElement: { dataset: {} } },
+    document: { querySelector: element, documentElement: { dataset: {} }, defaultView: { matchMedia: () => ({ matches: dark, addEventListener() {} }) } },
     defaults: { excludes: ["default-cache"] },
     api: {
       async savePreferences(value) {
@@ -522,4 +522,26 @@ test("an answer to an earlier Settings sitting does not close, clear or mislabel
   assert.equal(f.element("#settings-host").value, "vps");
   assert.equal(f.element("#settings-error").hidden, true);
   assert.equal(f.element("#settings-dialog").open, true);
+});
+
+test('the appearance button offers and saves the opposite light/dark theme', async () => {
+  const f = await fixture();
+  for (const [from, to] of [['system', 'dark'], ['light', 'dark'], ['dark', 'light']]) {
+    f.controller.setTheme(from);
+    assert.equal(f.element('#theme-button').title, `Switch to ${to} mode`);
+    f.element('#theme-button').onclick();
+    assert.equal(f.controller.theme, to);
+    assert.equal(f.calls.at(-1)[1].theme, to);
+  }
+});
+
+
+test('System on a dark desktop offers light, and host names save without scanning', async () => {
+  const f = await fixture(true);
+  assert.equal(f.element('#theme-button').title, 'Switch to light mode');
+  f.element('#theme-button').onclick();
+  assert.equal(f.controller.theme, 'light');
+  await f.element('#machine-list').listeners.change({ target: { dataset: { hostName: 'vps' }, value: 'Builder' } });
+  assert.equal(f.calls.at(-1)[1].hosts[0].name, 'Builder');
+  assert.ok(f.calls.every(([name]) => name === 'save'));
 });

@@ -77,13 +77,18 @@ export function createPreferencesController({
       excludes: [...(value.excludes || defaults.excludes)],
     };
   };
+  const systemTheme = document.defaultView?.matchMedia("(prefers-color-scheme: dark)");
+  const nextTheme = () => (prefs.theme === "dark" ||
+    (prefs.theme === "system" && systemTheme?.matches)) ? "light" : "dark";
+  systemTheme?.addEventListener("change", () => applyTheme());
   function applyTheme() {
     document.documentElement.dataset.theme = prefs.theme;
     $("#theme-select").value = prefs.theme;
     $("#theme-button").innerHTML = icon(
-      prefs.theme === "dark" ? "moon" : "sun",
+      nextTheme() === "dark" ? "moon" : "sun",
     );
-    $("#theme-button").title = `Appearance: ${prefs.theme}. Click to change.`;
+    $("#theme-button").title = `Switch to ${nextTheme()} mode`;
+    $("#theme-button").ariaLabel = $("#theme-button").title;
   }
   function setTheme(theme) {
     prefs.theme = theme;
@@ -337,10 +342,7 @@ export function createPreferencesController({
     if (!$("#reset-preferences").disabled) onReset();
   };
   $("#theme-button").onclick = () => {
-    setTheme(
-      { system: "light", light: "dark", dark: "system" }[prefs.theme] ||
-        "system",
-    );
+    setTheme(nextTheme());
     save();
   };
   $("#choose-folder").onclick = async () => {
