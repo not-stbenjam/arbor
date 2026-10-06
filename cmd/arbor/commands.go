@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stbenjam/arbor/internal/engine"
 	"github.com/stbenjam/arbor/internal/worktree"
 )
@@ -47,7 +48,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetVersionTemplate("arbor {{.Version}}\n")
-	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error { return usageError(cmd, err) })
+	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error { return usageError(cmd, friendlyFlagError(err)) })
 	root.AddCommand(newListCommand(), newCleanCommand(), newRemoveCommand(), newGUICommand(), newStatsCommand())
 	root.AddCommand(&cobra.Command{
 		Use: "version", Short: "Print the Arbor version", Args: checkedArgs(cobra.NoArgs),
@@ -232,4 +233,19 @@ func checkCommandArgs(cmd *cobra.Command) {
 	for _, child := range cmd.Commands() {
 		checkCommandArgs(child)
 	}
+}
+
+func friendlyFlagError(err error) error {
+	var invalid *pflag.InvalidValueError
+	if !errors.As(err, &invalid) {
+		return err
+	}
+	flag := invalid.GetFlag()
+	switch flag.Value.Type() {
+	case "bool":
+		return fmt.Errorf("--%s takes true or false, not %q", flag.Name, invalid.GetValue())
+	case "duration":
+		return fmt.Errorf("--%s takes a positive duration (for example 30d, 12h or 2w), not %q", flag.Name, invalid.GetValue())
+	}
+	return err
 }
