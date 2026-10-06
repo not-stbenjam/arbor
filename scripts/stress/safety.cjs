@@ -5,6 +5,28 @@
 const { main, scenario, assert, fs, quote, json, list } = require("./helpers.cjs");
 
 main(async () => {
+  await scenario("safety-safe-ignored", async (f) => {
+    const repo = f.repository("projects/repo", {ignore:["node_modules/", ".env"]});
+    const covered = repo.worktree("covered", {ignored: {"node_modules/cache": "generated"}});
+    const mixed = repo.worktree("mixed", {ignored: {"node_modules/cache": "generated", ".env": "secret"}});
+    const nested = repo.worktree("nested", {ignored: {"node_modules/cache": "generated"}});
+    f.repository("projects/nested/node_modules/clone", {remote: false});
+    const rows = list(f).worktrees;
+    assert.equal(rows.find(w => w.path === covered.path).recommended, true);
+    assert.equal(rows.find(w => w.path === mixed.path).recommended, false);
+    assert.ok(rows.find(w => w.path === nested.path).losses.includes("nested"));
+    const clean = f.cli("clean", "--path", f.root, "--yes", "--json");
+    assert.equal(clean.status, 0, clean.stderr);
+    assert.equal(f.exists(covered.path), false);
+    assert.ok(f.exists(mixed.path)); assert.ok(f.exists(nested.path));
+    const later = repo.worktree("later", {ignored: {"node_modules/cache": "generated"}});
+    list(f);
+    f.write("projects/later/.env", "new secret");
+    f.git(repo.path, "config", "core.excludesFile", f.write("exclude", ".env\n"));
+    assert.notEqual(f.cli("remove", later.path, "--yes").status, 0);
+    assert.ok(f.exists(later.path));
+  });
+
   // One worktree named to be removed is the folder at that path, not
   // whatever a symbolic link put there leads to.
   await scenario("safety-symlink", async (f) => {
