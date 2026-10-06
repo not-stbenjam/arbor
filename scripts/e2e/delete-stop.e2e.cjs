@@ -12,7 +12,9 @@ scenario({
   setup(fixture) {
     const repository = fixture.repository("projects/repo");
     const paths = [];
-    for (let index = 0; index < 24; index++)
+    // Enough of them that a fast machine is still deleting when Stop is
+    // pressed: two dozen were once all gone first.
+    for (let index = 0; index < 80; index++)
       paths.push(repository.worktree(`done-${String(index).padStart(2, "0")}`).path);
     fixture.preferences();
     return { paths, repository: repository.path };
