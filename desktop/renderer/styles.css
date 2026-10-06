@@ -947,6 +947,22 @@ td {
   margin-top: 2px;
   color: var(--orange);
 }
+.shortcuts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 9px 18px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.shortcuts dt {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.shortcuts dd {
+  margin: 0;
+  color: var(--secondary);
+}
 #notes-content > .field-hint {
   margin-top: 0;
 }

@@ -175,7 +175,29 @@ async function bootstrap() {
     onCleanup: cleanup.open,
   });
   $("#statistics-button").onclick = statistics.open;
+  // What the keyboard does in the list, which nothing on screen says.
+  const mod = api.platform === "darwin" ? "⌘" : "Ctrl+";
+  const SHORTCUTS = [
+    ["↑ ↓ Home End Page Up Page Down", "Move through the list, ticking nothing"],
+    ["Space", "Tick or untick the row"],
+    ["Shift+↑ ↓, or Shift+click", "Tick every row from the one the keyboard is on"],
+    [`${mod}A`, "Tick everything the list shows"],
+    ["Esc", "Untick everything"],
+    ["Enter, or right-click", "The row's actions: copy its path, open it, delete it"],
+    ["Delete or Backspace", "Delete what is ticked, or the row the keyboard is on. It asks first"],
+    ["← →", "Close or open the folder the keyboard is on"],
+    [`/ or ${mod}F`, "Filter the list. ↓ goes to the first result"],
+    [`${mod}R`, "Refresh"],
+    [`${mod},`, "Settings"],
+  ];
+  function showShortcuts() {
+    $("#notes-title").textContent = "Keyboard shortcuts";
+    $("#notes-content").innerHTML =
+      `<dl class="shortcuts">${SHORTCUTS.map(([keys, does]) => `<dt>${esc(keys)}</dt><dd>${esc(does)}</dd>`).join("")}</dl>`;
+    $("#notes-dialog").showModal();
+  }
   $("#warning-button").onclick = () => {
+    $("#notes-title").textContent = "Scan warnings";
     $("#notes-content").innerHTML =
       `<p class="field-hint">Some checks could not be completed. Nothing else was affected.</p><ul class="scan-warnings">${(
         workspace.snapshot.report?.warnings || []
@@ -204,6 +226,7 @@ async function bootstrap() {
       statistics: usable("#statistics-button"),
       settings: usable("#settings-button"),
       "focus-search": usable("#search"),
+      shortcuts: !document.querySelector("dialog[open]"),
     };
     const next = JSON.stringify(commands);
     if (next === menuState) return;
@@ -232,6 +255,7 @@ async function bootstrap() {
       }
       return;
     }
+    if (action === "shortcuts") showShortcuts();
     if (action === "refresh") workspace.refresh();
     if (action === "settings") preferences.openSettings();
     if (action === "statistics") statistics.open();

@@ -103,6 +103,12 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
       role: "help",
       submenu: [
         {
+          id: "shortcuts",
+          label: "Keyboard Shortcuts",
+          click: () => sendAction("shortcuts"),
+        },
+        { type: "separator" },
+        {
           label: "Arbor on GitHub",
           click: () =>
             shell.openExternal("https://github.com/stbenjam/arbor"),
@@ -120,7 +126,14 @@ function installApplicationMenu({ app, Menu, shell, sendAction }) {
 
 // The commands of Arbor's own that the window can say are unavailable just
 // now: during setup, behind a dialog, or while it is deleting.
-const COMMANDS = ["refresh", "add-host", "statistics", "settings", "focus-search"];
+const COMMANDS = [
+  "refresh",
+  "add-host",
+  "statistics",
+  "settings",
+  "focus-search",
+  "shortcuts",
+];
 
 // Enables each command the window says can be used, and disables the rest,
 // so the menu agrees with the buttons that do the same things.

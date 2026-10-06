@@ -31,6 +31,14 @@ scenario({ name: "application menu commands and shortcuts", timeout: 20,
     await t.menu("File", "Refresh Worktrees");
     await t.until(() => scans(t).length === count + 1, "menu refresh scans");
     await t.settled();
+    // What the keyboard does in the list is said nowhere on screen but here.
+    await t.menu("Help", "Keyboard Shortcuts");
+    await open(t, "notes-dialog");
+    assert.equal(await t.text("#notes-title"), "Keyboard shortcuts");
+    assert.match(await t.text("#notes-content"), /Space\s+Tick or untick the row/);
+    assert.match(await t.text("#notes-content"), /Delete or Backspace\s+Delete what is ticked, or the row the keyboard is on\. It asks first/);
+    await t.press("Escape");
+    await closed(t, "notes-dialog");
     await t.menu("Help", "Arbor on GitHub");
     await t.menu("Help", "Report an Issue");
     assert.deepEqual(t.opened.map((x) => x.target), ["https://github.com/stbenjam/arbor", "https://github.com/stbenjam/arbor/issues"]);

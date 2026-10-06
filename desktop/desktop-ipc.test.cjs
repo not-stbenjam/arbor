@@ -346,7 +346,7 @@ test("a folder on this computer that is not there is refused before it is saved"
 test("the window says which menu commands can be used", () => {
   const { setMenuAvailability } = require("./application-menu.cjs");
   const items = Object.fromEntries(
-    ["refresh", "add-host", "statistics", "settings", "focus-search", "quit"].map((id) => [id, { enabled: true }]),
+    ["refresh", "add-host", "statistics", "settings", "focus-search", "shortcuts", "quit"].map((id) => [id, { enabled: true }]),
   );
   const Menu = { getApplicationMenu: () => ({ getMenuItemById: (id) => items[id] }) };
   const { call } = adapter({ setMenuAvailability: (value) => setMenuAvailability(Menu, value) });
@@ -354,7 +354,7 @@ test("the window says which menu commands can be used", () => {
   // Only Arbor's own commands are touched, and only `true` enables one.
   assert.deepEqual(
     Object.fromEntries(Object.entries(items).map(([id, item]) => [id, item.enabled])),
-    { refresh: false, "add-host": false, statistics: false, settings: true, "focus-search": false, quit: true },
+    { refresh: false, "add-host": false, statistics: false, settings: true, "focus-search": false, shortcuts: false, quit: true },
   );
   assert.throws(() => call("menu-availability", null), /Invalid menu state/);
   assert.throws(() => call("menu-availability", ["refresh"]), /Invalid menu state/);
