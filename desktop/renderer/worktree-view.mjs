@@ -28,6 +28,7 @@ export function createWorktreeView({
     sort = "path",
     descending = false;
   let selection = { ids: new Set(), cursor: "" };
+  const rowElements = new Map();
   let rowSignature = "",
     emptyMarkup = null,
     repoSignature = "",
@@ -299,13 +300,58 @@ export function createWorktreeView({
     }
     const scroll = $("#table-scroll").scrollTop;
     const focus = focusedControl();
-    $("#worktree-list").innerHTML = renderTreeRows(directoryRows, {
+    const options = {
       selected: selection.ids,
       collapsed: collapsedDirectories,
       disabled: blocked() || !workspace.snapshot.revision,
       canDelete: (row) => workspace.canDelete(row),
       cancelled: workspace.snapshot.cancelled,
-    });
+    };
+    const list = $("#worktree-list");
+    const rows = directoryRows.map((entry) => ({
+      key: JSON.stringify(
+        entry.kind === "worktree"
+          ? [entry.kind, entry.worktree.id]
+          : [entry.kind, entry.kind === "host" ? entry.key : entry.node.key || entry.node.path],
+      ),
+      id: entry.kind === "worktree" ? entry.worktree.id : "",
+      markup: renderTreeRows([entry], options),
+    }));
+    if (!rowElements.size) {
+      list.innerHTML = rows.map((row) => row.markup).join("");
+      list.querySelectorAll("tr").forEach((element, index) => {
+        rowElements.set(rows[index].key, { ...rows[index], element });
+      });
+    } else {
+      const range = document.createRange();
+      range.selectNodeContents(list);
+      const wanted = new Set(rows.map((row) => row.key));
+      for (const [key, row] of rowElements) {
+        if (!wanted.has(key)) row.element.remove();
+        // Keep filtered-out worktrees for clearing the search, but release
+        // registrations that have left the report and unused folder rows.
+        if (!wanted.has(key) && (!row.id || !known.has(row.id)))
+          rowElements.delete(key);
+      }
+      let before = list.firstChild;
+      for (const row of rows) {
+        let cached = rowElements.get(row.key);
+        if (!cached || cached.markup !== row.markup) {
+          const element = range.createContextualFragment(row.markup).firstChild;
+          if (cached?.element === before) before = before.nextSibling;
+          cached?.element.remove();
+          cached = { ...row, element };
+          rowElements.set(row.key, cached);
+        }
+        // Reordering an existing row preserves its layout and its controls.
+        // Rows that stay in place need no DOM mutation at all.
+        if (cached.element !== before) {
+          if (cached.element.parentNode === list)
+            list.moveBefore(cached.element, before);
+          else list.insertBefore(cached.element, before);
+        } else before = before.nextSibling;
+      }
+    }
     $("#table-scroll").scrollTop = scroll;
     renderSelection();
     restoreFocus(focus);

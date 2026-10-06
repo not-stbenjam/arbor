@@ -1,0 +1,1289 @@
+{
+  "base": "62fa50f",
+  "baseline": {
+    "measurements": [
+      {
+        "count": 100,
+        "firstRowsMS": 385,
+        "scanMS": 956,
+        "scanEndToInteractiveMS": 752,
+        "selectAllMS": 35,
+        "wheelP95MS": 16.8,
+        "wheelMaxMS": 16.8,
+        "searchMS": 525,
+        "sortMS": 75,
+        "reviewMS": 88
+      },
+      {
+        "count": 100,
+        "firstRowsMS": 359,
+        "scanMS": 953,
+        "scanEndToInteractiveMS": 749,
+        "selectAllMS": 34,
+        "wheelP95MS": 16.7,
+        "wheelMaxMS": 16.8,
+        "searchMS": 522,
+        "sortMS": 67,
+        "reviewMS": 83
+      },
+      {
+        "count": 100,
+        "firstRowsMS": 309,
+        "scanMS": 773,
+        "scanEndToInteractiveMS": 853,
+        "selectAllMS": 35,
+        "wheelP95MS": 16.7,
+        "wheelMaxMS": 16.7,
+        "searchMS": 470,
+        "sortMS": 68,
+        "reviewMS": 85
+      },
+      {
+        "count": 1000,
+        "firstRowsMS": 2527,
+        "scanMS": 14425,
+        "scanEndToInteractiveMS": 3181,
+        "selectAllMS": 460,
+        "wheelP95MS": 100,
+        "wheelMaxMS": 133.4,
+        "searchMS": 3948,
+        "sortMS": 616,
+        "reviewMS": 714
+      },
+      {
+        "count": 1000,
+        "firstRowsMS": 969,
+        "scanMS": 10837,
+        "scanEndToInteractiveMS": 1572,
+        "selectAllMS": 214,
+        "wheelP95MS": 50,
+        "wheelMaxMS": 50.1,
+        "searchMS": 2646,
+        "sortMS": 596,
+        "reviewMS": 656
+      },
+      {
+        "count": 1000,
+        "firstRowsMS": 1493,
+        "scanMS": 10726,
+        "scanEndToInteractiveMS": 1902,
+        "selectAllMS": 192,
+        "wheelP95MS": 50,
+        "wheelMaxMS": 50.1,
+        "searchMS": 2485,
+        "sortMS": 589,
+        "reviewMS": 536
+      },
+      {
+        "count": 3000,
+        "firstRowsMS": 845,
+        "scanMS": 25350,
+        "scanEndToInteractiveMS": 3654,
+        "selectAllMS": 1650,
+        "wheelP95MS": 83.4,
+        "wheelMaxMS": 100,
+        "searchMS": 4082,
+        "sortMS": 1795,
+        "reviewMS": 1609
+      },
+      {
+        "count": 3000,
+        "firstRowsMS": 706,
+        "scanMS": 28879,
+        "scanEndToInteractiveMS": 3470,
+        "selectAllMS": 1810,
+        "wheelP95MS": 83.4,
+        "wheelMaxMS": 100,
+        "searchMS": 3408,
+        "sortMS": 1958,
+        "reviewMS": 1548
+      },
+      {
+        "count": 3000,
+        "firstRowsMS": 1859,
+        "scanMS": 34832,
+        "scanEndToInteractiveMS": 3804,
+        "selectAllMS": 1844,
+        "wheelP95MS": 100.1,
+        "wheelMaxMS": 166.7,
+        "searchMS": 4078,
+        "sortMS": 1695,
+        "reviewMS": 1954
+      }
+    ],
+    "profiles": [
+      {
+        "name": "scan-settle",
+        "count": 1000,
+        "elapsed": 8024,
+        "browser": {
+          "LayoutDuration": 932,
+          "RecalcStyleDuration": 837,
+          "ScriptDuration": 16,
+          "TaskDuration": 5873
+        },
+        "top": [
+          [
+            "renderRows worktree-view.mjs:166",
+            2555.280000000003
+          ],
+          [
+            "(idle) :0",
+            2194.0310000000036
+          ],
+          [
+            "(program) :0",
+            1862.4910000000013
+          ],
+          [
+            "(anonymous) :0",
+            643.8590000000003
+          ],
+          [
+            "send sandbox_bundle:2",
+            170.96000000000004
+          ],
+          [
+            "(garbage collector) :0",
+            151.08899999999997
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            62.69099999999999
+          ],
+          [
+            "immutableCopy workspace-controller.mjs:13",
+            57.12499999999999
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            45.271
+          ],
+          [
+            "renderTreeRows worktree-presentation.mjs:261",
+            41.086
+          ],
+          [
+            "querySelectorAll :0",
+            21.711000000000002
+          ],
+          [
+            "poll workspace-controller.mjs:123",
+            17.697000000000003
+          ]
+        ]
+      },
+      {
+        "name": "select-all",
+        "count": 1000,
+        "elapsed": 151,
+        "browser": {
+          "LayoutDuration": 1,
+          "RecalcStyleDuration": 36,
+          "ScriptDuration": 48,
+          "TaskDuration": 194
+        },
+        "top": [
+          [
+            "(program) :0",
+            136.96299999999994
+          ],
+          [
+            "renderRows worktree-view.mjs:166",
+            11.582
+          ],
+          [
+            "(idle) :0",
+            11.505
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            6.429
+          ],
+          [
+            "querySelectorAll :0",
+            5.3629999999999995
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            5.351999999999999
+          ],
+          [
+            "makeNode worktree-tree.mjs:79",
+            3.224
+          ],
+          [
+            "toggle :0",
+            2.1420000000000003
+          ],
+          [
+            "(anonymous) worktree-view.mjs:427",
+            2.136
+          ],
+          [
+            "(anonymous) losses.mjs:48",
+            1.396
+          ],
+          [
+            "(anonymous) worktree-view.mjs:55",
+            1.382
+          ],
+          [
+            "closest :0",
+            1.23
+          ]
+        ]
+      },
+      {
+        "name": "search",
+        "count": 1000,
+        "elapsed": 2457,
+        "browser": {
+          "LayoutDuration": 756,
+          "RecalcStyleDuration": 638,
+          "ScriptDuration": 993,
+          "TaskDuration": 2560
+        },
+        "top": [
+          [
+            "renderRows worktree-view.mjs:166",
+            2001.8500000000006
+          ],
+          [
+            "(program) :0",
+            193.15599999999995
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            35.504999999999995
+          ],
+          [
+            "renderTreeRows worktree-presentation.mjs:261",
+            34.486
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            32.816
+          ],
+          [
+            "(garbage collector) :0",
+            27.657000000000004
+          ],
+          [
+            "querySelectorAll :0",
+            22.791
+          ],
+          [
+            "fullDate presentation.mjs:113",
+            13.237
+          ],
+          [
+            "esc presentation.mjs:56",
+            10.373
+          ],
+          [
+            "build worktree-tree.mjs:70",
+            10.177999999999999
+          ],
+          [
+            "(anonymous) worktree-presentation.mjs:276",
+            10.131
+          ],
+          [
+            "(anonymous) worktree-view.mjs:410",
+            9.773
+          ]
+        ]
+      },
+      {
+        "name": "sort",
+        "count": 1000,
+        "elapsed": 594,
+        "browser": {
+          "LayoutDuration": 141,
+          "RecalcStyleDuration": 121,
+          "ScriptDuration": 159,
+          "TaskDuration": 657
+        },
+        "top": [
+          [
+            "renderRows worktree-view.mjs:166",
+            356.65000000000015
+          ],
+          [
+            "(program) :0",
+            232.054
+          ],
+          [
+            "(garbage collector) :0",
+            13.472
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            6.738
+          ],
+          [
+            "fullDate presentation.mjs:113",
+            5.382000000000001
+          ],
+          [
+            "querySelectorAll :0",
+            5.222
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            3.7350000000000003
+          ],
+          [
+            "esc presentation.mjs:56",
+            3.2489999999999997
+          ],
+          [
+            "elementFromPoint :0",
+            2.2439999999999998
+          ],
+          [
+            "makeNode worktree-tree.mjs:79",
+            2.1630000000000003
+          ],
+          [
+            "build worktree-tree.mjs:70",
+            2.143
+          ],
+          [
+            "renderTreeRows worktree-presentation.mjs:261",
+            2.135
+          ]
+        ]
+      },
+      {
+        "name": "review",
+        "count": 1000,
+        "elapsed": 606,
+        "browser": {
+          "LayoutDuration": 164,
+          "RecalcStyleDuration": 195,
+          "ScriptDuration": 91,
+          "TaskDuration": 641
+        },
+        "top": [
+          [
+            "showModal :0",
+            360.00399999999973
+          ],
+          [
+            "(program) :0",
+            177.46400000000003
+          ],
+          [
+            "renderList cleanup-controller.mjs:142",
+            60.46500000000001
+          ],
+          [
+            "described cleanup-controller.mjs:78",
+            6.683000000000001
+          ],
+          [
+            "elementFromPoint :0",
+            3.2220000000000004
+          ],
+          [
+            "(anonymous) cleanup-controller.mjs:176",
+            2.146
+          ],
+          [
+            "begin cleanup-controller.mjs:269",
+            2.141
+          ],
+          [
+            "(anonymous) cleanup-controller.mjs:145",
+            2.125
+          ],
+          [
+            "$ cleanup-controller.mjs:105",
+            1.232
+          ],
+          [
+            "size presentation.mjs:117",
+            1.169
+          ],
+          [
+            "syncMenu app.js:200",
+            1.123
+          ],
+          [
+            "pathed cleanup-controller.mjs:28",
+            1.122
+          ]
+        ]
+      }
+    ]
+  },
+  "row-reuse": {
+    "measurements": [
+      {
+        "count": 1000,
+        "firstRowsMS": 734,
+        "scanMS": 7847,
+        "scanEndToInteractiveMS": 1326,
+        "selectAllMS": 166,
+        "wheelP95MS": 33.4,
+        "wheelMaxMS": 33.4,
+        "searchMS": 506,
+        "sortMS": 495,
+        "reviewMS": 520
+      },
+      {
+        "count": 1000,
+        "firstRowsMS": 721,
+        "scanMS": 7489,
+        "scanEndToInteractiveMS": 1728,
+        "selectAllMS": 168,
+        "wheelP95MS": 33.4,
+        "wheelMaxMS": 50,
+        "searchMS": 494,
+        "sortMS": 543,
+        "reviewMS": 542
+      },
+      {
+        "count": 1000,
+        "firstRowsMS": 775,
+        "scanMS": 10463,
+        "scanEndToInteractiveMS": 1937,
+        "selectAllMS": 242,
+        "wheelP95MS": 50,
+        "wheelMaxMS": 66.6,
+        "searchMS": 527,
+        "sortMS": 554,
+        "reviewMS": 539
+      }
+    ],
+    "profiles": [],
+    "traces": []
+  },
+  "row-reuse-profile": {
+    "measurements": [
+      {
+        "count": 1000,
+        "firstRowsMS": 708,
+        "scanMS": 7799,
+        "scanEndToInteractiveMS": 1585,
+        "selectAllMS": 288,
+        "wheelP95MS": 33.4,
+        "wheelMaxMS": 33.4,
+        "searchMS": 637,
+        "sortMS": 559,
+        "reviewMS": 634
+      }
+    ],
+    "profiles": [
+      {
+        "name": "scan-settle",
+        "count": 1000,
+        "elapsed": 8537,
+        "browser": {
+          "LayoutDuration": 497,
+          "RecalcStyleDuration": 436,
+          "ScriptDuration": 21,
+          "TaskDuration": 5573
+        },
+        "top": [
+          [
+            "(idle) :0",
+            3026.4379999999974
+          ],
+          [
+            "(program) :0",
+            2230.495000000005
+          ],
+          [
+            "renderRows worktree-view.mjs:167",
+            1034.896
+          ],
+          [
+            "(anonymous) :0",
+            872.2390000000004
+          ],
+          [
+            "send sandbox_bundle:2",
+            250.709
+          ],
+          [
+            "createContextualFragment :0",
+            237.47800000000012
+          ],
+          [
+            "(garbage collector) :0",
+            234.3269999999999
+          ],
+          [
+            "remove :0",
+            74.866
+          ],
+          [
+            "immutableCopy workspace-controller.mjs:13",
+            74.471
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            65.274
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            55.847
+          ],
+          [
+            "querySelectorAll :0",
+            39.47900000000001
+          ]
+        ]
+      },
+      {
+        "name": "select-all",
+        "count": 1000,
+        "elapsed": 154,
+        "browser": {
+          "LayoutDuration": 1,
+          "RecalcStyleDuration": 39,
+          "ScriptDuration": 56,
+          "TaskDuration": 283
+        },
+        "top": [
+          [
+            "(program) :0",
+            218.51000000000005
+          ],
+          [
+            "renderRows worktree-view.mjs:167",
+            16.251
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            7.566999999999999
+          ],
+          [
+            "querySelectorAll :0",
+            6.5360000000000005
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            6.439
+          ],
+          [
+            "(anonymous) worktree-view.mjs:471",
+            3.234
+          ],
+          [
+            "renderSelection worktree-view.mjs:453",
+            2.172
+          ],
+          [
+            "querySelector :0",
+            2.152
+          ],
+          [
+            "(anonymous) worktree-view.mjs:56",
+            2.149
+          ],
+          [
+            "contains worktree-tree.mjs:16",
+            2.146
+          ],
+          [
+            "toggle :0",
+            2.144
+          ],
+          [
+            "(anonymous) presentation.mjs:128",
+            1.083
+          ]
+        ]
+      },
+      {
+        "name": "search",
+        "count": 1000,
+        "elapsed": 489,
+        "browser": {
+          "LayoutDuration": 35,
+          "RecalcStyleDuration": 73,
+          "ScriptDuration": 346,
+          "TaskDuration": 626
+        },
+        "top": [
+          [
+            "(program) :0",
+            203.91899999999995
+          ],
+          [
+            "renderRows worktree-view.mjs:167",
+            132.88400000000001
+          ],
+          [
+            "remove :0",
+            44.167000000000016
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            28.955
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            27.657
+          ],
+          [
+            "querySelectorAll :0",
+            19.005999999999997
+          ],
+          [
+            "(garbage collector) :0",
+            11.769
+          ],
+          [
+            "fullDate presentation.mjs:113",
+            11.758000000000003
+          ],
+          [
+            "esc presentation.mjs:56",
+            9.637
+          ],
+          [
+            "plain presentation.mjs:49",
+            8.764
+          ],
+          [
+            "querySelector :0",
+            8.605
+          ],
+          [
+            "lossesOf losses.mjs:40",
+            8.580000000000002
+          ]
+        ]
+      },
+      {
+        "name": "sort",
+        "count": 1000,
+        "elapsed": 460,
+        "browser": {
+          "LayoutDuration": 126,
+          "RecalcStyleDuration": 152,
+          "ScriptDuration": 68,
+          "TaskDuration": 553
+        },
+        "top": [
+          [
+            "renderRows worktree-view.mjs:167",
+            276.125
+          ],
+          [
+            "(program) :0",
+            204.808
+          ],
+          [
+            "moveBefore :0",
+            11.879
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            6.826
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            6.35
+          ],
+          [
+            "querySelector :0",
+            2.2030000000000003
+          ],
+          [
+            "elementFromPoint :0",
+            2.1710000000000003
+          ],
+          [
+            "renderSelection worktree-view.mjs:453",
+            2.154
+          ],
+          [
+            "querySelectorAll :0",
+            2.144
+          ],
+          [
+            "fullDate presentation.mjs:113",
+            2.141
+          ],
+          [
+            "plain presentation.mjs:49",
+            2.1399999999999997
+          ],
+          [
+            "build worktree-tree.mjs:70",
+            2.136
+          ]
+        ]
+      },
+      {
+        "name": "review",
+        "count": 1000,
+        "elapsed": 524,
+        "browser": {
+          "LayoutDuration": 171,
+          "RecalcStyleDuration": 157,
+          "ScriptDuration": 66,
+          "TaskDuration": 619
+        },
+        "top": [
+          [
+            "showModal :0",
+            329.51599999999985
+          ],
+          [
+            "(program) :0",
+            216.74400000000009
+          ],
+          [
+            "renderList cleanup-controller.mjs:142",
+            42.056999999999995
+          ],
+          [
+            "(idle) :0",
+            6.763
+          ],
+          [
+            "querySelector :0",
+            4.393
+          ],
+          [
+            "(anonymous) cleanup-controller.mjs:145",
+            3.234
+          ],
+          [
+            "described cleanup-controller.mjs:78",
+            2.165
+          ],
+          [
+            "esc presentation.mjs:56",
+            2.1559999999999997
+          ],
+          [
+            "update cleanup-controller.mjs:157",
+            2.148
+          ],
+          [
+            "elementFromPoint :0",
+            2.1310000000000002
+          ],
+          [
+            "renderLead cleanup-controller.mjs:244",
+            1.089
+          ],
+          [
+            "(anonymous) cleanup-controller.mjs:132",
+            1.084
+          ]
+        ]
+      },
+      {
+        "name": "wheel",
+        "count": 1000,
+        "elapsed": 795,
+        "browser": {
+          "LayoutDuration": 0,
+          "RecalcStyleDuration": 0,
+          "ScriptDuration": 28,
+          "TaskDuration": 898
+        },
+        "top": [
+          [
+            "(program) :0",
+            830.0769999999995
+          ],
+          [
+            "(idle) :0",
+            63.722
+          ],
+          [
+            "elementFromPoint :0",
+            23.848
+          ],
+          [
+            "executeJavaScript :0",
+            3.33
+          ],
+          [
+            "scrollIntoView :0",
+            2.168
+          ],
+          [
+            "(anonymous) :1",
+            1.238
+          ],
+          [
+            "send sandbox_bundle:2",
+            1.108
+          ]
+        ]
+      }
+    ],
+    "traces": [
+      {
+        "name": "wheel",
+        "count": 1000,
+        "inclusiveMS": [
+          [
+            "Paint",
+            643.0320000000002
+          ],
+          [
+            "Layerize",
+            85.569
+          ],
+          [
+            "ScrollLayer",
+            66.828
+          ],
+          [
+            "FunctionCall",
+            31.98399999999999
+          ],
+          [
+            "HitTest",
+            30.162
+          ],
+          [
+            "EvaluateScript",
+            28.864999999999995
+          ],
+          [
+            "PrePaint",
+            2.312
+          ],
+          [
+            "FireAnimationFrame",
+            2.0860000000000003
+          ],
+          [
+            "v8.compile",
+            0.8520000000000004
+          ],
+          [
+            "EventDispatch",
+            0.3600000000000001
+          ],
+          [
+            "UpdateLayoutTree",
+            0.203
+          ],
+          [
+            "V8.GC_HEAP_ENSURE_SWEEPING_COMPLETED",
+            0.19
+          ],
+          [
+            "V8.GC_TIME_TO_SAFEPOINT",
+            0.054000000000000006
+          ]
+        ]
+      }
+    ]
+  },
+  "baseline-wheel": {
+    "measurements": [
+      {
+        "count": 1000,
+        "firstRowsMS": 960,
+        "scanMS": 9544,
+        "scanEndToInteractiveMS": 1746,
+        "selectAllMS": 259,
+        "wheelP95MS": 33.4,
+        "wheelMaxMS": 49.9,
+        "searchMS": 2532,
+        "sortMS": 660,
+        "reviewMS": 663
+      }
+    ],
+    "profiles": [
+      {
+        "name": "scan-settle",
+        "count": 1000,
+        "elapsed": 10210,
+        "browser": {
+          "LayoutDuration": 1242,
+          "RecalcStyleDuration": 1045,
+          "ScriptDuration": 25,
+          "TaskDuration": 7987
+        },
+        "top": [
+          [
+            "renderRows worktree-view.mjs:166",
+            3492.499000000004
+          ],
+          [
+            "(program) :0",
+            2487.716000000004
+          ],
+          [
+            "(idle) :0",
+            2264.0180000000014
+          ],
+          [
+            "(anonymous) :0",
+            847.6240000000005
+          ],
+          [
+            "send sandbox_bundle:2",
+            237.26799999999992
+          ],
+          [
+            "(garbage collector) :0",
+            232.85799999999998
+          ],
+          [
+            "immutableCopy workspace-controller.mjs:13",
+            83.797
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            68.28
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            66.48200000000001
+          ],
+          [
+            "querySelectorAll :0",
+            52.28799999999999
+          ],
+          [
+            "renderTreeRows worktree-presentation.mjs:261",
+            51.868
+          ],
+          [
+            "poll workspace-controller.mjs:123",
+            25.081
+          ]
+        ]
+      },
+      {
+        "name": "select-all",
+        "count": 1000,
+        "elapsed": 173,
+        "browser": {
+          "LayoutDuration": 1,
+          "RecalcStyleDuration": 42,
+          "ScriptDuration": 55,
+          "TaskDuration": 251
+        },
+        "top": [
+          [
+            "(program) :0",
+            182.66899999999995
+          ],
+          [
+            "renderRows worktree-view.mjs:166",
+            14.354999999999997
+          ],
+          [
+            "querySelectorAll :0",
+            9.048
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            7.6579999999999995
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            5.877000000000001
+          ],
+          [
+            "(idle) :0",
+            4.295
+          ],
+          [
+            "toggle :0",
+            3.213
+          ],
+          [
+            "(anonymous) worktree-view.mjs:55",
+            2.465
+          ],
+          [
+            "visit worktree-tree.mjs:121",
+            2.2190000000000003
+          ],
+          [
+            "rowsFor worktree-presentation.mjs:201",
+            2.159
+          ],
+          [
+            "renderSelection worktree-view.mjs:409",
+            2.146
+          ],
+          [
+            "(anonymous) worktree-view.mjs:427",
+            2.138
+          ]
+        ]
+      },
+      {
+        "name": "search",
+        "count": 1000,
+        "elapsed": 2410,
+        "browser": {
+          "LayoutDuration": 754,
+          "RecalcStyleDuration": 649,
+          "ScriptDuration": 944,
+          "TaskDuration": 2525
+        },
+        "top": [
+          [
+            "renderRows worktree-view.mjs:166",
+            1998.8039999999953
+          ],
+          [
+            "(program) :0",
+            210.95899999999997
+          ],
+          [
+            "renderTreeRows worktree-presentation.mjs:261",
+            34.46000000000001
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            33.45300000000001
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            28.769000000000002
+          ],
+          [
+            "querySelectorAll :0",
+            24.343000000000007
+          ],
+          [
+            "(garbage collector) :0",
+            19.738999999999997
+          ],
+          [
+            "esc presentation.mjs:56",
+            12.419999999999998
+          ],
+          [
+            "(anonymous) worktree-view.mjs:410",
+            10.074
+          ],
+          [
+            "fullDate presentation.mjs:113",
+            9.774999999999999
+          ],
+          [
+            "renderSelection worktree-view.mjs:409",
+            9.532
+          ],
+          [
+            "(anonymous) worktree-presentation.mjs:276",
+            8.909
+          ]
+        ]
+      },
+      {
+        "name": "sort",
+        "count": 1000,
+        "elapsed": 598,
+        "browser": {
+          "LayoutDuration": 136,
+          "RecalcStyleDuration": 131,
+          "ScriptDuration": 194,
+          "TaskDuration": 657
+        },
+        "top": [
+          [
+            "renderRows worktree-view.mjs:166",
+            369.54300000000006
+          ],
+          [
+            "(program) :0",
+            202.544
+          ],
+          [
+            "(garbage collector) :0",
+            19.691000000000003
+          ],
+          [
+            "normalize worktree-tree.mjs:3",
+            10.908999999999999
+          ],
+          [
+            "(anonymous) worktree-tree.mjs:106",
+            5.542999999999999
+          ],
+          [
+            "querySelectorAll :0",
+            3.238
+          ],
+          [
+            "(anonymous) worktree-view.mjs:410",
+            3.234
+          ],
+          [
+            "renderTreeRows worktree-presentation.mjs:261",
+            3.09
+          ],
+          [
+            "(anonymous) worktree-view.mjs:427",
+            2.3840000000000003
+          ],
+          [
+            "size presentation.mjs:117",
+            2.335
+          ],
+          [
+            "querySelector :0",
+            2.229
+          ],
+          [
+            "fullDate presentation.mjs:113",
+            2.201
+          ]
+        ]
+      },
+      {
+        "name": "review",
+        "count": 1000,
+        "elapsed": 616,
+        "browser": {
+          "LayoutDuration": 192,
+          "RecalcStyleDuration": 199,
+          "ScriptDuration": 79,
+          "TaskDuration": 653
+        },
+        "top": [
+          [
+            "showModal :0",
+            392.4929999999998
+          ],
+          [
+            "(program) :0",
+            177.27800000000005
+          ],
+          [
+            "renderList cleanup-controller.mjs:142",
+            52.43200000000001
+          ],
+          [
+            "described cleanup-controller.mjs:78",
+            3.455
+          ],
+          [
+            "(anonymous) cleanup-controller.mjs:145",
+            2.428
+          ],
+          [
+            "(anonymous) cleanup-controller.mjs:176",
+            2.209
+          ],
+          [
+            "elementFromPoint :0",
+            2.197
+          ],
+          [
+            "pathed cleanup-controller.mjs:28",
+            2.176
+          ],
+          [
+            "(idle) :0",
+            2.168
+          ],
+          [
+            "querySelector :0",
+            1.874
+          ],
+          [
+            "esc presentation.mjs:56",
+            1.67
+          ],
+          [
+            "begin cleanup-controller.mjs:269",
+            1.114
+          ]
+        ]
+      },
+      {
+        "name": "wheel",
+        "count": 1000,
+        "elapsed": 855,
+        "browser": {
+          "LayoutDuration": 0,
+          "RecalcStyleDuration": 0,
+          "ScriptDuration": 33,
+          "TaskDuration": 856
+        },
+        "top": [
+          [
+            "(program) :0",
+            782.5150000000006
+          ],
+          [
+            "(idle) :0",
+            115.62300000000002
+          ],
+          [
+            "elementFromPoint :0",
+            19.073
+          ],
+          [
+            "name :9",
+            1.153
+          ],
+          [
+            "(anonymous) :1",
+            1.093
+          ],
+          [
+            "executeJavaScript :0",
+            1.074
+          ],
+          [
+            "(anonymous) sandbox_bundle:2",
+            1.067
+          ]
+        ]
+      }
+    ],
+    "traces": []
+  },
+  "contain-row-experiment": {
+    "measurements": [
+      {
+        "count": 1000,
+        "firstRowsMS": 1327,
+        "scanMS": 8750,
+        "scanEndToInteractiveMS": 1408,
+        "selectAllMS": 215,
+        "wheelP95MS": 50.1,
+        "wheelMaxMS": 66.7,
+        "searchMS": 2395,
+        "sortMS": 606,
+        "reviewMS": 603
+      }
+    ],
+    "profiles": [],
+    "traces": []
+  },
+  "contain-line-experiment": {
+    "measurements": [
+      {
+        "count": 1000,
+        "firstRowsMS": 835,
+        "scanMS": 7422,
+        "scanEndToInteractiveMS": 794,
+        "selectAllMS": 173,
+        "wheelP95MS": 66.7,
+        "wheelMaxMS": 66.8,
+        "searchMS": 1583,
+        "sortMS": 472,
+        "reviewMS": 580
+      }
+    ],
+    "profiles": [],
+    "traces": []
+  }
+}
