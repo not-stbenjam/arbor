@@ -4,8 +4,10 @@ const defaults = require("../internal/config/defaults.json");
 const DEFAULTS = Object.freeze({
   ...defaults,
   excludes: Object.freeze([...defaults.excludes]),
+  safeIgnored: Object.freeze([...defaults.safeIgnored]),
 });
 const DEFAULT_EXCLUDES = DEFAULTS.excludes;
+const DEFAULT_SAFE_IGNORED = DEFAULTS.safeIgnored;
 // Rules added to the defaults since the first release, by defaults version. A
 // saved list that still equals an earlier version's defaults was never
 // customized and follows the upgrade. The saved version marks a list its
@@ -51,6 +53,7 @@ const flagFields = [
   "outsideRoot",
   "dirty",
   "ignored",
+  "allIgnoredSafe",
   "published",
   "merged",
   "fresh",
@@ -59,6 +62,7 @@ const flagFields = [
   "recommended",
 ];
 const listFields = [
+  "matchedSafeIgnored",
   "publishedRefs",
   "blockers",
   "problems",
@@ -112,7 +116,7 @@ function validWorktree(value, partial = false) {
       (key) =>
         value[key] == null ||
         (Array.isArray(value[key]) &&
-          value[key].length <= 10000 &&
+          value[key].length <= (key === "matchedSafeIgnored" ? DEFAULTS.maxExcludes : 10000) &&
           value[key].every(displayLists.has(key) ? displayText : boundedText)),
     )
   )
@@ -267,6 +271,15 @@ function text(value, name, limit = 4096) {
   return value;
 }
 
+function safeIgnoredRules(value = DEFAULT_SAFE_IGNORED) {
+  if (!Array.isArray(value) || value.length > DEFAULTS.maxExcludes)
+    throw new Error(`Choose up to ${DEFAULTS.maxExcludes} safe ignored rules`);
+  const { validSafeIgnoredRule } = require("./common/safe-ignored.mjs");
+  if (!value.every(validSafeIgnoredRule))
+    throw new Error("Invalid safe ignored rule: use a name or worktree-relative pattern");
+  return [...value];
+}
+
 function scanOptions(value = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid scan options");
@@ -282,6 +295,7 @@ function scanOptions(value = {}) {
     host,
     github: value.github === true,
     fetch: value.fetch === true,
+    safeIgnored: safeIgnoredRules(value.safeIgnored),
     excludes: excludes.map((value) => {
       const entry = text(value, "excluded folder");
       if (!entry.trim()) throw new Error("Excluded folders cannot be empty");
@@ -425,6 +439,7 @@ function deletionEntry(value) {
     !/^[a-fA-F0-9]+$/.test(value.head) ||
     typeof value.detached !== "boolean" ||
     typeof value.clean !== "boolean" ||
+    (value.safeIgnoredOnly !== undefined && typeof value.safeIgnoredOnly !== "boolean") ||
     (value.detached ? value.branch !== "" : !value.branch) ||
     !Number.isSafeInteger(value.sizeBytes) ||
     value.sizeBytes < 0 ||
@@ -446,6 +461,7 @@ function deletionEntry(value) {
       "sizeBytes",
       "deletedAt",
       "clean",
+      "safeIgnoredOnly",
     ].map((key) => [key, value[key]]),
   );
 }
@@ -456,6 +472,7 @@ module.exports = {
   parseFiles: require("./worktree-files.cjs").parseFiles,
   DEFAULTS,
   DEFAULT_EXCLUDES,
+  DEFAULT_SAFE_IGNORED,
   MAX_WORKTREES,
   scanOptions,
   validatePreferences,

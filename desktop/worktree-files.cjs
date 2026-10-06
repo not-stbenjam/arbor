@@ -52,6 +52,8 @@ function parseFiles(data) {
       !text(entry.path) ||
       !entry.path ||
       typeof entry.directory !== "boolean" ||
+      (entry.safeIgnored !== undefined && typeof entry.safeIgnored !== "boolean") ||
+      (entry.safeIgnoredRule !== undefined && !text(entry.safeIgnoredRule)) ||
       typeof entry.sizeLowerBound !== "boolean" ||
       !count(entry.sizeBytes) ||
       (entry.directory && !count(entry.files)) ||

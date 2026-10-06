@@ -231,6 +231,8 @@ class Backend {
     const target = menuTarget({ ...state, report: { worktrees: rows } }, value);
     const row = rows.find((row) => row.id === target.id);
     const args = ["files", "--json", "--progress"];
+    args.push("--no-default-safe-ignored");
+    for (const rule of this.#options.safeIgnored) args.push("--safe-ignored", rule);
     if (row.commonDir) args.push("--repo", row.commonDir);
     if (this.#options.host) args.push("--host", this.#options.host);
     args.push("--", target.path);
@@ -295,6 +297,8 @@ class Backend {
     if (options.host) args.push("--host", options.host);
     if (options.github) args.push("--github");
     if (options.fetch) args.push("--fetch");
+    args.push("--no-default-safe-ignored");
+    for (const rule of options.safeIgnored) args.push("--safe-ignored", rule);
     args.push("--no-default-excludes");
     for (const excluded of options.excludes) args.push("--exclude", excluded);
     return parseReport(
@@ -450,6 +454,8 @@ class Backend {
       "--path",
       row.path,
     ];
+    args.push("--no-default-safe-ignored");
+    for (const rule of this.#options.safeIgnored) args.push("--safe-ignored", rule);
     if (row.commonDir) args.push("--repo", row.commonDir);
     if (this.#options.host) args.push("--host", this.#options.host);
     if (this.#options.github) args.push("--github");
@@ -591,7 +597,8 @@ class Backend {
             detached: row.detached === true,
             retainedBranch: outcome.retainedBranch || "",
             sizeBytes: Math.max(0, row.sizeBytes || 0),
-            clean: lossesOf(row).length === 0,
+            clean: lossesOf(row).length === 0 && !row.ignored,
+            safeIgnoredOnly: row.allIgnoredSafe === true && lossesOf(row).length === 0,
           });
           return { restoreID: entry.id, clean: entry.clean };
         } catch (error) {
@@ -677,6 +684,7 @@ class Backend {
         path: entry.path,
         host: entry.host,
         clean: entry.clean,
+        safeIgnoredOnly: entry.safeIgnoredOnly,
       };
     })();
     return this.#pending;
@@ -706,6 +714,7 @@ class Backend {
     this.#state.progress.total = plan.selected.length;
     const options = { ...this.#options };
     this.#pending = executeCleanupBatch(plan, {
+      safeIgnored: [...this.#options.safeIgnored],
       host: options.host,
       run: this.#run,
       confirm,

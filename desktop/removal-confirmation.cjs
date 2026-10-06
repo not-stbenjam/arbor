@@ -106,6 +106,7 @@ function removalConfirmationOptions(trees, discardLocal) {
     notes.push(
       trees.length === 1 ? "Lock overridden." : "Locks overridden.",
     );
+  if (trees.some((row) => row.allIgnoredSafe)) notes.push("Ignored files marked safe are deleted permanently.");
   const preview = trees
     .map((row, index) => ({ row, index, risk: risk(row) }))
     .sort((a, b) => weight(b.row) - weight(a.row) || a.index - b.index)

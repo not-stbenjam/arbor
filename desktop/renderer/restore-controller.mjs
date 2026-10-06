@@ -13,7 +13,8 @@ export function restoreNotice(results) {
   let message = n
     ? `Put back ${n} worktree${n === 1 ? "" : "s"}.`
     : "No worktrees were put back.";
-  if (restored.some((r) => !r.clean))
+  if (restored.some((r) => r.safeIgnoredOnly)) message += " Ignored files are not restored.";
+  if (restored.some((r) => !r.clean && !r.safeIgnoredOnly))
     message +=
       n === 1
         ? " The uncommitted files it had were discarded and are not back."

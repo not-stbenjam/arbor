@@ -1275,6 +1275,7 @@ test("settings emit one scan command and never persist scan options themselves",
       github: false,
       fetch: false,
       excludes: ["**/build"],
+      safeIgnored: [],
     },
   ]);
   assert.equal(

@@ -12,6 +12,8 @@ import {
 } from "./presentation.mjs";
 import { LOSSES, lossesOf, graveLosses } from "../common/losses.mjs";
 
+import { safeIgnoredLabel, safeIgnoredDetail } from "../common/safe-ignored.mjs";
+
 // Pure tree projection and markup. No DOM, IPC, timers, or mutable view state.
 
 // DOM id of a worktree's row, for the grid's active-descendant reference.
@@ -78,7 +80,7 @@ function describeState(w) {
       detail:
         "Discards uncommitted changes and untracked files.",
     };
-  if (w.ignored || lossesOf(w).includes("ignored"))
+  if ((w.ignored && !w.allIgnoredSafe) || lossesOf(w).includes("ignored"))
     return {
       tone: "caution",
       label: "Ignored files",
@@ -119,9 +121,11 @@ function describeState(w) {
   if (w.recommended)
     return {
       tone: "safe",
-      label: "Merged",
-      detail: `${recommendationReason(w)}. Clean, so Delete recommended includes it; its branch is kept.`,
+      kind: "Merged",
+      label: w.allIgnoredSafe ? `Merged · ${safeIgnoredLabel}` : "Merged",
+      detail: `${recommendationReason(w)}. Clean, so Delete recommended includes it; its branch is kept.${w.allIgnoredSafe ? ` ${safeIgnoredDetail(w)}` : ""}`,
     };
+  if (w.allIgnoredSafe) return { kind: w.detached ? "Detached" : "Not merged", tone: "muted", label: safeIgnoredLabel, detail: safeIgnoredDetail(w) };
   return null;
 }
 // Keep the filter's kind beside the very decision that names the row. Quiet
@@ -375,7 +379,7 @@ export function renderTreeRows(
       ].filter(Boolean).join(", ");
       const contextMarkup = w.pending
         ? `<span>${esc(context)}</span>`
-        : `${state ? `${lost.length ? `<button type="button" class="worktree-state state-files" tabindex="-1" data-show-files="${esc(w.id)}" data-tone="${state.tone}" title="Show Files: ${shown(state.detail)}">${shown(state.label)}</button>` : `<span class="worktree-state" data-tone="${state.tone}" title="${shown(state.detail)}">${shown(state.label)}</span>`}<span> · </span>` : ""}<span class="worktree-branch">${shown(branch)}</span>${w.repo ? `<span> · </span><span class="worktree-repository">${shown(w.repo)}</span>` : ""}`;
+        : `${state ? `${lost.length || w.ignored ? `<button type="button" class="worktree-state state-files" tabindex="-1" data-show-files="${esc(w.id)}" data-tone="${state.tone}" title="Show Files: ${shown(state.detail)}">${shown(state.label)}</button>` : `<span class="worktree-state" data-tone="${state.tone}" title="${shown(state.detail)}">${shown(state.label)}</span>`}<span> · </span>` : ""}<span class="worktree-branch">${shown(branch)}</span>${w.repo ? `<span> · </span><span class="worktree-repository">${shown(w.repo)}</span>` : ""}`;
       return `<tr class="worktree-row${selected.has(w.id) ? " selected" : ""}${w.pending ? " pending-row" : ""}" id="${esc(rowElementID(w.id))}" data-id="${esc(w.id)}" data-path="${esc(w.path)}" data-host="${esc(w.host || "")}" aria-level="${entry.depth + 1}" aria-label="${shown(rowName)}" aria-description="${shown(w.path)}" aria-selected="${selected.has(w.id)}"><td class="check-cell"><input type="checkbox" class="row-check" tabindex="-1" data-select="${esc(w.id)}" aria-label="Select ${shown(leaf)}"${selected.has(w.id) ? " checked" : ""} /></td><td class="branch-cell"><div class="tree-worktree-line">${indentation(entry.depth)}${icon("branch")}<div class="branch-copy"><span class="worktree-path" title="${shown(w.path)}"><span class="path-leaf">${name}</span></span><span class="worktree-context" title="${shown(context + metrics)}"><span class="worktree-details">${contextMarkup}</span><span class="worktree-metrics">${esc(metrics)}</span></span></div></div></td><td class="activity-cell" title="${esc(fullDate(w.activityAt))}">${age}</td><td class="size-cell">${bytes}</td><td class="action-cell"><div class="row-actions"><button class="row-action" tabindex="-1" data-delete="${esc(w.id)}" aria-label="Delete ${shown(leaf)}"${deleteTitle} ${rowDisabled ? "disabled" : ""}>Delete</button><button class="icon-button row-menu" tabindex="-1" data-worktree-menu="${esc(w.id)}" aria-label="Actions for ${shown(leaf)}" title="Worktree actions">${icon("more")}</button></div></td></tr>`;
     })
     .join("");

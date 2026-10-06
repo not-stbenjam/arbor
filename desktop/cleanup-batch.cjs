@@ -9,7 +9,7 @@ const { removalArguments, removalFailure } = require("./removal-policy.cjs");
 // that lifecycle and reconciles each verified outcome before the next item.
 async function executeCleanupBatch(
   plan,
-  { host, run, confirm, shouldStop, onBegin, onProgress, reconcile },
+  { host, safeIgnored, run, confirm, shouldStop, onBegin, onProgress, reconcile },
 ) {
   const { selected, discardLocal, recommendedOnly, confirmation } = plan;
   const results = [];
@@ -34,6 +34,7 @@ async function executeCleanupBatch(
     try {
       const args = removalArguments(row, {
         host,
+        safeIgnored,
         statsSession,
         discardLocal,
         recommendedOnly,

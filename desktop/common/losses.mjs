@@ -47,7 +47,7 @@ export const LOSSES = {
 export function lossesOf(row) {
   const named = Array.isArray(row?.losses)
     ? row.losses
-    : [row?.dirty && "changes", row?.ignored && "ignored"];
+    : [row?.dirty && "changes", row?.ignored && !row?.allIgnoredSafe && "ignored"];
   // A folder that is missing or empty has no files in it to lose, whatever
   // an earlier look at it found. What Git keeps for it elsewhere remains.
   const gone = row?.missing || row?.empty;

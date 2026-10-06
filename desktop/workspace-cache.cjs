@@ -26,6 +26,7 @@ function identity(options) {
     github: options.github === true,
     fetch: options.fetch === true,
     excludes: [...new Set(options.excludes || [])].sort(),
+    safeIgnored: [...new Set(options.safeIgnored ?? require("./protocol.cjs").DEFAULT_SAFE_IGNORED)].sort(),
   };
 }
 

@@ -1,4 +1,5 @@
 "use strict";
+const safeArguments = ["--no-default-safe-ignored", ...require("./protocol.cjs").DEFAULT_SAFE_IGNORED.flatMap((rule) => ["--safe-ignored", rule])];
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -151,6 +152,7 @@ test("removal argv binds repository, identity, consent and stats session without
       first.id,
       "--branch",
       "topic",
+      ...safeArguments,
       "--repo",
       first.commonDir,
       "--expect-missing",
