@@ -3,9 +3,19 @@ const { main, scenario, assert, fs, path, realCLI, ok, json, list } = require(".
 main(() => scenario("commands", async (f) => {
   const repo = f.repository("projects/repo");
   const a = repo.worktree("a"), b = repo.worktree("b", { modified: true });
-  for (const command of [[], ["--help"], ...["list", "clean", "remove", "stats", "version", "completion", "gui", "help"].map((x) => [x, "--help"])]) {
+  for (const command of [[], ["--help"], ...["list", "clean", "remove", "files", "stats", "version", "completion", "gui", "help"].map((x) => [x, "--help"])]) {
     assert.match(ok(f.cli(...command)).stdout, /Usage:/);
   }
+  const inventory = json(f.cli("files", b.path, "--json", "--limit", "1"));
+  assert.equal(inventory.path, b.path);
+  assert.equal(inventory.counts.changes, 1);
+  assert.equal(inventory.entries[0].status, "modified");
+  assert.match(ok(f.cli("files", b.path)).stdout, /Uncommitted changes[\s\S]*Total:/);
+  for (const args of [["files"], ["files", a.path, b.path], ["files", ""], ["files", a.path, "--limit=0"], ["files", a.path, "--limit=10001"], ["files", a.path, "--host=-bad"]])
+    assert.equal(f.cli(...args).status, 2, args.join(" "));
+  assert.equal(f.cli("files", repo.path, "--json").status, 1);
+  assert.equal(f.cli("files", f.path("not-registered"), "--repo", repo.path, "--json").status, 1);
+  assert.ok(f.exists(b.path));
   assert.equal(ok(f.cli("version")).stdout, ok(f.cli("--version")).stdout);
   for (const shell of ["bash", "zsh", "fish", "powershell"]) {
     ok(f.cli("completion", shell, "--help"));
