@@ -171,8 +171,15 @@ app
       sessionHost: explicitLaunch ? options.host : undefined,
       setupRequired: !explicitLaunch && !saved.setupCompleted,
     });
-    if (!explicitLaunch) await backend.synchronizeHosts(saved);
-    else backend.setHostFilter(host);
+    if (!explicitLaunch) {
+      await backend.synchronizeHosts(saved);
+      const configured = backend.getState().hosts;
+      backend.setHostFilter(
+        configured.some((source) => source.host === saved.hostFilter)
+          ? saved.hostFilter
+          : null,
+      );
+    } else backend.setHostFilter(host);
     const showWorktreeMenu = createWorktreeContextMenu({
       backend,
       getWindow: () => window,

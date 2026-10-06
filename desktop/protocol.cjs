@@ -341,6 +341,15 @@ function validatePreferences(value) {
   });
   return {
     theme,
+    sort: ["path", "branch", "repo", "activity", "size"].includes(value.sort)
+      ? value.sort
+      : "path",
+    descending: value.descending === true,
+    hostFilter:
+      typeof value.hostFilter === "string" &&
+      isValidSSHHost(value.hostFilter, { allowLocal: true })
+        ? value.hostFilter
+        : null,
     hosts,
     roots: roots.map((root) => text(root, "recent folder")),
     setupCompleted: value.setupCompleted === true,

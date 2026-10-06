@@ -340,6 +340,9 @@ test("input validation and preference schema are bounded and match renderer cont
       hosts: [{ name: "Build VPS", host: "build", root: "~/src" }],
       roots: ["/work"],
       setupCompleted: false,
+      sort: "path",
+      descending: false,
+      hostFilter: null,
       exclusionDefaultsVersion: 2,
       scans: [scanOptions({ root: "/work" })],
       scan: {

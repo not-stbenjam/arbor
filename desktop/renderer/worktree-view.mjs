@@ -17,6 +17,7 @@ export function createWorktreeView({
   tree,
   showWorktreeMenu,
   onRender = () => {},
+  onSortChange = () => {},
   // Shows several worktrees chosen for deletion, each with what deleting it
   // means, before anything is asked.
   reviewDeletion = (rows) => workspace.deleteWorktrees(rows),
@@ -509,6 +510,7 @@ export function createWorktreeView({
           sort = button.dataset.sort;
           descending = ["activity", "size"].includes(sort);
         }
+        onSortChange({ sort, descending });
         renderRows();
       }
       if (button.dataset.toggleDirectory) {
@@ -732,10 +734,12 @@ export function createWorktreeView({
   $("#tree-sort").onchange = (event) => {
     sort = event.target.value;
     descending = ["activity", "size"].includes(sort);
+    onSortChange({ sort, descending });
     renderRows();
   };
   $("#sort-direction").onclick = () => {
     descending = !descending;
+    onSortChange({ sort, descending });
     renderRows();
   };
   $("#clear-selection").onclick = clearSelection;
@@ -761,6 +765,10 @@ export function createWorktreeView({
   }
   return {
     reset: resetView,
+    restoreSort(saved) {
+      sort = saved.sort;
+      descending = saved.descending;
+    },
     render() {
       const next = items();
       const cursor = selection.cursor;

@@ -64,6 +64,17 @@ class PreferencesStore {
     });
   }
 
+  saveView(value) {
+    return this.#write((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        ["sort", "descending", "hostFilter"]
+          .filter((key) => Object.hasOwn(value, key))
+          .map((key) => [key, value[key]]),
+      ),
+    }));
+  }
+
   saveScan(value, { theme, setupCompleted = false } = {}) {
     const options = scanOptions(value);
     return this.#write((current) => {
