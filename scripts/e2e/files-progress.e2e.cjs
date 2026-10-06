@@ -22,7 +22,7 @@ scenario({
     const open = async (tree) => {
       const row = await t.row(tree.path);
       await t.contextMenu(`${row} .branch-cell`);
-      await t.chooseMenu("Show what it holds…");
+      await t.chooseMenu("Show Files…");
     };
     const done = () => t.until(async () => / items?$/.test(await t.text("#files-total")), "inventory replaces progress", 30000);
     const processes = (tree) => execFileSync("ps", ["-eo", "pid=,args="], {encoding: "utf8"})
