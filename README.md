@@ -15,7 +15,7 @@ The desktop app uses Electron with a native window, system typography, compact c
 
 ## Download
 
-Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.4.0`.
+Choose an asset from [Releases](https://github.com/stbenjam/arbor/releases). `VERSION` below includes the `v`, for example `v0.4.1`.
 
 | Platform             | Desktop app                          | Standalone CLI                      |
 | -------------------- | ------------------------------------ | ----------------------------------- |
@@ -82,8 +82,8 @@ For an `arbor` command on your shell's `PATH`, install the standalone CLI as des
 Make the AppImage executable and open it:
 
 ```sh
-chmod +x arbor_v0.4.0_linux_amd64.AppImage
-./arbor_v0.4.0_linux_amd64.AppImage
+chmod +x arbor_v0.4.1_linux_amd64.AppImage
+./arbor_v0.4.1_linux_amd64.AppImage
 ```
 
 Use the ARM64 asset on ARM hardware. If AppImage cannot mount on your distribution, use the `.desktop.tar.gz` download, extract it, and run `./arbor-desktop` from that folder. Keep its `resources/` directory alongside the executable. Linux desktop builds depend on the standard desktop libraries provided by supported distributions.
@@ -94,8 +94,8 @@ Extract the matching CLI archive. It contains a versioned directory; enter
 that directory before installing. For example, on Linux x86-64:
 
 ```sh
-tar -xzf arbor_v0.4.0_linux_amd64.tar.gz
-cd arbor_v0.4.0_linux_amd64
+tar -xzf arbor_v0.4.1_linux_amd64.tar.gz
+cd arbor_v0.4.1_linux_amd64
 ```
 
 Use `darwin` for macOS and `arm64` for Apple Silicon or Linux ARM64. Run the
@@ -443,13 +443,13 @@ make build                            # standalone Go CLI in bin/arbor
 make install                          # install CLI into ~/.local/bin
 make check                            # Go vet and race tests
 npm run test:desktop                  # backend/desktop bridge tests
-make package VERSION=v0.4.0            # standalone CLI archives, all 4 platforms
-make desktop-package VERSION=v0.4.0    # desktop app for this OS + architecture
+make package VERSION=v0.4.1            # standalone CLI archives, all 4 platforms
+make desktop-package VERSION=v0.4.1    # desktop app for this OS + architecture
 ```
 
 CLI packaging needs Go and `tar`, can cross-compile all four targets from either OS, and keeps `CGO_ENABLED=0`. Desktop packaging uses pinned Electron/electron-builder dependencies, builds the matching Go companion, and produces a macOS `.app.zip` or Linux AppImage and desktop archive. Build macOS packages on macOS. Outputs go into `dist/`.
 
-The release tag is embedded in the backend (for example `v0.4.0`) and the corresponding numeric version in the desktop app (`0.4.0`). Set `ARBOR_VERSION=v0.4.0` for direct npm packaging commands; otherwise the version comes from `package.json`.
+The release tag is embedded in the backend (for example `v0.4.1`) and the corresponding numeric version in the desktop app (`0.4.1`). Set `ARBOR_VERSION=v0.4.1` for direct npm packaging commands; otherwise the version comes from `package.json`.
 
 ## Code organization
 
