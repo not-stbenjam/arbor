@@ -5,21 +5,45 @@ const measured = (bytes, lower) => `${lower ? "at least " : ""}${size(bytes)}`;
 const heading = (kind) =>
   LOSSES[kind].brief.replace(/^./, (letter) => letter.toUpperCase());
 
+const fileList = (entries) =>
+  `<ul>${entries
+    .map(
+      (entry) =>
+        `<li><bdi class="files-path">${shown(entry.path)}</bdi><span class="files-size">${measured(entry.sizeBytes, entry.sizeLowerBound)}</span>${entry.status || entry.directory ? `<span class="files-detail">${entry.status ? shown(entry.status) : ""}${entry.status && entry.directory ? " · " : ""}${entry.directory ? `${entry.sizeLowerBound ? "at least " : ""}${entry.files || 0} ${entry.files === 1 ? "file" : "files"}` : ""}</span>` : ""}</li>`,
+    )
+    .join("")}</ul>`;
+
+const fileGroup = (title, entries, count = entries.length, more = 0) =>
+  `<section class="files-group"><h3>${title} <span>(${count})</span></h3>${fileList(entries)}${more ? `<p>and ${more} more</p>` : ""}</section>`;
+
 export function filesContent(report) {
   const groups = Object.keys(LOSSES).filter((kind) => report.counts[kind]);
+  const ignored = report.entries.filter((entry) => entry.kind === "ignored");
+  const needsReview = ignored.filter((entry) => !entry.safeIgnored);
+  const consideredSafe = ignored.filter((entry) => entry.safeIgnored);
+  const moreIgnored = (report.counts.ignored || 0) - ignored.length;
   return (
     groups
       .map((kind) => {
+        if (kind === "ignored") {
+          return needsReview.length ? fileGroup("Needs review", needsReview) : "";
+        }
         const entries = report.entries.filter((entry) => entry.kind === kind);
-        const more = report.counts[kind] - entries.length;
-        return `<section class="files-group"><h3>${heading(kind)} <span>(${report.counts[kind]})</span></h3><ul>${entries
-          .map(
-            (entry) =>
-              `<li><bdi class="files-path">${shown(entry.path)}</bdi><span class="files-size">${measured(entry.sizeBytes, entry.sizeLowerBound)}</span>${entry.kind === "ignored" ? `<span class="files-detail">${entry.safeIgnored ? `Marked safe · ${shown(entry.safeIgnoredRule || "")}` : "Not marked safe"}</span>` : ""}${entry.status || entry.directory ? `<span class="files-detail">${entry.status ? shown(entry.status) : ""}${entry.status && entry.directory ? " · " : ""}${entry.directory ? `${entry.sizeLowerBound ? "at least " : ""}${entry.files || 0} ${entry.files === 1 ? "file" : "files"}` : ""}</span>` : ""}</li>`,
-          )
-          .join("")}</ul>${more ? `<p>and ${more} more</p>` : ""}</section>`;
+        return fileGroup(
+          heading(kind),
+          entries,
+          report.counts[kind],
+          report.counts[kind] - entries.length,
+        );
       })
       .join("") +
+    (consideredSafe.length
+      ? fileGroup("Considered safe by your settings", consideredSafe)
+      : "") +
+    // The report does not classify entries omitted by its display limit.
+    (moreIgnored > 0
+      ? `<p>Ignored files: ${moreIgnored} more not shown.</p>`
+      : "") +
     (!groups.length
       ? "<p>No files or worktree metadata to discard were found.</p>"
       : "") +

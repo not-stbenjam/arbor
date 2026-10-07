@@ -26,6 +26,10 @@ export function createPreferencesController({
     $("#scan-excludes"),
     $("#scan-excludes-count"),
   );
+  const showSafeIgnoredCount = summarizeExcludes(
+    $("#scan-safe-ignored"),
+    $("#scan-safe-ignored-count"),
+  );
   let prefs = { hosts: [], roots: [], theme: "system", scan: {} };
   let context = {
     root: "",
@@ -232,6 +236,7 @@ export function createPreferencesController({
     $("#scan-excludes").value = form.excludes;
     $("#scan-safe-ignored").value = form.safeIgnored;
     showExcludeCount();
+    showSafeIgnoredCount();
     $("#choose-folder").hidden = !!host;
     $("#root-help").textContent = host
       ? `A folder on ${host}. ~ is its home folder. Arbor finds the Git repositories there and lists their linked worktrees.`
@@ -298,6 +303,7 @@ export function createPreferencesController({
       defaults.excludes
     ).join("\n");
     showExcludeCount();
+    showSafeIgnoredCount();
     $("#scan-root").value = state.root || saved.scan?.root || "~";
     $("#scan-github").checked = !!saved.scan?.github;
     $("#scan-fetch").checked = !!saved.scan?.fetch;
@@ -326,6 +332,7 @@ export function createPreferencesController({
   };
   $("#scan-reset-safe-ignored").onclick = () => {
     $("#scan-safe-ignored").value = (defaults.safeIgnored || []).join("\n");
+    showSafeIgnoredCount();
   };
   $("#scan-reset-excludes").onclick = () => {
     $("#scan-excludes").value = defaults.excludes.join("\n");

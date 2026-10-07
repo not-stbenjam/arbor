@@ -334,12 +334,35 @@
             </div>
           </details>
           <details class="exclusion-setting" id="safe-ignored-setting">
-            <summary><span class="exclusion-title">Ignored files considered safe</span></summary>
-            <p class="field-hint">These ignored files do not prevent recommendations. Deleted permanently; Undo cannot restore them.</p>
-            <textarea id="scan-safe-ignored" class="text-input exclusions-input" rows="5" spellcheck="false" aria-label="Ignored files considered safe, one rule per line"></textarea>
+            <summary>
+              <span data-icon="chevron-right"></span>
+              <span class="exclusion-title">Ignored files considered safe to delete</span
+              ><span class="exclusion-count" id="scan-safe-ignored-count"></span>
+            </summary>
+            <p class="field-hint">
+              These ignored files do not prevent recommendations. Deleted
+              permanently; Undo cannot restore them.
+            </p>
+            <textarea
+              id="scan-safe-ignored"
+              class="text-input exclusions-input"
+              rows="5"
+              spellcheck="false"
+              aria-label="Ignored files considered safe to delete, one rule per line"
+            ></textarea>
             <div class="exclusion-heading">
-              <p class="field-hint">One name, relative path or glob per line. Names match at any depth; paths start at the worktree. *, ?, [a-z] and ** work here. Clear to disable.</p>
-              <button type="button" class="text-button" id="scan-reset-safe-ignored">Restore defaults</button>
+              <p class="field-hint">
+                One name, relative path or glob per line. Names match at any
+                depth; paths start at the worktree. *, ?, [a-z] and ** work here.
+                Clear to disable.
+              </p>
+              <button
+                type="button"
+                class="text-button"
+                id="scan-reset-safe-ignored"
+              >
+                Restore defaults
+              </button>
             </div>
           </details>
           <h3 class="settings-group">Arbor</h3>

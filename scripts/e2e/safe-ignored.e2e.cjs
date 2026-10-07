@@ -33,11 +33,23 @@ scenario({
     await t.resize(width,820);
     await t.screenshot(`safe-rows-${theme}-${width}`);
     await t.click("#settings-button");
+    assert.match(await t.text("#safe-ignored-setting summary"), /Ignored files considered safe to delete/);
+    assert.ok(await t.exists("#safe-ignored-setting summary .icon"));
+    assert.equal(await t.text("#scan-safe-ignored-count"), `${defaults.length} patterns`);
+    if(await t.js("document.querySelector('#safe-ignored-setting').open")) {
+     await t.click("#safe-ignored-setting summary");
+    }
+    await t.screenshot(`safe-settings-collapsed-${theme}-${width}`);
     if(!(await t.attribute("#safe-ignored-setting","open"))) {
      const opened=await t.js("document.querySelector('#safe-ignored-setting').open");
      if(!opened) await t.click("#safe-ignored-setting summary");
     }
+    await t.fill("#scan-safe-ignored", "custom-output");
+    assert.equal(await t.text("#scan-safe-ignored-count"), "1 pattern");
+    await t.fill("#scan-safe-ignored", "");
+    assert.equal(await t.text("#scan-safe-ignored-count"), "None");
     await t.click("#scan-reset-safe-ignored");
+    assert.equal(await t.text("#scan-safe-ignored-count"), `${defaults.length} patterns`);
     await t.screenshot(`safe-settings-${theme}-${width}`);
     await t.press("Escape");
     await t.click("#cleanup-button");
@@ -46,8 +58,12 @@ scenario({
     await t.click("#cleanup-cancel");
     await t.click(`${await t.row(t.world.mixed)} [data-show-files]`);
     await t.until(()=>t.exists("#files-content .files-group"),"mixed inventory");
-    assert.match(await t.text("#files-content"),/Marked safe · node_modules/);
-    assert.match(await t.text("#files-content"),/Not marked safe/);
+    const inventory = await t.text("#files-content");
+    assert.match(inventory, /Needs review/);
+    assert.match(inventory, /Considered safe by your settings/);
+    assert.ok(inventory.indexOf(".env") < inventory.indexOf("Considered safe by your settings"));
+    assert.ok(inventory.indexOf("Considered safe by your settings") < inventory.indexOf("node_modules"));
+    assert.doesNotMatch(inventory, /Marked safe|Not marked safe/);
     await t.screenshot(`safe-files-${theme}-${width}`);
     await t.press("Escape");
    }
@@ -88,7 +104,7 @@ scenario({
    await t.until(async()=> (await t.worktree(t.world.remote))?.recommended,"remote safe recommendation");
    await t.click(`${await t.row(t.world.remote)} [data-show-files]`);
    await t.until(()=>t.exists("#files-content .files-group"),"remote inventory");
-   assert.match(await t.text("#files-content"),/Marked safe/);await t.press("Escape");
+   assert.match(await t.text("#files-content"),/Considered safe by your settings/);await t.press("Escape");
    const before=t.messages.length;await t.click("#cleanup-button");await t.click("#cleanup-confirm");
    await t.until(()=>!t.fixture.exists(t.world.remote),"remote deleted");await t.settled();
    assert.equal(t.messages.length,before);

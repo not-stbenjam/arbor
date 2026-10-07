@@ -33,8 +33,12 @@ test("safe ignored rows retain state kinds and concise honest review wording", (
  const tree=require("./worktree-tree.mjs");
  assert.equal(projectTree([row],{root:"/work",hostFilter:"",hosts:[],repo:"",view:"all",search:"ignored",sort:"path",collapsedDirectories:new Set()},tree).filtered.length,1);
 });
-test("inventory marks each ignored entry and Undo names lost safe files", () => {
+test("inventory groups ignored entries with review first and Undo names lost safe files", () => {
  const html=filesContent({counts:{ignored:2},entries:[{kind:"ignored",path:"node_modules",safeIgnored:true,safeIgnoredRule:"node_modules",sizeBytes:1},{kind:"ignored",path:".env",safeIgnored:false,sizeBytes:2}],warnings:[]});
- assert.match(html,/Marked safe · node_modules/);assert.match(html,/Not marked safe/);
+ assert.match(html, /Needs review <span>\(1\)<\/span>/);
+ assert.match(html, /Considered safe by your settings <span>\(1\)<\/span>/);
+ assert.ok(html.indexOf(".env") < html.indexOf("Considered safe by your settings"));
+ assert.ok(html.indexOf("Considered safe by your settings") < html.indexOf("node_modules"));
+ assert.doesNotMatch(html, /Marked safe|Not marked safe/);
  assert.equal(restoreNotice([{restored:true,clean:false,safeIgnoredOnly:true}]).message,"Put back 1 worktree. Ignored files are not restored.");
 });

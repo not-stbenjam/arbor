@@ -64,12 +64,28 @@ test("inventory rendering shows truncation and lower bounds and makes repository
   const { filesContent } = await import("../renderer/files-controller.mjs");
   const html = filesContent(report());
   assert.match(html, /Ignored files/);
-  assert.match(html, /and 2 more/);
+  assert.match(html, /2 more not shown/);
+  assert.match(html, /Needs review <span>\(1\)<\/span>/);
+  assert.doesNotMatch(html, /Considered safe by your settings/);
   assert.match(html, /at least 12 B/);
   assert.match(html, /at least 2 files/);
   assert.match(html, /&lt;img&gt;��test/);
   assert.match(html, /filter &lt;probe&gt;�/);
   assert.doesNotMatch(html, /<img>|\u202e/);
+});
+test("fully covered inventories omit empty review groups and keep other losses above covered files", async () => {
+  const { filesContent } = await import("../renderer/files-controller.mjs");
+  const html = filesContent({
+    counts: { ignored: 1, nested: 1 },
+    entries: [
+      { kind: "ignored", path: "node_modules", safeIgnored: true, sizeBytes: 10 },
+      { kind: "nested", path: "clone", sizeBytes: 1 },
+    ],
+    warnings: [],
+  });
+  assert.doesNotMatch(html, /Needs review/);
+  assert.ok(html.indexOf("clone") < html.indexOf("Considered safe by your settings"));
+  assert.ok(html.indexOf("Considered safe by your settings") < html.indexOf("node_modules"));
 });
 test("dialog loads, reports failure, restores focus and ignores late answers", async () => {
   const { createFilesController } =
