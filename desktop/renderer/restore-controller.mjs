@@ -32,7 +32,13 @@ export function restoreNotice(results) {
   };
 }
 
-export function createRestoreController({ document, api, notify, reload }) {
+export function createRestoreController({
+  document,
+  api,
+  notify,
+  reload,
+  hostName = (host) => host || "This computer",
+}) {
   const dialog = document.querySelector("#restore-dialog");
   const content = document.querySelector("#restore-content");
   let entries = [],
@@ -47,7 +53,7 @@ export function createRestoreController({ document, api, notify, reload }) {
             (entry) => `
       <article class="restore-entry" data-restore-entry="${shown(entry.id)}">
         <div><h3>${shown(entry.path.split("/").filter(Boolean).pop())}</h3>
-        <p>${shown(entry.branch || "Detached HEAD")} · ${shown(entry.repo)} · ${shown(entry.host || "This computer")}</p>
+        <p>${shown(entry.branch || "Detached HEAD")} · ${shown(entry.repo)} · ${shown(hostName(entry.host))}</p>
         <p class="restore-path">${shown(entry.path)}</p>
         <p title="${shown(fullDate(entry.deletedAt))}">${shown(ago(entry.deletedAt))} · ${shown(size(entry.sizeBytes))}</p>
         ${entry.clean ? "" : '<p class="restore-loss">Uncommitted files and other work discarded during deletion are not restored.</p>'}

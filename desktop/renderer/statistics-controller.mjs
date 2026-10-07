@@ -69,7 +69,12 @@ function statisticsChart(days, field) {
 }
 
 // Each opening owns its request; closed dialogs and switched hosts cannot be overwritten.
-export function createStatisticsController({ document, api, getHost }) {
+export function createStatisticsController({
+  document,
+  api,
+  getHost,
+  hostName = (host) => host || "This computer",
+}) {
   const $ = (selector) => document.querySelector(selector);
   let statisticsGeneration = 0;
   // The thirty days the charts are drawing, for reading one of them out.
@@ -177,7 +182,7 @@ export function createStatisticsController({ document, api, getHost }) {
       charted = days;
       const card = (value, label) =>
         `<div class="statistics-metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`;
-      const scope = `<div class="statistics-scope">${icon(host !== "" ? "server" : "monitor")}<span>${esc(host === null ? "All hosts" : host || "This computer")}</span></div>`;
+      const scope = `<div class="statistics-scope">${icon(host !== "" ? "server" : "monitor")}<span>${esc(host === null ? "All hosts" : hostName(host))}</span></div>`;
       // Totals that leave a host out, or follow a file that could not be
       // read, say so before the numbers rather than after them.
       const warning = report.warning

@@ -156,12 +156,19 @@ async function bootstrap() {
     onComplete: () => trees.focusGrid(),
     onThemeChange: (theme) => preferences.setTheme(theme),
   });
+  // A host by the name it was given, wherever one is shown.
+  const hostName = (host) =>
+    workspace.snapshot.hosts.find((source) => source.host === (host || ""))
+      ?.label ||
+    host ||
+    "This computer";
   restore = createRestoreController({
-    document, api, notify, reload: () => workspace.reload(),
+    document, api, notify, hostName, reload: () => workspace.reload(),
   });
   statistics = createStatisticsController({
     document,
     api,
+    hostName,
     getHost: () => viewHost(workspace.snapshot) ?? null,
   });
   const showWorktreeMenu = async (id) => {

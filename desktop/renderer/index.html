@@ -643,6 +643,16 @@
             placeholder="user@hostname or SSH alias"
             required
           />
+          <label class="field-label" for="host-name">Display name (optional)</label>
+          <input
+            id="host-name"
+            class="text-input"
+            placeholder="For example, Work laptop"
+            aria-describedby="host-name-help"
+          />
+          <p class="field-hint" id="host-name-help">
+            Leave blank to use the SSH host. You can rename it later in this list.
+          </p>
           <label class="field-label" for="host-root"
             >Scan folder on that host</label
           >

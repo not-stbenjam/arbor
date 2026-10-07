@@ -1603,6 +1603,9 @@ body:has(#selection-bar:not([hidden])) .toast-region {
 #host-input {
   margin-bottom: 14px;
 }
+#host-name-help {
+  margin-bottom: 14px;
+}
 #setup-host-field {
   margin-bottom: 18px;
 }

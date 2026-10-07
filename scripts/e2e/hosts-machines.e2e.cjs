@@ -20,16 +20,40 @@ scenario({ name: "hosts validation switching removal and statistics", timeout: 2
         assert.deepEqual(saved(t).hosts, []);
       }
       await t.fill("#host-input", "workbox");
+      await t.fill("#host-name", "  Work laptop  ");
       await t.fill("#host-root", "~/projects");
       await t.click("#host-form button[type=submit]");
       await closed(t, "machine-dialog");
       await t.settled();
-      assert.equal(await t.text("#machine-label"), "workbox");
+      assert.equal(await t.text("#machine-label"), "Work laptop");
+      assert.equal(saved(t).hosts[0].name, "Work laptop");
       assert.match(await t.text(await t.row(t.world.remote)), /remote-tree/);
       assert.ok(t.fixture.connections().length >= 3);
       assert.ok(t.fixture.connections().every((host) => host === "workbox"));
       assert.equal(saved(t).hosts[0].root, "~/projects");
       await cached(t, t.world.remote);
+    });
+    await t.step("display names can be edited or cleared without another SSH scan", async () => {
+      const calls = scans(t).length, connections = t.fixture.connections().length;
+      await t.click("#machine-button");
+      assert.match(await t.text("#host-menu"), /Work laptop/);
+      await t.click("#host-menu [data-manage]");
+      const name = '[data-host-name="workbox"]';
+      assert.equal(await t.value(name), "Work laptop");
+      assert.equal(await t.value("#host-name"), "");
+      await t.fill(name, "Build server");
+      await t.click("#host-input");
+      await t.until(() => saved(t).hosts[0].name === "Build server", "display name saved");
+      assert.equal(await t.text("#machine-label"), "Build server");
+      assert.match(await t.text('#machine-list [data-host="workbox"]'), /Build server/);
+      await t.fill(name, "");
+      await t.click("#host-input");
+      await t.until(() => saved(t).hosts[0].name === "workbox", "SSH address used as fallback");
+      assert.equal(await t.text("#machine-label"), "workbox");
+      assert.match(await t.text('#machine-list [data-host="workbox"]'), /workbox/);
+      await t.press("Escape");
+      assert.equal(scans(t).length, calls);
+      assert.equal(t.fixture.connections().length, connections);
     });
     await t.step("switching filters existing rows without another scan", async () => {
       const calls = scans(t).length, connections = t.fixture.connections().length;

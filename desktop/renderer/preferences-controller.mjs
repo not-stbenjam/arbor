@@ -22,6 +22,7 @@ export function createPreferencesController({
 }) {
   const $ = (selector) => document.querySelector(selector);
   $("#host-input").maxLength = MAX_HOST_LENGTH;
+  $("#host-name").maxLength = MAX_HOST_LABEL_LENGTH;
   const showExcludeCount = summarizeExcludes(
     $("#scan-excludes"),
     $("#scan-excludes-count"),
@@ -279,7 +280,8 @@ export function createPreferencesController({
     ]
       .map((h) => {
         const current = h.host === hostFilter();
-        return `<div class="machine-row"><button class="machine-option${current ? " active" : ""}" ${h.host === null ? "data-all-hosts" : `data-host="${esc(h.host)}"`}${current ? ' aria-current="true"' : ""}>${icon(h.host !== "" ? "server" : "monitor")}<span>${esc(h.name || h.host)}</span>${failed.has(h.host) ? `<span class="machine-status" title="Its last scan failed. Select it to see why.">Unavailable</span>` : ""}${current ? icon("check") : ""}</button>${h.host && !h.sessionOnly ? `<input class="host-name text-input" data-host-name="${esc(h.host)}" value="${esc(h.name || h.host)}" maxlength="${MAX_HOST_LABEL_LENGTH}" aria-label="Name for ${esc(h.host)}" title="Host name"><button class="icon-button" data-forget-host="${esc(h.host)}" title="Forget this host. Its worktrees are not touched." aria-label="Forget ${esc(h.host)}; its worktrees are not touched">${icon("minus")}</button>` : ""}</div>`;
+        const displayName = h.name === h.host?.slice(0, MAX_HOST_LABEL_LENGTH) ? "" : h.name || "";
+        return `<div class="machine-row"><button class="machine-option${current ? " active" : ""}" ${h.host === null ? "data-all-hosts" : `data-host="${esc(h.host)}"`}${current ? ' aria-current="true"' : ""}>${icon(h.host !== "" ? "server" : "monitor")}<span>${esc(h.name || h.host)}</span>${failed.has(h.host) ? `<span class="machine-status" title="Its last scan failed. Select it to see why.">Unavailable</span>` : ""}${current ? icon("check") : ""}</button>${h.host && !h.sessionOnly ? `<input class="host-name text-input" data-host-name="${esc(h.host)}" value="${esc(displayName)}" placeholder="${esc(h.host)}" maxlength="${MAX_HOST_LABEL_LENGTH}" aria-label="Display name for ${esc(h.host)} (optional)" title="Display name for ${esc(h.host)}; leave blank to use the SSH host"><button class="icon-button" data-forget-host="${esc(h.host)}" title="Forget this host. Its worktrees are not touched." aria-label="Forget ${esc(h.host)}; its worktrees are not touched">${icon("minus")}</button>` : ""}</div>`;
       })
       .join("");
     fieldError("#host-error");
@@ -469,7 +471,7 @@ export function createPreferencesController({
     prefs.hosts = [
       ...saved,
       {
-        name: host.slice(0, MAX_HOST_LABEL_LENGTH),
+        name: $("#host-name").value.trim().slice(0, MAX_HOST_LABEL_LENGTH) || host.slice(0, MAX_HOST_LABEL_LENGTH),
         host,
         root: $("#host-root").value.trim() || "~",
       },
@@ -483,6 +485,7 @@ export function createPreferencesController({
     }
     fieldError("#host-error");
     $("#host-input").value = "";
+    $("#host-name").value = "";
     $("#host-root").value = "~";
     return switchHost(host);
   };
@@ -495,6 +498,9 @@ export function createPreferencesController({
     entry.name = event.target.value.trim().slice(0, MAX_HOST_LABEL_LENGTH) || host.slice(0, MAX_HOST_LABEL_LENGTH);
     try {
       await save(true);
+      const label = event.target.closest(".machine-row")?.querySelector(".machine-option span");
+      if (label) label.textContent = entry.name;
+      event.target.value = entry.name === host.slice(0, MAX_HOST_LABEL_LENGTH) ? "" : entry.name;
       renderStatus(context);
       fieldError("#host-error");
     } catch (error) {
